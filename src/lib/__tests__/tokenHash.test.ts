@@ -8,7 +8,10 @@ describe("tokenHash", () => {
   })
   it("does not mistake a raw token for a digest", () => {
     expect(isHashedToken("Lw63TEtFJDHsYwCSgUs70WM1")).toBe(false)
-    expect(isHashedToken("A".repeat(64))).toBe(false)
+  })
+  it("treats an uppercased digest as a digest, not a raw token", () => {
+    expect(isHashedToken("A".repeat(64))).toBe(true)
+    expect(storedTokenMatches("secret", hashToken("secret").toUpperCase())).toBe(true)
   })
   it("matches the URL token against a stored digest", () => {
     expect(storedTokenMatches("secret", hashToken("secret"))).toBe(true)

@@ -27,8 +27,8 @@ signed in, see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/); 
 **Signing in with an authenticator app:** once you've turned one on (see below), step 2
 changes. No email is sent; instead you enter the 6-digit code from your app. Choose **Use a
 backup code** to enter a saved backup code instead. **Send email code instead** only works once
-you have no unused backup codes left: while you still have some, the email route is switched off,
-so someone who takes over your mailbox cannot skip the authenticator. If you lose both your phone
+you have no unused backup codes left: while you still have some, the button is hidden and a short
+note explains why, because the email route is switched off so someone who takes over your mailbox cannot skip the authenticator. If you lose both your phone
 and your backup codes, ask an admin to reset your authenticator. The app code step re-checks your password in the
 same request, so it can't be used on its own.
 

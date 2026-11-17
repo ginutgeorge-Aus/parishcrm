@@ -1312,16 +1312,24 @@ describe("authorizeCredentials — TOTP", () => {
     ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(3)
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password", emailFallback: "true" }),
-    ).rejects.toBeInstanceOf(TotpRequired)
+    ).rejects.toMatchObject({ code: "TotpRequiredBackup" })
     expect(sendOtpEmail).not.toHaveBeenCalled()
   })
 
-  it("does not count backup codes when no email fallback was requested", async () => {
+  it("password step signals unused backup codes with the TotpRequiredBackup code", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(2)
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password" }),
-    ).rejects.toBeInstanceOf(TotpRequired)
-    expect(prisma.backupCode.count).not.toHaveBeenCalled()
+    ).rejects.toMatchObject({ code: "TotpRequiredBackup" })
+  })
+
+  it("password step uses the plain TotpRequired code when no backup codes remain", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(0)
+    await expect(
+      authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password" }),
+    ).rejects.toMatchObject({ code: "TotpRequired" })
   })
 
   it("trusted device still bypasses TOTP", async () => {

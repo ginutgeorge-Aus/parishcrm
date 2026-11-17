@@ -9,9 +9,13 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex")
 }
 
-/** True when a stored value is a `hashToken` digest (64 hex chars) rather than a legacy raw token. */
+/**
+ * True when a value looks like a `hashToken` digest (64 hex chars, either case) rather than a legacy
+ * raw token. Case-insensitive so an uppercased digest is never mistaken for a raw token.
+ * @param stored value from the database or URL
+ */
 export function isHashedToken(stored: string): boolean {
-  return /^[0-9a-f]{64}$/.test(stored)
+  return /^[0-9a-f]{64}$/i.test(stored)
 }
 
 /**
@@ -22,7 +26,7 @@ export function isHashedToken(stored: string): boolean {
  */
 export function storedTokenMatches(provided: string, stored: string): boolean {
   if (!provided || !stored) return false
-  const expected = createHash("sha256").update(isHashedToken(stored) ? stored : hashToken(stored)).digest()
+  const expected = createHash("sha256").update(isHashedToken(stored) ? stored.toLowerCase() : hashToken(stored)).digest()
   const actual = createHash("sha256").update(hashToken(provided)).digest()
   return timingSafeEqual(actual, expected)
 }
