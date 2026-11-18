@@ -23,7 +23,8 @@ export async function POST(req: Request) {
     const stage = e instanceof DigestStageError ? e.stage : "unknown"
     const cause = e instanceof DigestStageError ? e.cause : e
     // console.error, not logger.error: logger persists to ErrorLog, which the digest reads.
-    console.error(`[error-issues] digest failed at stage=${stage}: ${cause instanceof Error ? cause.message : "unknown"}`)
+    const partial = e instanceof DigestStageError ? ` filed=${e.filed} skipped=${e.skipped}` : ""
+    console.error(`[error-issues] digest failed at stage=${stage}${partial}: ${cause instanceof Error ? cause.message : "unknown"}`)
     // list/create fail talking to GitHub (bad gateway); purge or an unknown stage is a local failure.
     const upstream = stage === "list" || stage === "create"
     return NextResponse.json({ error: "digest failed", stage }, { status: upstream ? 502 : 500 })
