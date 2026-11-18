@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState, useTransition } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { EditPrayerRequestDialog } from "@/components/pastoral/EditPrayerRequestDialog"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { setPrayerRequestStatus, withdrawPrayerShareConsent, type PrayerRequestView } from "@/lib/actions/prayerRequest"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
@@ -11,13 +12,14 @@ import type { PrayerRequestStatus } from "@/lib/generated/prisma/enums"
 import { PRAYER_STATUS_LABEL } from "@/lib/pastoralLabels"
 
 /**
- * Prayer requests with Answered / Archive / Restore per row, plus "Withdraw
- * sharing" on shared rows. Rows stack on phones. Requests are private
+ * Prayer requests with Edit / Answered / Archive / Restore per row, plus "Withdraw
+ * sharing" on shared rows. Rows with undecryptable text are read-only. Rows stack on phones. Requests are private
  * (ADMIN | PASTOR); "OK to share" is shown as a badge so staff see what the
  * requester agreed to.
  */
 export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerRequestView[] }>) {
   const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   /**
@@ -27,6 +29,7 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
    */
   function setStatus(id: number, status: PrayerRequestStatus) {
     setError(null)
+    setSaved(null)
     startTransition(async () => {
       try {
         const res = await setPrayerRequestStatus(id, status)
@@ -44,6 +47,7 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
    */
   function withdrawConsent(id: number) {
     setError(null)
+    setSaved(null)
     startTransition(async () => {
       try {
         const res = await withdrawPrayerShareConsent(id)
@@ -57,7 +61,7 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
   if (requests.length === 0) return <p className="text-sm text-muted-foreground">No prayer requests.</p>
   return (
     <div className="space-y-2">
-      <FormFeedback state={{ error }} />
+      <FormFeedback state={{ error, success: saved }} />
       <ul className="divide-y divide-border" aria-label="Prayer requests">
         {requests.map((r) => (
           <li key={r.id} className="space-y-1 py-3 text-sm">
@@ -71,7 +75,19 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
             </div>
             <p className="whitespace-pre-wrap">{r.request}</p>
             <Contact request={r} />
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {r.unreadable ? (
+                <p className="text-muted-foreground">Read-only: the stored text cannot be read. Ask an administrator to check the encryption keys.</p>
+              ) : (
+                <EditPrayerRequestDialog
+                  request={r}
+                  disabled={pending}
+                  onSaved={(message) => {
+                    setError(null)
+                    setSaved(message)
+                  }}
+                />
+              )}
               {r.status === "ACTIVE" && (
                 <Button size="sm" variant="outline" disabled={pending} className="min-h-11 sm:min-h-0" onClick={() => setStatus(r.id, "ANSWERED")}>
                   Mark answered
