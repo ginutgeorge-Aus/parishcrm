@@ -26,7 +26,8 @@ export function isLateClaimable(row: { status: string; registrationId: number | 
 
 /**
  * Expire abandoned pay-now staging rows, then scrub the PII payload of rows
- * that have been expired longer than PAYLOAD_GRACE_MS. A row is OPEN only
+ * that were already EXPIRED by an earlier run and lapsed longer than
+ * PAYLOAD_GRACE_MS ago. A row is OPEN only
  * until either the webhook completes it or its Stripe session lapses;
  * anything still OPEN past expiresAt was abandoned mid-checkout, or its paid
  * confirmation is late. Expiry keeps the payload so `completePaidCheckout`
@@ -35,13 +36,18 @@ export function isLateClaimable(row: { status: string; registrationId: number | 
  */
 export async function sweepExpiredCheckouts(): Promise<{ expired: number; scrubbed: number }> {
   const now = Date.now()
-  const expired = await prisma.checkoutSession.updateMany({
-    where: { status: "OPEN", expiresAt: { lt: new Date(now) } },
-    data: { status: "EXPIRED" },
-  })
+  // Scrub BEFORE expiring: a row this run newly marks EXPIRED (e.g. the sweep
+  // was down for days, so expiresAt is long past) is then not scrubbed until
+  // the next run, so a late paid delivery still gets at least one sweep
+  // interval to claim it. Only rows already EXPIRED by an earlier run are
+  // scrubbed here.
   const scrubbed = await prisma.checkoutSession.updateMany({
     where: { status: "EXPIRED", payload: { not: "" }, expiresAt: { lt: new Date(now - PAYLOAD_GRACE_MS) } },
     data: { payload: "" },
+  })
+  const expired = await prisma.checkoutSession.updateMany({
+    where: { status: "OPEN", expiresAt: { lt: new Date(now) } },
+    data: { status: "EXPIRED" },
   })
   return { expired: expired.count, scrubbed: scrubbed.count }
 }
