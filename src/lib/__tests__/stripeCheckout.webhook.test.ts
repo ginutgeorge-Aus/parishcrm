@@ -24,7 +24,7 @@ jest.mock("@/lib/stripe", () => {
 })
 jest.mock("@/lib/eventRegistrationPersist", () => ({ persistRegistration: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({ prisma: {
-  checkoutSession: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+  checkoutSession: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn(), count: jest.fn() },
   event: { findUnique: jest.fn() },
   registration: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
 } }))
@@ -653,8 +653,9 @@ describe("reversal delivered before its checkout completion", () => {
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
     constructEvent.mockReturnValue(refundEvent())
     prisma.checkoutSession.findUnique.mockResolvedValue({
-      status: "EXPIRED", publicToken: null, registrationId: null, payload: "enc:{}",
+      status: "EXPIRED", publicToken: null,
     })
+    prisma.checkoutSession.count.mockResolvedValue(1) // still matches LATE_CLAIMABLE_WHERE
     expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 500 })
     errSpy.mockRestore()
   })
@@ -662,8 +663,9 @@ describe("reversal delivered before its checkout completion", () => {
   it("acknowledges when the EXPIRED row's payload is already scrubbed", async () => {
     constructEvent.mockReturnValue(refundEvent())
     prisma.checkoutSession.findUnique.mockResolvedValue({
-      status: "EXPIRED", publicToken: null, registrationId: null, payload: "",
+      status: "EXPIRED", publicToken: null,
     })
+    prisma.checkoutSession.count.mockResolvedValue(0) // payload scrubbed
     expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
   })
 

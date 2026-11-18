@@ -26,6 +26,9 @@ const WRITE_METHODS = new Set([
   "deleteMany",
   "$executeRaw",
   "$executeRawUnsafe",
+  // Raw queries can write too (INSERT ... RETURNING, advisory locks): a refused role must not reach them.
+  "$queryRaw",
+  "$queryRawUnsafe",
   "$transaction",
 ])
 const writes: string[] = []
@@ -59,14 +62,16 @@ jest.mock("@/lib/prisma", () => {
           }),
       },
     )
+  // Interactive transactions run their callback against the same proxy, so a write made through
+  // `tx` inside the callback is recorded too (not only the $transaction call itself).
   const client: unknown = new Proxy(
     {},
     {
       get: (_t, key: string) => {
         if (key === "$transaction") {
-          return jest.fn(async () => {
+          return jest.fn(async (arg: unknown) => {
             writes.push("$transaction")
-            return undefined
+            return typeof arg === "function" ? (arg as (tx: unknown) => unknown)(client) : undefined
           })
         }
         if (key.startsWith("$")) {
@@ -138,15 +143,281 @@ function anyArg(): unknown {
   })
 }
 
+/**
+ * True for the shapes guarded actions return when they refuse: an `{ error }` result, an empty
+ * read (null, false, [] or {}), or the petty-cash `{ status: "not-editor" }` signal. Anything else
+ * (a success flag, a populated payload, a bare undefined) is not a refusal.
+ * @param r the action's resolved value
+ */
+function isRefusalShape(r: unknown): boolean {
+  if (r === null || r === false) return true
+  if (Array.isArray(r)) return r.length === 0
+  if (r && typeof r === "object") {
+    const o = r as Record<string, unknown>
+    if (typeof o.error === "string") return true
+    if (o.status === "not-editor") return true
+    return Object.keys(o).length === 0
+  }
+  return false
+}
+
+/**
+ * True when a thrown value is one of the refusal errors the next/navigation mock raises
+ * (`redirect` or `notFound`), rather than an unrelated crash that happened to stop the action.
+ * @param e the thrown value
+ */
+function isRefusalThrow(e: unknown): boolean {
+  return e instanceof Error && /^(REDIRECT:|NOT_FOUND$)/.test(e.message)
+}
+
+/** An empty FormData, passed as the second argument of every action. */
 function formData(): FormData {
   return new FormData()
 }
 
 const ENTRIES = discover()
 
+/** Error messages thrown by the redirect/notFound mocks: the only throws that count as a refusal. */
+const REFUSAL_THROW = /^(REDIRECT:\/(login|unauthorized|forbidden)\b|NOT_FOUND$)/
+
+/**
+ * Pinned guarded-export set, one `file.fn:guard[,guard]` per line. Discovery only
+ * sees exports whose guard is still a leading negated helper, so a removed or
+ * rewritten guard silently drops the export from the matrix. Comparing against
+ * this list in both directions makes that fail loudly; add new guarded exports here.
+ */
+const EXPECTED_GUARDED = `
+account.createAccount:isAdmin
+account.updateAccount:isAdmin
+account.deleteAccount:isAdmin
+accountGroup.createAccountGroup:isAdmin
+accountGroup.updateAccountGroup:isAdmin
+accountGroup.deleteAccountGroup:isAdmin
+accountingSettings.upsertOpeningBalance:isAdmin
+accountingSettings.setAccountingLockDate:isAdmin
+anniversary.sendAnniversaryEmail:canEdit
+anniversary.sendAnniversaryEmailsBulk:canEdit
+attendance.getHeadcount:canEditAttendance
+attendance.saveHeadcount:canEditAttendance
+attendance.deleteHeadcount:canEditAttendance
+bankImport.rememberBankImportAccount:canAccessAccounting
+birthday.sendBirthdayEmail:canEdit
+birthday.sendBirthdayEmailsBulk:canEdit
+branding.uploadBranding:isAdmin
+branding.resetBranding:isAdmin
+budget.upsertBudgets:isAdmin
+budget.saveBudgetVarianceNote:canAccessAccounting
+budget.getPrevYearBudgets:isAdmin
+checkpoint.markWorking:isAdmin
+checkpoint.markBroken:isAdmin
+clearance.upsertClearance:canManageClearances
+clearance.verifyClearance:canManageClearances
+clearance.unverifyClearance:canManageClearances
+clearance.deleteClearance:canManageClearances
+clearance.verifyClearancesBulk:canManageClearances
+customer.createCustomer:canAccessAccounting
+customer.updateCustomer:canAccessAccounting
+customer.setCustomerActive:canAccessAccounting
+customer.createCustomerInline:canAccessAccounting
+customer.listCustomers:canViewAccounting
+customer.getCustomerForEdit:canAccessAccounting
+dgrReceipt.createDgrReceipt:canAccessAccounting
+dgrReceipt.updateDgrReceipt:canAccessAccounting
+dgrReceipt.deleteDgrReceipt:canAccessAccounting
+dgrReceipt.sendDgrReceipt:canAccessAccounting
+dgrReceipt.getDonorEmail:canAccessAccounting
+dgrReceipt.listDgrReceipts:canViewAccounting
+emailTemplates.updateEmailTemplate:isAdmin
+emailTemplates.resetEmailTemplate:isAdmin
+emailTemplates.previewEmailTemplate:isAdmin
+emailTemplates.sendTestEmail:isAdmin
+event.createEvent:canEdit
+event.updateEvent:canEdit
+event.deleteEvent:isAdmin
+event.publishEvent:canEdit
+event.setRegistrationClosed:canEdit
+event.resyncEventsToWebsite:isAdmin
+eventAccess.setVolunteerView:canEdit
+eventAccess.regenerateVolunteerToken:canEdit
+eventAccess.addEventManager:canEdit
+eventAccess.removeEventManager:canEdit
+eventAccess.listAssignableOrganisers:canEdit
+eventManaged.updateManagedEvent:canEditOrOrganise
+family.createFamily:canEdit
+family.updateFamily:canEdit
+family.deleteFamily:isAdmin
+family.archiveFamily:isAdmin
+family.unarchiveFamily:isAdmin
+family.previewMerge:isAdmin
+family.mergeFamilies:isAdmin
+familyUpdate.sendFamilyUpdateInvite:canEdit
+familyUpdate.approveFamilyUpdate:canEdit
+familyUpdate.rejectFamilyUpdate:canEdit
+features.saveFeatures:isAdmin
+features.finishFeatureOnboarding:isAdmin
+followUp.createFollowUpTask:canManageFollowUps
+followUp.updateFollowUpTask:canManageFollowUps
+followUp.deleteFollowUpTask:canManageFollowUps
+fund.createFund:isAdmin
+fund.updateFund:isAdmin
+fund.deleteFund:isAdmin
+fund.validateFund:canAccessAccounting
+fund.getActiveFunds:canViewAccounting
+fundraiser.getReminderPlan:canManageFundraiser
+givingStatement.listGivingStatements:canViewAccounting
+givingStatement.sendGivingStatements:canAccessAccounting
+givingStatement.listStatementSendLog:canViewAccounting
+groupMessage.sendGroupMessage:canEditOrOrganise
+invoice.createInvoice:canAccessAccounting
+invoice.updateInvoice:canAccessAccounting
+invoice.deleteDraftInvoice:canAccessAccounting
+invoice.getInvoice:canViewAccounting
+invoice.listInvoices:canViewAccounting
+invoice.getInvoiceSummary:canViewAccounting
+invoice.getRecipientContact:canAccessAccounting
+invoicePayment.markInvoicePaid:canAccessAccounting
+invoicePayment.unmarkInvoicePaid:canAccessAccounting
+invoicePayment.listPaymentCandidates:canAccessAccounting
+invoiceSend.resendInvoice:canAccessAccounting
+invoiceSettings.updateInvoiceSettings:isAdmin
+invoiceVoid.voidInvoice:canAccessAccounting
+membership.findMembershipMatches:canEdit
+membership.approveMembershipApplication:canEdit
+membership.rejectMembershipApplication:canEdit
+paymentAccount.createPaymentAccount:isAdmin
+paymentAccount.renamePaymentAccount:isAdmin
+paymentAccount.setDefaultAccount:isAdmin
+paymentAccount.setAccountActive:isAdmin
+person.createPerson:canEdit
+person.updatePerson:canEdit
+person.deletePerson:isAdmin
+pettyCashExpense.createExpense:canAccessAccounting
+pettyCashExpense.updateExpense:canAccessAccounting
+pettyCashExpense.deleteExpense:isAdmin
+pettyCashImport.previewImport:isAdmin
+pettyCashImport.commitImport:isAdmin
+pettyCashReceipt.createReceipt:canAccessAccounting
+pettyCashReceipt.updateReceipt:canAccessAccounting
+pettyCashReceipt.deleteReceipt:isAdmin
+pettyCashSession.createSession:canAccessAccounting
+pettyCashSession.updateSessionCustodian:canAccessAccounting
+pettyCashSession.ensureWeeklySession:canAccessAccounting
+pettyCashSession.closeSession:canAccessAccounting
+pettyCashSession.deleteSession:isAdmin
+pettyCashTransfer.createTransfer:canAccessAccounting
+pettyCashTransfer.deleteTransfer:isAdmin
+prayerRequest.createPrayerRequest:canManagePrayerRequests
+prayerRequest.updatePrayerRequest:canManagePrayerRequests
+prayerRequest.withdrawPrayerShareConsent:canManagePrayerRequests
+prayerRequest.setPrayerRequestStatus:canManagePrayerRequests
+prayerRequest.listPrayerRequests:canManagePrayerRequests
+prayerRequest.getPrayerRequest:canManagePrayerRequests
+prayerRequest.listShareablePrayerRequests:canViewSharedPrayerRequests
+receipt.sendSingleReceipt:canAccessAccounting
+receipt.sendBatchReceipts:canAccessAccounting
+receipt.fetchTransactionsForReceipt:canAccessAccounting
+receiptSettings.updateReceiptSettings:isAdmin
+receiptSettings.resetReceiptSettings:isAdmin
+reconciliation.saveStatementBalance:canAccessAccounting
+registration.markPaid:canEdit
+registration.cancelRegistration:canEdit
+registration.toggleAttendeeCheckIn:canEditOrOrganise
+registration.resetEventRegistrations:isAdmin
+registration.getRegistrationDetail:canEditOrOrganise,canViewPeople
+registration.sendPaymentReminders:canEditOrOrganise
+registration.lastRemindedAtByRegistration:canEditOrOrganise
+rosterFeed.rotateRosterFeedToken:canManageRoster
+sacrament.createSacramentRecord:canEditSacraments
+sacrament.updateSacramentRecord:canEditSacraments
+sacrament.deleteSacramentRecord:canEditSacraments
+sacrament.searchSacramentPeople:canEditSacraments
+sacrament.getSacramentRecord:canViewSacraments
+serviceType.createServiceType:isAdmin
+serviceType.toggleServiceTypeActive:isAdmin
+serviceType.deleteServiceType:isAdmin
+settings.upsertSetting:isAdmin
+settings.updateChurchInfo:isAdmin
+settings.updateBirthdayTemplate:isAdmin
+settings.sendTestBirthdayEmail:isAdmin
+settings.updateAnniversaryTemplate:isAdmin
+settings.sendTestAnniversaryEmail:isAdmin
+settings.updateAutoEmailFlags:isAdmin
+settings.updatePettyCashCustodian:isAdmin
+settings.updateLetterSettings:isAdmin
+settings.updateMembershipSettings:isAdmin
+sundaySchool.lockSundaySchoolYear:isAdmin
+sundaySchool.unlockSundaySchoolYear:isAdmin
+transaction.validateAccount:canAccessAccounting
+transaction.createTransaction:canAccessAccounting
+transaction.updateTransaction:canAccessAccounting
+transaction.deleteTransaction:isAdmin
+transactionAttachment.attachTransactionReceipt:canAccessAccounting
+transactionAttachment.removeTransactionReceipt:canAccessAccounting
+transactionReconcile.toggleReconciled:canAccessAccounting
+transactionReconcile.reconcileMany:canAccessAccounting
+user.createUser:canManageUsers
+user.updateUser:canManageUsers
+user.unlockUser:canManageUsers
+user.resetUserTotp:canManageUsers
+user.revokeUserPasskeys:canManageUsers
+user.deleteUser:canManageUsers
+user.resendWelcome:canManageUsers
+venueCalendar.resetVenueCalendarLink:isAdmin
+venueUsage.createVenueUsage:canEdit
+venueUsage.updateVenueUsage:canEdit
+venueUsage.deleteVenueUsage:canEdit
+venueUsage.addAllSundays:canEdit
+venueUsage.setVenueUsageStatus:canEdit
+venueUsage.updateVenueUsageSettings:isAdmin
+venueUsage.getVenueRequestPreview:canEdit
+venueUsage.sendVenueUsageRequest:canEdit
+waitlist.markWaitlistNotified:canEdit
+welcomeLetter.buildWelcomeLetterDraft:canEdit
+welcomeLetter.sendWelcomeLetter:canEdit
+`
+  .trim()
+  .split("\n")
+
+/**
+ * Pinned ALLOWED roles per helper used by a guarded action. The refused set is
+ * every other role, so widening or narrowing a helper in roleGuard.ts fails here
+ * instead of silently regenerating the matrix expectation.
+ */
+const EDITORS: Role[] = ["ADMIN", "PASTOR", "OFFICE_ADMIN"] as Role[]
+const PASTORAL: Role[] = ["ADMIN", "PASTOR"] as Role[]
+const PINNED_ALLOWED: Record<string, Role[]> = {
+  isAdmin: ["ADMIN"] as Role[],
+  canEdit: EDITORS,
+  canEditAttendance: EDITORS,
+  canManageClearances: EDITORS,
+  canManageRoster: EDITORS,
+  canManageFundraiser: EDITORS,
+  canViewSharedPrayerRequests: EDITORS,
+  canViewSacraments: EDITORS,
+  canAccessAccounting: PASTORAL,
+  canManageFollowUps: PASTORAL,
+  canManagePrayerRequests: PASTORAL,
+  canEditSacraments: PASTORAL,
+  canViewAccounting: ["ADMIN", "PASTOR", "AUDITOR", "OFFICE_ADMIN"] as Role[],
+  canEditOrOrganise: ["ADMIN", "PASTOR", "OFFICE_ADMIN", "EVENT_ORGANISER"] as Role[],
+  canViewPeople: ["ADMIN", "PASTOR", "VIEWER", "OFFICE_ADMIN"] as Role[],
+  canManageUsers: ["ADMIN", "OFFICE_ADMIN"] as Role[],
+}
+
 describe("role matrix: generated from src/lib/actions", () => {
-  it("discovers a meaningful number of guarded actions", () => {
-    expect(ENTRIES.length).toBeGreaterThan(80)
+  it("discovers exactly the pinned guarded-export set (a removed/rewritten guard fails here)", () => {
+    expect(ENTRIES.map((e) => `${e.file}.${e.fn}:${e.guards.join(",")}`)).toEqual(EXPECTED_GUARDED)
+  })
+
+  it("every helper used by a guarded action has a pinned refused-role set that matches roleGuard", () => {
+    const used = new Set(ENTRIES.flatMap((e) => e.guards))
+    for (const h of used) {
+      expect(Object.keys(PINNED_ALLOWED)).toContain(h)
+    }
+    const fns = roleGuard as unknown as Record<string, (r: Role) => boolean>
+    for (const [h, allowed] of Object.entries(PINNED_ALLOWED)) {
+      expect(ALL_ROLES.filter((r) => fns[h](r))).toEqual(ALL_ROLES.filter((r) => allowed.includes(r)))
+    }
   })
 
   it("covers the audit's accounting files", () => {
@@ -190,12 +461,25 @@ describe("role matrix: generated from src/lib/actions", () => {
       thrown = e
     }
     expect(writes).toEqual([])
-    // A refusal is a returned error/forbidden shape or a thrown auth/redirect error,
-    // never a success payload.
-    if (thrown === undefined && result && typeof result === "object") {
-      const r = result as Record<string, unknown>
-      expect(Boolean(r.success) || Boolean(r.ok)).toBe(false)
-    }
+    // A refusal is a returned error/empty shape or a thrown redirect/not-found error. Any other
+    // throw is a crash, not a refusal, and any other result is a success payload.
+    if (thrown === undefined) expect(isRefusalShape(result)).toBe(true)
+    else expect(isRefusalThrow(thrown)).toBe(true)
+  })
+})
+
+describe("role matrix: pinned discovery (a dropped or rewritten guard must fail here)", () => {
+  // Discovery only finds exports whose guard it can parse, so removing a guard silently drops the
+  // export from the generated cases. Pin the discovered set, and pin which roles each helper
+  // refuses, so either change shows up as a reviewed snapshot diff.
+  it("pins every guarded export and its guards", () => {
+    expect(Object.fromEntries(ENTRIES.map((e) => [`${e.file}.${e.fn}`, e.guards.join(",")]))).toMatchSnapshot()
+  })
+
+  it("pins the roles each one-argument roleGuard helper refuses", () => {
+    const guard = roleGuard as unknown as Record<string, (r: Role) => boolean>
+    const refused = Object.fromEntries(HELPERS.map((h) => [h, ALL_ROLES.filter((r) => !guard[h](r)).sort()]))
+    expect(refused).toMatchSnapshot()
   })
 })
 

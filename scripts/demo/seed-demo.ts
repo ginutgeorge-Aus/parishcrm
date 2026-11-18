@@ -13,6 +13,7 @@ import { PrismaPg } from "@prisma/adapter-pg"
 import { encrypt, hmacEmail, hmacMobile, hmacSuburb } from "../../src/lib/cryptoCore"
 import { buildDemoData, centsToDecimal } from "./demoData"
 import { sydneyToday } from "../../src/lib/dates"
+import { mintRegistrationToken } from "../../src/lib/registrationLink"
 
 if (process.env.DEMO_MODE !== "true" || process.env.ALLOW_DEMO_SEED !== "true") {
   console.error("Refusing to seed demo data: set both DEMO_MODE=true and ALLOW_DEMO_SEED=true.")
@@ -117,7 +118,7 @@ async function main() {
         const total = r.items.reduce((s, it) => s + it.attendees.length * e.tickets[it.ticketIndex].cents, 0)
         await tx.registration.create({
           data: {
-            eventId: event.id, publicToken: "REG-" + randomBytes(6).toString("hex").toUpperCase(),
+            eventId: event.id, publicToken: mintRegistrationToken(),
             firstName: r.firstName, lastName: r.lastName,
             email: encrypt(r.email), emailHash: hmacEmail(r.email), phone: r.phone ? encrypt(r.phone) : null,
             paymentStatus: r.paid ? "PAID" : "PENDING", totalAmount: centsToDecimal(total),

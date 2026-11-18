@@ -39,8 +39,14 @@ describe("dbRateLimit", () => {
 
   it("denies when increment misses and the row already exists (at limit)", async () => {
     mockUpdate.mockResolvedValue({ count: 0 })
-    mockCreate.mockRejectedValue(new Error("unique constraint"))
+    mockCreate.mockRejectedValue(Object.assign(new Error("unique constraint"), { code: "P2002" }))
     expect(await dbRateLimit("k", 5, 1000)).toBe(false)
+  })
+
+  it("rethrows a non-unique create failure instead of masking it as a denial", async () => {
+    mockUpdate.mockResolvedValue({ count: 0 })
+    mockCreate.mockRejectedValue(new Error("connection lost"))
+    await expect(dbRateLimit("k", 5, 1000)).rejects.toThrow("connection lost")
   })
 
   it("always clears this key's own expired row before deciding", async () => {

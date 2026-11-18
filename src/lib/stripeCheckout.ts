@@ -438,6 +438,7 @@ async function handleNonOpenStaging(
     status: import("@/lib/generated/prisma/client").CheckoutStatus
     publicToken: string | null
     eventId: number
+    registrationId?: number | null
   },
 ): Promise<{ status: number }> {
   // Crash-recovery: a prior pass claimed COMPLETED and persisted the
@@ -484,9 +485,13 @@ async function handleNonOpenStaging(
     console.error(
       `Stripe webhook: paid session ${session.id} matched an already-EXPIRED staging row; no registration exists, money retained, manual review needed`,
     )
+    // A pay-now row points at an EXISTING registration that was never marked
+    // PAID; a new-registration row has none at all. Word the alert to match.
     await notifyStripeAlert(
       "charged but no registration — checkout already expired",
-      `Session ${session.id}: payment settled after the staging row had already expired. No registration was created for this payment. Money retained; resolve manually.`,
+      staging.registrationId == null
+        ? `Session ${session.id}: payment settled after the staging row had already expired. No registration was created for this payment. Money retained; resolve manually.`
+        : `Session ${session.id}: pay-now payment settled after the staging row had already expired. Registration ${staging.registrationId} was NOT marked PAID. Money retained; mark it paid manually.`,
     )
   }
   return { status: 200 }
@@ -665,9 +670,13 @@ async function completePaidCheckout(
     const current = await prisma.checkoutSession.findUnique({ where: { id: staging.id } })
     if (current && (current.status === "COMPLETED" || current.status === "UNFULFILLED")) return { status: 200 }
     if (current && (current.status === "OPEN" || isLateClaimable(current))) return { status: 500 } // claimable again → Stripe redelivers
+    const payNow = staging.registrationId != null
+    const state = current ? (payNow ? current.status : `${current.status} with its payload gone`) : "gone (deleted mid-claim)"
     await notifyStripeAlert(
       "charged but checkout no longer claimable",
-      `Session ${session.id}: payment settled but the staged CheckoutSession is ${current ? `${current.status} with its payload gone` : "gone (deleted mid-claim)"}. No registration created. Money retained; resolve manually.`,
+      payNow
+        ? `Session ${session.id}: pay-now payment settled but the staged CheckoutSession is ${state}. Registration ${staging.registrationId} was NOT marked PAID. Money retained; mark it paid manually.`
+        : `Session ${session.id}: payment settled but the staged CheckoutSession is ${state}. No registration created. Money retained; resolve manually.`,
     )
     return { status: 200 }
   }
@@ -873,7 +882,7 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
   if (!data[0]) return false
   const staging = await prisma.checkoutSession.findUnique({
     where: { stripeSessionId: data[0].id },
-    select: { status: true, publicToken: true, fundraiserEntryId: true, registrationId: true, payload: true },
+    select: { status: true, publicToken: true, fundraiserEntryId: true },
   })
   if (staging?.fundraiserEntryId != null || data[0].metadata?.fundraiserEntryId) {
     if (staging?.status === "OPEN") return true
@@ -917,9 +926,8 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
   }
   // An EXPIRED row that still holds its payload can still be claimed by a late
   // completion (isLateClaimable), so it is in flight too.
-  return (
-    staging?.status === "OPEN" ||
-    (staging?.status === "COMPLETED" && !staging.publicToken) ||
-    (!!staging && isLateClaimable(staging))
-  )
+  if (staging?.status === "OPEN" || (staging?.status === "COMPLETED" && !staging.publicToken)) return true
+  if (staging?.status !== "EXPIRED") return false
+  // Count with the shared filter instead of selecting the encrypted payload.
+  return (await prisma.checkoutSession.count({ where: { stripeSessionId: data[0].id, ...LATE_CLAIMABLE_WHERE } })) > 0
 }

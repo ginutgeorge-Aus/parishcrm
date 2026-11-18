@@ -76,6 +76,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
               id="reg-firstName"
               required
               autoComplete="given-name"
+              maxLength={60}
               value={firstName}
               onChange={e => setFirstName(e.target.value)}
               className="mt-1"
@@ -87,6 +88,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
               id="reg-lastName"
               required
               autoComplete="family-name"
+              maxLength={60}
               value={lastName}
               onChange={e => setLastName(e.target.value)}
               className="mt-1"

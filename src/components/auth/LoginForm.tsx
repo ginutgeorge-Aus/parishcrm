@@ -20,6 +20,10 @@ import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/br
 // WebAuthn support never changes during a page's life, so there is nothing to subscribe to.
 const noopSubscribe = () => () => { /* no-op */ }
 
+// Shown when the server refuses an email code because the account has an authenticator and unused backup codes.
+const EMAIL_CODES_OFF_MSG =
+  "Email codes are turned off for accounts with an authenticator app. Use your app, or a backup code. If you have lost both, ask an administrator to reset your authenticator."
+
 export function LoginForm({
   churchName,
   demoLogins,
@@ -191,6 +195,10 @@ export function LoginForm({
     }
   }
 
+  /**
+   * OTP-step "resend code": re-runs the password credential with emailFallback so the server emails a
+   * fresh code, and maps each server reply (sent, cooldown, locked, email codes refused) to the UI.
+   */
   async function handleResend() {
     setResendMsg("")
     // Clear any stale verify error so "New code sent." doesn't render alongside
@@ -210,6 +218,13 @@ export function LoginForm({
         // "try again" that invites retries against a locked account.
         setResendMsg("Account locked after too many failed attempts. Try again in 15 minutes.")
         lockNow()
+      } else if (result?.code === "TotpRequiredBackup") {
+        // The account has an authenticator and unused backup codes, so the server refuses email
+        // codes (AUD-1-18). Move to the authenticator step instead of a misleading "failed to resend".
+        setOtp("")
+        setEmailFallbackBlocked(true)
+        setStep("totp")
+        setError(EMAIL_CODES_OFF_MSG)
       } else {
         setResendMsg("Failed to resend. Try again.")
       }
@@ -279,6 +294,10 @@ export function LoginForm({
     }
   }
 
+  /**
+   * Authenticator-step "Send email code instead": asks the server for an emailed code and moves to the
+   * OTP step, or explains the refusal when unused backup codes keep email codes off.
+   */
   async function handleEmailFallback() {
     setError("")
     setResendMsg("")
@@ -295,10 +314,11 @@ export function LoginForm({
       } else if (result?.code === "AccountLocked") {
         setError("Account locked after too many failed attempts. Try again in 15 minutes.")
         lockNow()
-      } else if (result?.code === "TotpRequired" || result?.code === "TotpRequiredBackup") {
-        // Server refuses the email code while unused backup codes exist (audit AUD-1-18).
+      } else if (result?.code === "TotpRequiredBackup") {
+        // Server refuses the email code while unused backup codes exist (audit AUD-1-18). With
+        // emailFallback set, the server never answers plain TotpRequired, so only this code is handled.
         setEmailFallbackBlocked(true)
-        setError("Email codes are turned off for accounts with an authenticator app. Use your app, or a backup code. If you have lost both, ask an administrator to reset your authenticator.")
+        setError(EMAIL_CODES_OFF_MSG)
       } else {
         setError("We couldn't send your verification code. Please try again in a moment.")
       }

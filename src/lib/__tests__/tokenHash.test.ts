@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { hashToken, isHashedToken, storedTokenMatches, tokenLookupCandidates } from "@/lib/tokenHash"
+import { canonicalStoredToken, hashToken, isHashedToken, storedTokenMatches, tokenLookupCandidates } from "@/lib/tokenHash"
 
 describe("tokenHash", () => {
   it("hashes to 64 hex chars, deterministically", () => {
@@ -25,6 +25,12 @@ describe("tokenHash", () => {
     expect(tokenLookupCandidates("secret")).toEqual([hashToken("secret"), "secret"])
     const hex = hashToken("secret")
     expect(tokenLookupCandidates(hex)).toEqual([hashToken(hex)])
+  })
+  it("canonicalStoredToken hashes a raw token, lowercases an uppercased digest, and leaves a canonical digest alone", () => {
+    const digest = hashToken("secret")
+    expect(canonicalStoredToken("secret")).toBe(digest)
+    expect(canonicalStoredToken(digest.toUpperCase())).toBe(digest)
+    expect(canonicalStoredToken(digest)).toBeNull()
   })
   it("never matches empty input, and a digest is not itself a valid URL token", () => {
     expect(storedTokenMatches("", hashToken("secret"))).toBe(false)

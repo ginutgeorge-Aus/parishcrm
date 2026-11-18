@@ -2,20 +2,10 @@ import "server-only"
 import { randomBytes } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { VENUE_CALENDAR_TOKEN_KEY } from "@/lib/venueCalendar"
-import { storedTokenMatches } from "@/lib/tokenHash"
 
 /** A fresh calendar token: 24 CSPRNG bytes (192 bits) as 32 base64url characters. */
 export function mintCalendarToken(): string {
   return randomBytes(24).toString("base64url")
-}
-
-/**
- * Constant-time token comparison against the stored digest (or a legacy raw token before the backfill).
- * @param provided token from the URL
- * @param stored digest from settings
- */
-export function tokenMatches(provided: string, stored: string): boolean {
-  return storedTokenMatches(provided, stored)
 }
 
 /** The stored calendar token digest, or null when none is set (calendar disabled). The raw token is never stored. */

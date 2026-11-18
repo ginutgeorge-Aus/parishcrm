@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 /** How long a registration receipt / pay-now link stays valid after registration (or after the last staff reminder). */
@@ -5,6 +6,14 @@ const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 /** Registration public tokens are minted as "REG-" + 12 hex chars; the upper bound leaves room for a longer token. */
 export const REGISTRATION_TOKEN_RE = /^REG-[0-9A-F]{12,64}$/
+
+/**
+ * Mint a registration public token: "REG-" + 12 uppercase hex chars (CSPRNG), matching REGISTRATION_TOKEN_RE.
+ * @returns a new opaque token
+ */
+export function mintRegistrationToken(): string {
+  return "REG-" + randomBytes(6).toString("hex").toUpperCase()
+}
 
 /** Shown when a pay-now link is malformed, unknown or past its 30-day window; gives the attendee a way forward. */
 export const REGISTRATION_LINK_EXPIRED_MESSAGE =

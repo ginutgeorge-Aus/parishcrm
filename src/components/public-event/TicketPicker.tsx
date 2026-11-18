@@ -116,6 +116,7 @@ export function TicketPicker({ ticketTypes, soldCounts, quantities, names, showN
                         aria-describedby={nameInvalid ? errId : undefined}
                         autoComplete="off"
                         value={value}
+                        maxLength={60}
                         onChange={e => onNameChange(tt.id, i, e.target.value)}
                         className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-ring aria-invalid:border-destructive"
                       />

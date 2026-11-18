@@ -6,7 +6,8 @@ import { rateLimit } from "@/lib/rateLimit"
 import { rateKeyFromHeaders } from "@/lib/clientIp"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
-import { readCalendarToken, tokenMatches } from "@/lib/venueCalendarToken"
+import { readCalendarToken } from "@/lib/venueCalendarToken"
+import { storedTokenMatches } from "@/lib/tokenHash"
 import { clampCalendarMonth, type CalendarEntry } from "@/lib/venueCalendar"
 import { monthRange, utcDateToYmd } from "@/lib/venueUsage"
 import { MAX_ROWS_PER_MONTH } from "@/lib/venueInvoice"
@@ -36,7 +37,7 @@ export default async function VenueCalendarPage({ params, searchParams }: Readon
     return <p className="p-6 text-center text-sm">Too many requests. Please try again in a minute.</p>
   }
   const [settings, stored] = await Promise.all([readVenueUsageSettings(), readCalendarToken()])
-  if (!settings.enabled || !stored || !tokenMatches(token, stored)) notFound()
+  if (!settings.enabled || !stored || !storedTokenMatches(token, stored)) notFound()
 
   const today = sydneyTodayYMD()
   const { month: raw } = await searchParams

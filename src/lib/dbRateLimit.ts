@@ -1,5 +1,6 @@
 import "server-only"
 import { prisma } from "@/lib/prisma"
+import { isP2002 } from "@/lib/validation"
 
 // Postgres-backed fixed-window rate limiter, keyed by an arbitrary string.
 // Correct across replicas (unlike the in-memory limiters), so it is safe even
@@ -54,7 +55,11 @@ export async function dbRateLimit(
       data: { key, count: 1, resetAt: new Date(now + windowMs) },
     })
     return true
-  } catch {
-    return false
+  } catch (e) {
+    // Only a unique-key collision means "active row at the limit". Any other
+    // failure (connection, schema) is a real error: surface it rather than
+    // mask it as a rate-limit denial.
+    if (isP2002(e)) return false
+    throw e
   }
 }

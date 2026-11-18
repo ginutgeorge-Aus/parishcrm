@@ -124,6 +124,23 @@ function checkReceiptRecipient(tx: ReceiptRecipientTx, toEmail: string): string 
   return null
 }
 
+/**
+ * Re-read the recipient state and re-run the gate. Used right before a send, after
+ * awaits during which another operator may have archived or opted out the recipient.
+ * A transaction that vanished counts as blocked.
+ */
+async function recheckReceiptRecipient(transactionId: number, toEmail: string): Promise<string | null> {
+  const fresh = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+    select: {
+      family: { select: { archivedAt: true, people: { select: { email: true, emailConsent: true, archivedAt: true } } } },
+      person: { select: { emailConsent: true, archivedAt: true } },
+    },
+  })
+  if (!fresh) return "Transaction not found"
+  return checkReceiptRecipient(fresh, toEmail)
+}
+
 // Debounce: if an identical SUCCESS send to this recipient landed in the
 // last few seconds, skip the resend. sentTo is encrypted with a random IV, so it
 // can't be matched with a WHERE clause — decrypt the small recent set and compare.
@@ -181,6 +198,10 @@ export async function sendSingleReceipt(
   if (await wasReceiptRecentlySent(transactionId, toEmail)) {
     return { success: `Receipt already sent to ${toEmail}` }
   }
+
+  // Recipient may have been archived/opted out during the awaits above.
+  const lateBlock = await recheckReceiptRecipient(transactionId, toEmail)
+  if (lateBlock) return { error: lateBlock }
 
   try {
     await sendReceiptEmail(toEmail, data)
@@ -334,18 +355,26 @@ export async function sendBatchReceipts(
 /**
  * Prefill address for a receipt row. An archived or opted-out person gets no
  * prefill (the send gate would block it anyway), and an archived family is skipped.
- * Falls back to the first eligible family member (query already filters members) when the person has no email.
+ * Falls back to the first family member (query order) whose address passes the
+ * send gate, i.e. no member sharing that address is archived or opted out.
  */
 function defaultReceiptEmail(tx: {
   person: { email: string | null; emailConsent: boolean; archivedAt: Date | null } | null
-  family: { archivedAt: Date | null; people: { email: string | null }[] } | null
+  family: {
+    archivedAt: Date | null
+    people: { email: string | null; emailConsent: boolean; archivedAt: Date | null }[]
+  } | null
 }): string | null {
   if (tx.person) {
     if (tx.person.archivedAt || tx.person.emailConsent === false) return null
     if (tx.person.email) return safeDecrypt(tx.person.email)
   }
-  if (tx.family && !tx.family.archivedAt && tx.family.people[0]?.email) {
-    return safeDecrypt(tx.family.people[0].email)
+  if (!tx.family || tx.family.archivedAt) return null
+  for (const m of tx.family.people) {
+    if (!m.email || m.archivedAt || m.emailConsent === false) continue
+    const addr = safeDecrypt(m.email)
+    if (!isValidEmail(addr)) continue
+    if (checkReceiptRecipient({ person: null, family: tx.family }, addr) === null) return addr
   }
   return null
 }
@@ -384,11 +413,12 @@ export async function fetchTransactionsForReceipt(
           name: true,
           archivedAt: true,
           people: {
-            select: { email: true },
-            where: { archivedAt: null, email: { not: null }, emailConsent: true },
+            // All members with an email, not just eligible ones: the prefill must see
+            // archived/opted-out members sharing an address to match the send gate.
+            select: { email: true, emailConsent: true, archivedAt: true },
+            where: { email: { not: null } },
             // Same deterministic order as loadStatementFamilies: HEAD first, then name, then id.
             orderBy: [{ role: "asc" }, { firstName: "asc" }, { lastName: "asc" }, { id: "asc" }],
-            take: 1,
           },
         },
       },
