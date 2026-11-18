@@ -58,19 +58,27 @@ function canonicalizeByTicketTypeId<V>(map: Record<string, V[]> | undefined): Re
 // name, so reject link-like content (a relay/phishing vector) and cap length.
 // Bare domains: (1) `host.tld/` path form and (2) common abuse TLDs, both any
 // case; (3) any lowercase `word.tld` (names capitalise after a dot, so "A.Smith"
-// and "St.John" pass while "evil.co" is rejected).
-const BARE_DOMAIN_ANY_CASE =
-  /[a-z0-9-]+\.[a-z]{2,}\/|[a-z0-9-]{2,}\.(?:com|net|org|io|ly|info|biz|xyz|app|link|click|site|online|tk|gl)(?![a-z])/i
-const BARE_DOMAIN_LOWER = /[a-z0-9-]{2,}\.[a-z]{2,}(?![a-z])/
+// and "St.John" pass while "evil.co" is rejected). Each pattern is anchored on the
+// dot with bounded look-behind so it stays linear; names over 60 chars are
+// rejected before any pattern runs (zod keeps refining after `.max()` fails).
+const DOMAIN_PATH = /[a-z0-9-]\.[a-z]{2,}\//i
+const DOMAIN_ABUSE_TLD = /[a-z0-9-]{2}\.(?:com|net|org|io|ly|info|biz|xyz|app|link|click|site|online|tk|gl)(?![a-z])/i
+const DOMAIN_LOWER = /[a-z0-9-]{2}\.[a-z]{2,}(?![a-z])/
+const NAME_MAX = 60
 /**
  * True when a name carries no link-like content (scheme, www, or bare domain).
+ * Over-length input returns false without running the domain patterns.
  * @param v candidate name
  * @returns whether the name is acceptable
  */
 const noLinks = (v: string) =>
-  !/:\/\/|www\./i.test(v) && !BARE_DOMAIN_ANY_CASE.test(v) && !BARE_DOMAIN_LOWER.test(v)
+  v.length <= NAME_MAX &&
+  !/:\/\/|www\./i.test(v) &&
+  !DOMAIN_PATH.test(v) &&
+  !DOMAIN_ABUSE_TLD.test(v) &&
+  !DOMAIN_LOWER.test(v)
 const NO_LINKS_MSG = "Names cannot contain web addresses"
-const nameField = z.string().min(1).max(60).refine(noLinks, NO_LINKS_MSG)
+const nameField = z.string().min(1).max(NAME_MAX).refine(noLinks, NO_LINKS_MSG)
 
 const BodySchema = z.object({
   firstName: nameField,
@@ -89,7 +97,7 @@ const BodySchema = z.object({
   tickets: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.number().int().min(0).max(100)),
   // One name per ticket unit, keyed by ticketTypeId (string). Bounded like the
   // tickets map; per-name length capped to keep the JSON payload small.
-  attendeeNames: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.array(z.string().max(60).refine(noLinks, NO_LINKS_MSG)).max(100)).optional(),
+  attendeeNames: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.array(z.string().max(NAME_MAX).refine(noLinks, NO_LINKS_MSG)).max(100)).optional(),
   customAnswers: z.record(
     z.string().max(100),
     z.union([z.string().max(500), z.array(z.string().max(200)).max(50), z.array(z.boolean()).max(50), z.boolean()]),
