@@ -14,10 +14,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import ReceiptAuditPage from "@/app/(dashboard)/accounting/receipt-audit/page"
 
-test("receipt log table uses sentence-case column headers", async () => {
-  ;(auth as jest.Mock).mockResolvedValue({ user: { role: "AUDITOR", id: "1" } })
-  ;(prisma.receiptSend.findMany as jest.Mock).mockResolvedValue([
-    {
+const sendRow = () => ({
       id: 1,
       sentTo: "donor@example.com",
       sentAt: new Date("2026-07-02T01:00:00Z"),
@@ -30,9 +27,16 @@ test("receipt log table uses sentence-case column headers", async () => {
         amount: { toString: () => "50" },
         account: { code: "100", name: "Tithe" },
       },
-    },
-  ])
+    })
+
+function seed(role: string) {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { role, id: "1" } })
+  ;(prisma.receiptSend.findMany as jest.Mock).mockResolvedValue([sendRow()])
   ;(prisma.receiptSend.count as jest.Mock).mockResolvedValue(1)
+}
+
+test("receipt log table uses sentence-case column headers", async () => {
+  seed("ADMIN")
 
   render(await ReceiptAuditPage({ searchParams: Promise.resolve({}) }))
 
@@ -40,4 +44,11 @@ test("receipt log table uses sentence-case column headers", async () => {
     expect(screen.getByRole("columnheader", { name })).toBeInTheDocument()
   }
   expect(screen.getAllByText("donor@example.com").length).toBeGreaterThan(0)
+})
+
+test("AUDITOR never sees the address a receipt was sent to", async () => {
+  seed("AUDITOR")
+  render(await ReceiptAuditPage({ searchParams: Promise.resolve({}) }))
+  expect(screen.queryByText("donor@example.com")).not.toBeInTheDocument()
+  expect(screen.getAllByText("Hidden").length).toBeGreaterThan(0)
 })

@@ -3,7 +3,7 @@ import Link from "next/link"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
-import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
+import { canAccessAccounting, canViewAccounting, canViewPeople } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { safeDecrypt } from "@/lib/crypto"
 import { fmtAUD } from "@/lib/formatting"
@@ -78,7 +78,9 @@ export default async function TransactionDetailPage(props: Readonly<Props>) {
     notes: tx.notes ? safeDecrypt(tx.notes) : tx.notes,
     reference: tx.reference ? safeDecrypt(tx.reference) : tx.reference,
   }
-  const receiptSends = tx.receiptSends.map((rs) => ({ ...rs, sentTo: safeDecrypt(rs.sentTo) }))
+  // AUDITOR sees no member contact details: never decrypt the address for roles without people access.
+  const showContact = canViewPeople(session?.user?.role)
+  const receiptSends = tx.receiptSends.map((rs) => ({ ...rs, sentTo: showContact ? safeDecrypt(rs.sentTo) : "Hidden" }))
   // Attachment filenames are encrypted at rest — decrypt for display.
   const attachments = tx.attachments.map((a) => ({ ...a, filename: safeDecrypt(a.filename) }))
 
