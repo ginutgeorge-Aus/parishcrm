@@ -18,7 +18,8 @@ export default async function VenueUsagePage(
   const settings = await readVenueUsageSettings()
   if (!settings.enabled) redirect("/")
 
-  // Bearer secret: only read here, after the canEdit gate above, so it never reaches a non-editor's payload.
+  // Only a digest is stored (not a usable link), and the page passes on just whether one exists. Still read
+  // after the canEdit gate above, so a non-editor never learns whether the calendar link is on.
   const token = await readCalendarToken()
 
   const today = sydneyTodayYMD()

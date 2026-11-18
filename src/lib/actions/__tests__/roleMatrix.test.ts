@@ -26,6 +26,7 @@ const WRITE_METHODS = new Set([
   "deleteMany",
   "$executeRaw",
   "$executeRawUnsafe",
+  // Raw queries can write too (INSERT ... RETURNING, advisory locks): a refused role must not reach them.
   "$queryRaw",
   "$queryRawUnsafe",
   "$transaction",
@@ -61,17 +62,16 @@ jest.mock("@/lib/prisma", () => {
           }),
       },
     )
+  // Interactive transactions run their callback against the same proxy, so a write made through
+  // `tx` inside the callback is recorded too (not only the $transaction call itself).
   const client: unknown = new Proxy(
     {},
     {
       get: (_t, key: string) => {
         if (key === "$transaction") {
-          // Any $transaction is a write attempt. Interactive callbacks are also
-          // invoked with this client so writes inside them are recorded too.
           return jest.fn(async (arg: unknown) => {
             writes.push("$transaction")
-            if (typeof arg === "function") return (arg as (tx: unknown) => unknown)(client)
-            return undefined
+            return typeof arg === "function" ? (arg as (tx: unknown) => unknown)(client) : undefined
           })
         }
         if (key.startsWith("$")) {
@@ -143,6 +143,34 @@ function anyArg(): unknown {
   })
 }
 
+/**
+ * True for the shapes guarded actions return when they refuse: an `{ error }` result, an empty
+ * read (null, false, [] or {}), or the petty-cash `{ status: "not-editor" }` signal. Anything else
+ * (a success flag, a populated payload, a bare undefined) is not a refusal.
+ * @param r the action's resolved value
+ */
+function isRefusalShape(r: unknown): boolean {
+  if (r === null || r === false) return true
+  if (Array.isArray(r)) return r.length === 0
+  if (r && typeof r === "object") {
+    const o = r as Record<string, unknown>
+    if (typeof o.error === "string") return true
+    if (o.status === "not-editor") return true
+    return Object.keys(o).length === 0
+  }
+  return false
+}
+
+/**
+ * True when a thrown value is one of the refusal errors the next/navigation mock raises
+ * (`redirect` or `notFound`), rather than an unrelated crash that happened to stop the action.
+ * @param e the thrown value
+ */
+function isRefusalThrow(e: unknown): boolean {
+  return e instanceof Error && /^(REDIRECT:|NOT_FOUND$)/.test(e.message)
+}
+
+/** An empty FormData, passed as the second argument of every action. */
 function formData(): FormData {
   return new FormData()
 }
@@ -433,16 +461,25 @@ describe("role matrix: generated from src/lib/actions", () => {
       thrown = e
     }
     expect(writes).toEqual([])
-    // A refusal is a returned error/forbidden shape or a thrown redirect/not-found
-    // (the mocks above throw tagged errors). Any other throw (e.g. a TypeError from
-    // reaching past the guard into real logic) is NOT a refusal.
-    if (thrown !== undefined) {
-      expect(thrown).toBeInstanceOf(Error)
-      expect((thrown as Error).message).toMatch(REFUSAL_THROW)
-    } else if (result && typeof result === "object") {
-      const r = result as Record<string, unknown>
-      expect(Boolean(r.success) || Boolean(r.ok)).toBe(false)
-    }
+    // A refusal is a returned error/empty shape or a thrown redirect/not-found error. Any other
+    // throw is a crash, not a refusal, and any other result is a success payload.
+    if (thrown === undefined) expect(isRefusalShape(result)).toBe(true)
+    else expect(isRefusalThrow(thrown)).toBe(true)
+  })
+})
+
+describe("role matrix: pinned discovery (a dropped or rewritten guard must fail here)", () => {
+  // Discovery only finds exports whose guard it can parse, so removing a guard silently drops the
+  // export from the generated cases. Pin the discovered set, and pin which roles each helper
+  // refuses, so either change shows up as a reviewed snapshot diff.
+  it("pins every guarded export and its guards", () => {
+    expect(Object.fromEntries(ENTRIES.map((e) => [`${e.file}.${e.fn}`, e.guards.join(",")]))).toMatchSnapshot()
+  })
+
+  it("pins the roles each one-argument roleGuard helper refuses", () => {
+    const guard = roleGuard as unknown as Record<string, (r: Role) => boolean>
+    const refused = Object.fromEntries(HELPERS.map((h) => [h, ALL_ROLES.filter((r) => !guard[h](r)).sort()]))
+    expect(refused).toMatchSnapshot()
   })
 })
 

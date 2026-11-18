@@ -3,20 +3,22 @@ jest.mock("server-only", () => ({}))
 jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findUnique: jest.fn() } } }))
 
 import { prisma } from "@/lib/prisma"
-import { calendarUrl, mintCalendarToken, readCalendarToken, tokenMatches } from "@/lib/venueCalendarToken"
+import { calendarUrl, mintCalendarToken, readCalendarToken } from "@/lib/venueCalendarToken"
+import { hashToken, storedTokenMatches } from "@/lib/tokenHash"
 
 it("mints distinct URL-safe tokens of at least 192 bits", () => {
   const a = mintCalendarToken(), b = mintCalendarToken()
   expect(a).not.toBe(b)
   expect(a).toMatch(/^[A-Za-z0-9_-]{32}$/)
 })
-it("tokenMatches is exact, case-sensitive and false for empty or different-length input", () => {
+it("a minted token matches its stored digest exactly: case-sensitive, false for empty or different-length input", () => {
   const t = mintCalendarToken()
-  expect(tokenMatches(t, t)).toBe(true)
-  expect(tokenMatches(t.toUpperCase(), t)).toBe(false)
-  expect(tokenMatches("", t)).toBe(false)
-  expect(tokenMatches(t, "")).toBe(false)
-  expect(tokenMatches(t + "x", t)).toBe(false)
+  const stored = hashToken(t)
+  expect(storedTokenMatches(t, stored)).toBe(true)
+  expect(storedTokenMatches(t.toUpperCase(), stored)).toBe(false)
+  expect(storedTokenMatches("", stored)).toBe(false)
+  expect(storedTokenMatches(t, "")).toBe(false)
+  expect(storedTokenMatches(t + "x", stored)).toBe(false)
 })
 it("readCalendarToken returns the stored value or null", async () => {
   ;(prisma.appSetting.findUnique as jest.Mock).mockResolvedValueOnce({ value: "abc" })

@@ -65,11 +65,26 @@ describe("LoginForm — authenticator step", () => {
 
   it("email fallback refused while backup codes exist explains why and stays on the authenticator step", async () => {
     await toTotpStep()
-    mockSignIn.mockResolvedValueOnce({ code: "TotpRequired", error: "TotpRequired", ok: false })
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false })
     fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
     expect(await screen.findByText(/Email codes are turned off for accounts with an authenticator app/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
     expect(screen.getByLabelText("Authenticator code")).toBeInTheDocument()
+  })
+
+  it("OTP-step resend refused while backup codes exist moves to the authenticator step with the email button hidden", async () => {
+    // Reach the OTP step via the email fallback (no backup codes at that point).
+    await toTotpStep()
+    mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    await screen.findByLabelText("Verification code")
+    // Backup codes were generated since: the resend is refused with TotpRequiredBackup.
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: /resend/i }))
+    await screen.findByLabelText("Authenticator code")
+    expect(screen.getByText(/Email codes are turned off for accounts with an authenticator app/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Failed to resend. Try again.")).not.toBeInTheDocument()
   })
 
   it("hides the email-code button and explains why when backup codes exist", async () => {

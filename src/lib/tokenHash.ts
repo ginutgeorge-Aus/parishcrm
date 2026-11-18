@@ -19,6 +19,18 @@ export function isHashedToken(stored: string): boolean {
 }
 
 /**
+ * The canonical stored form of a share-link token value: a lowercase digest. A legacy raw token is
+ * hashed and an uppercased digest is lowercased (DB lookups compare verbatim against lowercase
+ * `hashToken` output, so an uppercase digest would otherwise be a dead link). Used by the backfill.
+ * @param stored value from the database
+ * @returns the value to store, or null when `stored` is already canonical
+ */
+export function canonicalStoredToken(stored: string): string | null {
+  const canonical = isHashedToken(stored) ? stored.toLowerCase() : hashToken(stored)
+  return canonical === stored ? null : canonical
+}
+
+/**
  * Constant-time check of a URL token against a stored value. Accepts a legacy raw (pre-hash)
  * stored token until the backfill has hashed it; raw tokens are 24-32 base64url chars, never 64 hex.
  * @param provided token from the URL
