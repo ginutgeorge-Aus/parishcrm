@@ -17,6 +17,13 @@ jest.mock("next/headers", () => ({
 }))
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn(() => true) }))
 jest.mock("@/lib/stripe", () => ({ stripeConfigured: jest.fn(() => false) }))
+// Stub the client button: exposes the churchEmail prop so the page's
+// pass-through is assertable (the button only shows it after an error).
+jest.mock("@/app/(public)/e/[slug]/success/PayNowButton", () => ({
+  PayNowButton: ({ churchEmail }: { churchEmail: string }) => (
+    <button data-church-email={churchEmail}>Pay now by card</button>
+  ),
+}))
 // getChurchSettings uses unstable_cache, which throws "incrementalCache missing"
 // outside a Next request context — mock it so the page renders under jest.
 jest.mock("@/lib/churchSettings", () => ({
@@ -499,6 +506,7 @@ describe("pay-now-by-card button gating (Task 7)", () => {
     const html = renderToStaticMarkup(await render("gala", "REG-PENDING2"))
 
     expect(html).toMatch(/pay now by card/i)
+    expect(html).toContain('data-church-email="church@example.org"')
   })
 
   it("does not render the button when the event has online payment disabled", async () => {

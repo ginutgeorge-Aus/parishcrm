@@ -364,7 +364,19 @@ describe("deleteEvent", () => {
       error: "This event has registrations or a payment in progress — cancel them individually before deleting.",
     })
     expect(prisma.event.delete).not.toHaveBeenCalled()
-    expect(prisma.checkoutSession.count).toHaveBeenCalledWith({ where: { eventId: 1, OR: [{ status: "OPEN" }, { status: "EXPIRED", registrationId: null, payload: { not: "" } }] } })
+    expect(prisma.checkoutSession.count).toHaveBeenCalledWith({ where: { eventId: 1, status: "OPEN" } })
+  })
+
+  it("explains the block when only an EXPIRED late-claimable checkout remains — nothing to cancel, sweep lifts it", async () => {
+    mockSession("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    const result = await deleteEvent(1)
+    expect(result).toEqual({ error: expect.stringContaining("nothing to cancel") })
+    expect(prisma.event.delete).not.toHaveBeenCalled()
+    expect(prisma.checkoutSession.count).toHaveBeenLastCalledWith({
+      where: { eventId: 1, status: "EXPIRED", registrationId: null, payload: { not: "" } },
+    })
   })
 
   it("refuses to delete an event whose fundraiser has entries — the cascade would destroy its payments", async () => {
