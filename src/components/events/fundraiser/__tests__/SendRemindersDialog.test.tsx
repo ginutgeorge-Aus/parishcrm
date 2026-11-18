@@ -20,16 +20,21 @@ beforeEach(() => jest.clearAllMocks())
 describe("SendRemindersDialog", () => {
   it("shows counts, skipped note and never-sent label", async () => {
     await open({ sendable: 3, skippedNoEmail: 2 })
-    expect(screen.getByText("This will email 3 people who still owe money.")).toBeInTheDocument()
+    expect(screen.getByText("This will email up to 3 people who still owe money.")).toBeInTheDocument()
     expect(screen.getByText(/2 people owe money but have no email/)).toBeInTheDocument()
     expect(screen.getByText("No reminders have been sent yet.")).toBeInTheDocument()
   })
 
   it("uses singular wording and last-sent date", async () => {
     await open({ sendable: 1, skippedNoEmail: 1, lastSentAt: "1 Nov 2026" })
-    expect(screen.getByText("This will email 1 person who still owe money.")).toBeInTheDocument()
+    expect(screen.getByText("This will email up to 1 person who still owe money.")).toBeInTheDocument()
     expect(screen.getByText(/1 person owes money but has no email/)).toBeInTheDocument()
     expect(screen.getByText("Reminders were last sent on 1 Nov 2026.")).toBeInTheDocument()
+  })
+
+  it("says 'up to N' for any send, since the time budget may stop it early", async () => {
+    await open({ sendable: 200, deferred: 5 } as never)
+    expect(screen.getByText("This will email up to 200 people who still owe money.")).toBeInTheDocument()
   })
 
   it("disables send when nobody can be reminded", async () => {
@@ -80,7 +85,7 @@ describe("SendRemindersDialog lazy plan", () => {
     render(<SendRemindersDialog fundraiserId={4} />)
     expect(getReminderPlan).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
-    expect(await screen.findByText("This will email 2 people who still owe money.")).toBeInTheDocument()
+    expect(await screen.findByText("This will email up to 2 people who still owe money.")).toBeInTheDocument()
     expect(getReminderPlan).toHaveBeenCalledWith(4)
   })
 
@@ -94,10 +99,10 @@ describe("SendRemindersDialog lazy plan", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull())
     fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
-    expect(await screen.findByText("This will email 2 people who still owe money.")).toBeInTheDocument()
+    expect(await screen.findByText("This will email up to 2 people who still owe money.")).toBeInTheDocument()
     await act(async () => { resolveFirst({ sendable: 9, skippedNoEmail: 0, lastSentAt: null }) })
-    expect(screen.queryByText(/This will email 9 people/)).toBeNull()
-    expect(screen.getByText("This will email 2 people who still owe money.")).toBeInTheDocument()
+    expect(screen.queryByText(/This will email up to 9 people/)).toBeNull()
+    expect(screen.getByText("This will email up to 2 people who still owe money.")).toBeInTheDocument()
   })
 
   it("shows the plan error and keeps send disabled", async () => {

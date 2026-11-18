@@ -39,6 +39,8 @@ export function LoginForm({
   const [step, setStep] = useState<"password" | "otp" | "totp">("password")
   const [totpCode, setTotpCode] = useState("")
   const [useBackup, setUseBackup] = useState(false)
+  // True when the account still has unused backup codes: the server refuses the email-code fallback then.
+  const [emailFallbackBlocked, setEmailFallbackBlocked] = useState(false)
   const [error, setError] = useState("")
   const [demoError, setDemoError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -105,7 +107,8 @@ export function LoginForm({
     try {
       const result = await signIn("credentials", { email, password, mode: "password", remember: remember ? "true" : "false", redirect: false })
 
-      if (result?.code === "TotpRequired") {
+      if (result?.code === "TotpRequired" || result?.code === "TotpRequiredBackup") {
+        setEmailFallbackBlocked(result.code === "TotpRequiredBackup")
         setStep("totp")
       } else if (result?.code === "OtpSent") {
         setStep("otp")
@@ -292,8 +295,9 @@ export function LoginForm({
       } else if (result?.code === "AccountLocked") {
         setError("Account locked after too many failed attempts. Try again in 15 minutes.")
         lockNow()
-      } else if (result?.code === "TotpRequired") {
+      } else if (result?.code === "TotpRequired" || result?.code === "TotpRequiredBackup") {
         // Server refuses the email code while unused backup codes exist (audit AUD-1-18).
+        setEmailFallbackBlocked(true)
         setError("Email codes are turned off for accounts with an authenticator app. Use your app, or a backup code. If you have lost both, ask an administrator to reset your authenticator.")
       } else {
         setError("We couldn't send your verification code. Please try again in a moment.")
@@ -468,14 +472,21 @@ export function LoginForm({
             >
               {useBackup ? "Use authenticator app" : "Use a backup code"}
             </button>
-            <button
-              type="button"
-              onClick={handleEmailFallback}
-              disabled={resendLoading || isLocked}
-              className="inline-flex items-center justify-center min-h-11 w-full text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              {resendLoading ? "Sending…" : "Send email code instead"}
-            </button>          </form>
+            {emailFallbackBlocked ? (
+              <p className="text-center text-xs text-muted-foreground">
+                Email codes are off while you have unused backup codes. Lost your app? Use a backup code, or ask an administrator to reset your authenticator.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={handleEmailFallback}
+                disabled={resendLoading || isLocked}
+                className="inline-flex items-center justify-center min-h-11 w-full text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                {resendLoading ? "Sending…" : "Send email code instead"}
+              </button>
+            )}
+          </form>
         ) : (
           <form onSubmit={handleOtpSubmit} className="space-y-4">
             <button

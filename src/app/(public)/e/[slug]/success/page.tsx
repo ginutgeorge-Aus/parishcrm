@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { prisma } from "@/lib/prisma"
+import { isLateClaimable } from "@/lib/checkoutSweep"
 import { notFound } from "next/navigation"
 import { headers } from "next/headers"
 import { rateLimit } from "@/lib/rateLimit"
@@ -96,8 +97,10 @@ async function resolveCardPaymentRef(
   // the money for manual ops and never writes a publicToken — render the
   // contact-us state, not "being finalised" forever:
   //  - UNFULFILLED: capacity gone / event deleted / amount mismatch.
-  //  - EXPIRED: the checkout sweep flipped the row, then a late webhook (e.g.
-  //    BECS async payment) still confirmed the charge.
+  //  - EXPIRED that can no longer be claimed late (payload scrubbed, or a
+  //    pay-now row): a late webhook (e.g. BECS async payment) still
+  //    confirmed the charge. An EXPIRED row that still holds its payload is
+  //    in flight: a late Stripe confirmation can still create the booking.
   //    Genuine duplicate charges are also terminalized UNFULFILLED.
   //  - COMPLETED with no token past COMPLETED_IN_FLIGHT_MS: the process died
   //    after the claim but before creating the registration; redelivery only
@@ -110,7 +113,7 @@ async function resolveCardPaymentRef(
     (!checkoutSession.completedAt || Date.now() - checkoutSession.completedAt.getTime() > COMPLETED_IN_FLIGHT_MS)
   const isUnfulfilled =
     checkoutSession.status === "UNFULFILLED" ||
-    checkoutSession.status === "EXPIRED" ||
+    (checkoutSession.status === "EXPIRED" && !isLateClaimable(checkoutSession)) ||
     completedStale
   return { resolvedRef: ref, paymentUnfulfilled: isUnfulfilled, paymentPending: !isUnfulfilled }
 }

@@ -330,6 +330,41 @@ describe("sendBatchReceipts", () => {
     })
   })
 
+  it("skips a person archived after the batch was loaded", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const txArchived = {
+      ...mockTransaction,
+      person: { firstName: "Jane", lastName: "Doe", emailConsent: true, archivedAt: new Date() },
+    }
+    mockFindMany.mockResolvedValue([txArchived])
+    mockSendEmail.mockResolvedValue(undefined)
+    const result = await sendBatchReceipts([{ transactionId: 10, toEmail: "jane@example.com" }])
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      sent: 0,
+      failed: 1,
+      errors: [{ transactionId: 10, error: "Recipient is archived" }],
+    })
+  })
+
+  it("skips family receipt when the matching member is archived", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const txFamilyArchived = {
+      ...mockTransaction,
+      person: null,
+      family: { name: "Smith", people: [{ email: "enc:jane@example.com", emailConsent: true, archivedAt: new Date() }] },
+    }
+    mockFindMany.mockResolvedValue([txFamilyArchived])
+    mockSendEmail.mockResolvedValue(undefined)
+    const result = await sendBatchReceipts([{ transactionId: 10, toEmail: "jane@example.com" }])
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      sent: 0,
+      failed: 1,
+      errors: [{ transactionId: 10, error: "Recipient is archived" }],
+    })
+  })
+
   it("sends when person has emailConsent=true", async () => {
     mockSession.mockResolvedValue(adminSession)
     const txConsent = { ...mockTransaction, person: { firstName: "Jane", lastName: "Doe", emailConsent: true } }
@@ -534,6 +569,12 @@ describe("email validation", () => {
 })
 
 describe("fetchTransactionsForReceipt", () => {
+  it("blocks AUDITOR (rows carry decrypted member emails)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "AUDITOR", id: "4" } })
+    const result = await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
+    expect(result).toEqual({ error: "Unauthorized" })
+  })
+
   it("blocks VIEWER", async () => {
     mockSession.mockResolvedValue(viewerSession)
     const result = await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
@@ -583,6 +624,17 @@ describe("fetchTransactionsForReceipt", () => {
     expect(result).not.toHaveProperty("error")
     const r = result as { transactions: { description: string }[] }
     expect(r.transactions[0].description).toBe("Sunday Offering")
+  })
+
+  it("skips archived people when picking the default recipient (archived person must not get a receipt address)", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    mockFindMany.mockResolvedValue([])
+    await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
+    const arg = mockFindMany.mock.calls[mockFindMany.mock.calls.length - 1][0]
+    expect(arg.include.family.select.people.where).toMatchObject({
+      archivedAt: null,
+      emailConsent: true,
+    })
   })
 })
 

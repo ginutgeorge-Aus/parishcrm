@@ -63,3 +63,13 @@ export function followUpViewerFromSession(
 export function liveFollowUpTarget(): Prisma.FollowUpTaskWhereInput {
   return { OR: [{ person: { is: { archivedAt: null } } }, { family: { is: { archivedAt: null } } }] }
 }
+
+/**
+ * Prisma `where` fragment for "due today (Sydney) or earlier"; undated and future
+ * tasks are left out. The single definition shared by the bell count and the
+ * Follow-ups list `due` filter so the two can never drift.
+ * @param today the Sydney-today date (`sydneyToday()`)
+ */
+export function dueByTodayWhere(today: Date): Prisma.FollowUpTaskWhereInput {
+  return { dueDate: { lte: today } }
+}

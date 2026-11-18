@@ -15,6 +15,7 @@ import { EVENT_CAPACITY_INCLUDE } from "@/lib/eventCapacityInclude"
 import { notifyStripeAlert } from "@/lib/notifications"
 import { completeFundraiserPayment } from "@/lib/fundraiserWebhook"
 import { recordWebhookVerificationFailure } from "@/lib/stripeWebhookAlert"
+import { isLateClaimable, LATE_CLAIMABLE_WHERE } from "@/lib/checkoutSweep"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Money fields arrive as a Prisma Decimal from the DB, but callers may also
@@ -376,10 +377,12 @@ export async function handleStripeWebhook(
         // A live PaymentIntent is still in flight for this row — protect it
         // from the hourly sweep so it survives until settlement
         // resolves, however many days that takes. Idempotent: only an OPEN
-        // row matches (mirrors async_payment_failed below).
+        // row, or an EXPIRED row that still holds its payload (this delivery
+        // arrived after the sweep), matches; the latter is re-opened so the
+        // sweep's 72h payload scrub cannot wipe it before settlement.
         await prisma.checkoutSession.updateMany({
-          where: { stripeSessionId: session.id, status: "OPEN" },
-          data: { expiresAt: new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS) },
+          where: { stripeSessionId: session.id, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
+          data: { status: "OPEN", expiresAt: new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS) },
         })
         return { status: 200 }
       }
@@ -389,10 +392,13 @@ export async function handleStripeWebhook(
       return completePaidCheckout(event.data.object as import("stripe").Stripe.Checkout.Session)
     case "checkout.session.async_payment_failed": {
       // Debit failed — the staged PII must not persist. Mark the row terminal
-      // (mirrors checkoutSweep). Idempotent: only an OPEN row matches.
+      // and scrub now (the sweep's 72h payload grace is only for a payment
+      // that may still succeed). Idempotent: only an OPEN row, or an EXPIRED
+      // row the sweep left holding its payload (this delivery arrived late),
+      // matches. COMPLETED rows are never touched.
       const session = event.data.object as import("stripe").Stripe.Checkout.Session
       await prisma.checkoutSession.updateMany({
-        where: { stripeSessionId: session.id, status: "OPEN" },
+        where: { stripeSessionId: session.id, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
         data: { status: "EXPIRED", payload: "" },
       })
       return { status: 200 }
@@ -469,9 +475,9 @@ async function handleNonOpenStaging(
   }
   // COMPLETED/UNFULFILLED is a benign already-claimed redelivery race — that
   // outcome already signalled ops (or succeeded) on its own first pass, so
-  // stay quiet. EXPIRED is different: the sweep scrubbed this row (e.g. the
-  // delayed-settlement or unclaim-retry expiry extensions above still ran
-  // out, or predate this fix) and a paid webhook has now arrived for a row
+  // stay quiet. EXPIRED is different: only an EXPIRED row that cannot be
+  // claimed late gets here (payload already scrubbed after the sweep's grace
+  // window, or a pay-now row), and a paid webhook has now arrived for a row
   // with no Registration and no PII left to recover it from. Money
   // is retained (no-refund policy) — that must not be a silent 200.
   if (staging.status === "EXPIRED") {
@@ -635,18 +641,36 @@ async function completePaidCheckout(
   if (staging.fundraiserEntryId != null || session.metadata?.fundraiserEntryId) {
     return completeFundraiserPayment(session, staging)
   }
-  if (staging.status !== "OPEN") return handleNonOpenStaging(session, staging)
+  const lateClaim = isLateClaimable(staging)
+  if (staging.status !== "OPEN" && !lateClaim) return handleNonOpenStaging(session, staging)
 
-  // Atomically claim the row: flip OPEN→COMPLETED in a single conditional
-  // UPDATE before any side effect. Stripe retries delivery, so two near-
-  // simultaneous redeliveries can both pass the findUnique above; only the one
-  // whose updateMany matches (count===1) owns the transition and proceeds — the
-  // loser no-ops. Prevents double registration (TOCTOU).
+  // Atomically claim the row: flip OPEN→COMPLETED (or a late EXPIRED→COMPLETED,
+  // see isLateClaimable) in a single conditional UPDATE before any side effect.
+  // Stripe retries delivery, so two near-simultaneous redeliveries can both
+  // pass the findUnique above; only the one whose updateMany matches
+  // (count===1) owns the transition and proceeds — the loser no-ops. Prevents
+  // double registration (TOCTOU). The late claim also requires the payload to
+  // still be there, so a concurrent sweep scrub makes it lose.
   const claim = await prisma.checkoutSession.updateMany({
-    where: { id: staging.id, status: "OPEN" },
+    where: lateClaim
+      ? { id: staging.id, ...LATE_CLAIMABLE_WHERE }
+      : { id: staging.id, status: "OPEN" },
     data: { status: "COMPLETED", completedAt: new Date() },
   })
-  if (claim.count === 0) return { status: 200 } // another delivery already claimed it
+  if (claim.count === 0) {
+    // Lost the claim. Re-read: another delivery may have won (idempotent),
+    // but the row may also have changed under our stale read (sweep scrubbed
+    // it, or an unpaid delivery reopened it) — never ack a paid session that
+    // has no registration without a retry or an ops signal.
+    const current = await prisma.checkoutSession.findUnique({ where: { id: staging.id } })
+    if (current && (current.status === "COMPLETED" || current.status === "UNFULFILLED")) return { status: 200 }
+    if (current && (current.status === "OPEN" || isLateClaimable(current))) return { status: 500 } // claimable again → Stripe redelivers
+    await notifyStripeAlert(
+      "charged but checkout no longer claimable",
+      `Session ${session.id}: payment settled but the staged CheckoutSession is ${current ? `${current.status} with its payload gone` : "gone (deleted mid-claim)"}. No registration created. Money retained; resolve manually.`,
+    )
+    return { status: 200 }
+  }
 
   // Everything below the claim can throw for reasons that are NOT a deliberate
   // "charged but undelivered" outcome (decrypt failure, a transient DB error
@@ -849,7 +873,7 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
   if (!data[0]) return false
   const staging = await prisma.checkoutSession.findUnique({
     where: { stripeSessionId: data[0].id },
-    select: { status: true, publicToken: true, fundraiserEntryId: true },
+    select: { status: true, publicToken: true, fundraiserEntryId: true, registrationId: true, payload: true },
   })
   if (staging?.fundraiserEntryId != null || data[0].metadata?.fundraiserEntryId) {
     if (staging?.status === "OPEN") return true
@@ -891,5 +915,11 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
     }
     return false
   }
-  return staging?.status === "OPEN" || (staging?.status === "COMPLETED" && !staging.publicToken)
+  // An EXPIRED row that still holds its payload can still be claimed by a late
+  // completion (isLateClaimable), so it is in flight too.
+  return (
+    staging?.status === "OPEN" ||
+    (staging?.status === "COMPLETED" && !staging.publicToken) ||
+    (!!staging && isLateClaimable(staging))
+  )
 }

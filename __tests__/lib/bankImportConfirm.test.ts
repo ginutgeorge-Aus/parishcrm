@@ -51,6 +51,7 @@ const baseRow = {
   type: "INCOME" as const,
   bankRef: "REF-1",
   skip: false,
+  paymentAccountId: 1,
 }
 
 beforeEach(() => {
@@ -237,7 +238,7 @@ describe("confirmBankImport — cross-format dedup", () => {
         // Report-format bankRef for the SAME transaction — different prefix/suffix.
         bankRef: "ANZTR_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_0",
         accountId: 5,
-        skip: false,
+        skip: false, paymentAccountId: 1,
       },
     ])
     expect(result.ok).toBe(true)
@@ -258,7 +259,7 @@ describe("confirmBankImport — cross-format dedup", () => {
         type: "INCOME",
         bankRef: "ANZTR_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_0",
         accountId: 5,
-        skip: false,
+        skip: false, paymentAccountId: 1,
       },
     ])
     expect(result.ok).toBe(true)
@@ -460,12 +461,72 @@ describe("confirmBankImport — direction-aware cross-format dedup", () => {
         type: "INCOME",
         bankRef: "ANZTR_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_0",
         accountId: 5,
-        skip: false,
+        skip: false, paymentAccountId: 1,
       },
     ])
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.error)
     expect(result.imported).toBe(1)
     expect(result.duplicates).toBe(0)
+  })
+})
+
+describe("confirmBankImport — amount and payment account schema (AUD-3)", () => {
+  it("rejects a zero amount", async () => {
+    const result = await confirmBankImport([{ ...baseRow, accountId: 5, amount: "0.00" }])
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected failure")
+    expect(result.status).toBe(400)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("rejects an amount above 99,999,999.99 before any write", async () => {
+    const result = await confirmBankImport([{ ...baseRow, accountId: 5, amount: "100000000.00" }])
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected failure")
+    expect(result.status).toBe(400)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("rejects an oversize split amount", async () => {
+    const result = await confirmBankImport([
+      { ...baseRow, accountId: null, splits: [{ accountId: 5, amount: "100000000.00" }] },
+    ])
+    expect(result.ok).toBe(false)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("rejects a row without paymentAccountId", async () => {
+    const { paymentAccountId: _omit, ...noAccount } = baseRow
+    const result = await confirmBankImport([{ ...noAccount, accountId: 5 }])
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected failure")
+    expect(result.status).toBe(400)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+})
+
+describe("confirmBankImport — failure codes (AUD-3)", () => {
+  it("returns a code and rowIndex for a missing category, alongside the human error", async () => {
+    const result = await confirmBankImport([
+      { ...baseRow, bankRef: "A", accountId: 5 },
+      { ...baseRow, bankRef: "B", accountId: null },
+    ])
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected failure")
+    expect(result.code).toBe("CATEGORY_MISSING")
+    expect(result.rowIndex).toBe(1)
+    expect(result.error).toContain("Sunday offering")
+  })
+
+  it("returns SPLIT_SUM when splits do not total the row amount", async () => {
+    const result = await confirmBankImport([
+      { ...baseRow, accountId: null, splits: [{ accountId: 5, amount: "40.00" }, { accountId: 5, amount: "40.00" }] },
+    ])
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected failure")
+    expect(result.code).toBe("SPLIT_SUM")
+    expect(result.rowIndex).toBe(0)
   })
 })

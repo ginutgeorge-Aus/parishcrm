@@ -17,6 +17,6 @@ export async function POST(req: NextRequest) {
   if (!bearerOk(req.headers.get("authorization"), secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  const { expired } = await sweepExpiredCheckouts()
-  return NextResponse.json({ expired })
+  const { expired, scrubbed } = await sweepExpiredCheckouts()
+  return NextResponse.json({ expired, scrubbed })
 }

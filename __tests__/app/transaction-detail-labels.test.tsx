@@ -53,6 +53,39 @@ test("receipt history table uses sentence-case column headers", async () => {
     expect(screen.getByRole("columnheader", { name })).toBeInTheDocument()
   }
   expect(screen.queryByRole("columnheader", { name: "Sent To" })).not.toBeInTheDocument()
-  expect(screen.getByText("donor@example.com")).toBeInTheDocument()
+  // AUDITOR has no people access: address stays hidden (AUD-3-03)
+  expect(screen.queryByText("donor@example.com")).not.toBeInTheDocument()
+  expect(screen.getByText("Hidden")).toBeInTheDocument()
   expect(screen.getByText("Mailbox full")).toBeInTheDocument()
+})
+
+test("receipt history shows recipient address to PASTOR", async () => {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { role: "PASTOR", id: "1" } })
+  ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue({
+    id: 5,
+    date: new Date("2026-07-01"),
+    description: "Tithe July",
+    notes: null,
+    amount: { toString: () => "50" },
+    type: "INCOME",
+    paymentAccount: null,
+    reference: null,
+    family: null,
+    person: null,
+    familyId: null,
+    account: { code: "100", name: "Tithe" },
+    attachments: [],
+    receiptSends: [
+      {
+        id: 1,
+        sentTo: "donor@example.com",
+        sentAt: new Date("2026-07-02T01:00:00Z"),
+        sentBy: { name: "Test Admin" },
+        status: "SENT",
+        errorMessage: null,
+      },
+    ],
+  })
+  render(await TransactionDetailPage({ params: Promise.resolve({ id: "5" }) }))
+  expect(screen.getByText("donor@example.com")).toBeInTheDocument()
 })

@@ -301,7 +301,7 @@ describe("resetEventRegistrations", () => {
     ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValue(1)
     const result = await resetEventRegistrations(1)
     expect(result).toEqual({ error: expect.stringContaining("payment is in progress") })
-    expect(prisma.checkoutSession.count).toHaveBeenCalledWith({ where: { eventId: 1, status: "OPEN", fundraiserEntryId: null } })
+    expect(prisma.checkoutSession.count).toHaveBeenCalledWith({ where: { eventId: 1, fundraiserEntryId: null, OR: [{ status: "OPEN" }, { status: "EXPIRED", registrationId: null, payload: { not: "" } }] } })
     expect(prisma.$transaction).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })

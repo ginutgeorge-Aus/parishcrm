@@ -6,7 +6,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { sendReceiptEmail } from "@/lib/email"
-import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
+import { canAccessAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { encrypt, decrypt, safeDecrypt } from "@/lib/crypto"
 import { format } from "date-fns"
@@ -224,8 +224,8 @@ export async function sendBatchReceipts(
     where: { id: { in: ids } },
     include: {
       account: { select: { code: true, name: true } },
-      family: { select: { name: true, people: { select: { email: true, emailConsent: true } } } },
-      person: { select: { firstName: true, lastName: true, emailConsent: true } },
+      family: { select: { name: true, people: { select: { email: true, emailConsent: true, archivedAt: true } } } },
+      person: { select: { firstName: true, lastName: true, emailConsent: true, archivedAt: true } },
     },
   })
   const txById = new Map(txList.map((tx) => [tx.id, tx]))
@@ -256,6 +256,14 @@ export async function sendBatchReceipts(
       errors.push({ transactionId: row.transactionId, error: "Transaction not found" })
       continue
     }
+    // Archive gate: a person archived after the operator loaded the list must
+    // not get a receipt. Reported (not silently dropped), like consent blocks.
+    const archivedBlocked = "Recipient is archived"
+    if (tx.person?.archivedAt) {
+      failed++
+      errors.push({ transactionId: row.transactionId, error: archivedBlocked })
+      continue
+    }
     // Consent gate. A consent block is reported (not silently dropped) so the
     // operator sees why a receipt wasn't sent and it isn't mistaken for a
     // successful send.
@@ -278,6 +286,11 @@ export async function sendBatchReceipts(
           return false
         }
       })
+      if (member?.archivedAt) {
+        failed++
+        errors.push({ transactionId: row.transactionId, error: archivedBlocked })
+        continue
+      }
       if (member?.emailConsent === false) {
         failed++
         errors.push({ transactionId: row.transactionId, error: consentBlocked })
@@ -337,17 +350,16 @@ export async function sendBatchReceipts(
   return { sent, failed, errors }
 }
 
-/** List giving transactions in a date range for receipting. Accounting viewers only. */
+/** List giving transactions in a date range for receipting. ADMIN/PASTOR only: rows carry decrypted member emails. */
 export async function fetchTransactionsForReceipt(
   from: string,
   to: string,
   accountId?: number
 ): Promise<FetchResult> {
-  // Read path — AUDITOR is allowed (matches the canViewAccounting page guard on
-  // /accounting/receipt-audit). The actual send actions stay canAccessAccounting
-  // (ADMIN/PASTOR). Previously this read used the stricter mutate-guard.
+  // Rows include decrypted member emails, so this matches the send actions and the
+  // /accounting/send-receipts page (ADMIN/PASTOR). AUDITOR gets no member contact details.
   const session = await auth()
-  if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("receipts")
   if (off) return off
 
@@ -372,7 +384,9 @@ export async function fetchTransactionsForReceipt(
           name: true,
           people: {
             select: { email: true },
-            where: { email: { not: null }, emailConsent: true },
+            where: { archivedAt: null, email: { not: null }, emailConsent: true },
+            // Same deterministic order as loadStatementFamilies: HEAD first, then name, then id.
+            orderBy: [{ role: "asc" }, { firstName: "asc" }, { lastName: "asc" }, { id: "asc" }],
             take: 1,
           },
         },

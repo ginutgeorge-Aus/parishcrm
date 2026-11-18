@@ -375,7 +375,7 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
   })
 
   it("an out-of-range assignee id matches nothing", async () => {
-    expect(await listFollowUpTasks({ assigneeId: 0 })).toEqual({ tasks: [] })
+    expect(await listFollowUpTasks({ assigneeId: 0 })).toEqual({ tasks: [], truncated: false })
     expect(p.followUpTask.findMany).not.toHaveBeenCalled()
   })
 
@@ -386,7 +386,7 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
   })
 
   it("an all-invalid status filter matches nothing instead of everything", async () => {
-    expect(await listFollowUpTasks({ statuses: ["NOPE" as FollowUpStatus] })).toEqual({ tasks: [] })
+    expect(await listFollowUpTasks({ statuses: ["NOPE" as FollowUpStatus] })).toEqual({ tasks: [], truncated: false })
     expect(p.followUpTask.findMany).not.toHaveBeenCalled()
   })
 

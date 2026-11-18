@@ -35,7 +35,7 @@ From the transaction list or detail page (or the bulk **Send receipts** screen a
 
 ### Receipt log
 
-`/accounting/receipt-audit` (`canViewAccounting` — ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN) lists every per-transaction `ReceiptSend` attempt for a date range: recipient, status (success/failed), timestamp, and who triggered it. This is deliberately one of the few places an AUDITOR sees a decrypted donor email address — auditing exactly who a tax receipt was sent to is core to the receipt-audit function, so it isn't masked here (it *is* masked elsewhere in the app for the accounting-only AUDITOR role). Every view of this page is itself logged, for ADMIN/PASTOR as well as AUDITOR — bulk access to donor contact data always leaves a trail.
+`/accounting/receipt-audit` (`canViewAccounting` — ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN) lists every per-transaction `ReceiptSend` attempt for a date range: recipient, status (success/failed), timestamp, and who triggered it. The recipient address is shown only to roles that can see people records (ADMIN, PASTOR, OFFICE_ADMIN); the accounting-only AUDITOR sees "Hidden" in its place but still sees status, timestamp and who triggered each send. Every view of this page is itself logged, for ADMIN/PASTOR as well as AUDITOR — bulk access to donor contact data always leaves a trail.
 
 ## How it works
 

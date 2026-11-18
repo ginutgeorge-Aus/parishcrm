@@ -61,9 +61,12 @@ export async function POST(req: Request) {
       // A clean rejection (locked period, invalid/misattributed FK, bad
       // split, duplicate donor, inactive category) wrote nothing — but the
       // attempt to post into the financial ledger still needs a forensic trail
-      //. result.error is a static validation message, never member PII.
+      // Log only the static reason code + row position. result.error is for the
+      // HTTP response: it can embed the bank payee line (donor name/reference),
+      // which must never reach the append-only audit log in plaintext.
       await logAudit(userId, "IMPORT_BANK_STATEMENT_REJECTED", "Transaction", undefined, {
-        reason: result.error,
+        reason: result.code ?? "UNKNOWN",
+        ...(result.rowIndex !== undefined ? { row: result.rowIndex } : {}),
       }, ip)
     }
     return NextResponse.json({ error: result.error }, { status: result.status })
