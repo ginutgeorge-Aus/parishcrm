@@ -79,7 +79,14 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
               {r.unreadable ? (
                 <p className="text-muted-foreground">Read-only: the stored text cannot be read. Ask an administrator to check the encryption keys.</p>
               ) : (
-                <EditPrayerRequestDialog request={r} disabled={pending} onSaved={setSaved} />
+                <EditPrayerRequestDialog
+                  request={r}
+                  disabled={pending}
+                  onSaved={(message) => {
+                    setError(null)
+                    setSaved(message)
+                  }}
+                />
               )}
               {r.status === "ACTIVE" && (
                 <Button size="sm" variant="outline" disabled={pending} className="min-h-11 sm:min-h-0" onClick={() => setStatus(r.id, "ANSWERED")}>

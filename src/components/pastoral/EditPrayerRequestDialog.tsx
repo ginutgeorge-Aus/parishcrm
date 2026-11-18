@@ -14,8 +14,8 @@ const STALE_MESSAGE = "This request changed since you opened it. Close this dial
 
 /**
  * "Edit" button plus a dialog to change a prayer request's text, requester
- * contact and "OK to share" flag. Sends `expectedUpdatedAt` from the row the
- * list loaded, so a save from an out-of-date row is rejected (optimistic
+ * contact and "OK to share" flag. Sends the `updatedAt` captured when the dialog
+ * opened as `expectedUpdatedAt`, so a save from an out-of-date row is rejected (optimistic
  * concurrency). The linked member is kept as is. Same gate as the other row
  * actions: the list only renders for ADMIN | PASTOR and the action re-checks.
  * @param request the row being edited (must be readable, see `unreadable`)
@@ -33,16 +33,22 @@ export function EditPrayerRequestDialog({
   const [email, setEmail] = useState(r.requesterEmail ?? "")
   const [phone, setPhone] = useState(r.requesterPhone ?? "")
   const [share, setShare] = useState(r.shareConsent)
+  const [personId, setPersonId] = useState(r.personId)
+  const [revision, setRevision] = useState(r.updatedAt)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const id = `pr-edit-${r.id}`
 
   /**
-   * Reset the fields to the row's current values whenever the dialog opens.
+   * Reset the fields (and the captured revision) to the row's current values
+   * whenever the dialog opens. Closing is ignored while a save is pending.
    * @param next whether the dialog is opening
    */
   function onOpenChange(next: boolean) {
+    if (!next && pending) return
     if (next) {
+      setPersonId(r.personId)
+      setRevision(r.updatedAt)
       setText(r.request)
       setName(r.requesterName ?? "")
       setEmail(r.requesterEmail ?? "")
@@ -67,9 +73,9 @@ export function EditPrayerRequestDialog({
           requesterName: name || null,
           requesterEmail: email || null,
           requesterPhone: phone || null,
-          personId: r.personId,
+          personId,
           shareConsent: share,
-          expectedUpdatedAt: r.updatedAt,
+          expectedUpdatedAt: revision,
         })
         if (res && "error" in res) {
           setError(res.error.startsWith("This request changed") ? STALE_MESSAGE : res.error)
@@ -100,27 +106,27 @@ export function EditPrayerRequestDialog({
         <form onSubmit={submit} className="grid gap-3">
           <div className="space-y-1.5">
             <Label htmlFor={`${id}-request`}>Prayer request</Label>
-            <Textarea id={`${id}-request`} required rows={4} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} />
+            <Textarea id={`${id}-request`} required disabled={pending} rows={4} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`${id}-name`}>Requester name (optional)</Label>
-            <Input id={`${id}-name`} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
+            <Input id={`${id}-name`} disabled={pending} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`${id}-email`}>Email (optional)</Label>
-            <Input id={`${id}-email`} type="email" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input id={`${id}-email`} disabled={pending} type="email" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`${id}-phone`}>Phone (optional)</Label>
-            <Input id={`${id}-phone`} type="tel" maxLength={30} value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Input id={`${id}-phone`} disabled={pending} type="tel" maxLength={30} value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
           <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
-            <input type="checkbox" checked={share} onChange={(e) => setShare(e.target.checked)} className="size-4" />
+            <input type="checkbox" disabled={pending} checked={share} onChange={(e) => setShare(e.target.checked)} className="size-4" />
             OK to share (the requester agreed)
           </label>
           <FormFeedback state={{ error }} />
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" className="min-h-11 sm:min-h-0" onClick={() => setOpen(false)}>
+            <Button type="button" variant="outline" disabled={pending} className="min-h-11 sm:min-h-0" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={pending || text.trim() === ""} className="min-h-11 sm:min-h-0">

@@ -225,6 +225,49 @@ describe("PrayerRequestList", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument()
   })
 
+  it("submits the revision captured on open, not a newer row prop", async () => {
+    ;(updatePrayerRequest as jest.Mock).mockResolvedValue({ error: "This request changed. Refresh and try again." })
+    const { rerender } = render(<PrayerRequestList requests={[prayer({ shareConsent: true })]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    rerender(<PrayerRequestList requests={[prayer({ shareConsent: false, updatedAt: new Date("2026-11-02T00:00:00Z") })]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(updatePrayerRequest).toHaveBeenCalledWith(3, expect.objectContaining({ shareConsent: true, expectedUpdatedAt: new Date("2026-11-01T00:00:00Z") })),
+    )
+    expect(await screen.findByRole("alert")).toHaveTextContent("reload the page")
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+  })
+
+  it("locks fields and dismissal while saving, then unlocks after a failure", async () => {
+    let resolve!: (v: { error: string }) => void
+    ;(updatePrayerRequest as jest.Mock).mockReturnValue(new Promise((r) => (resolve = r)))
+    render(<PrayerRequestList requests={[prayer()]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(screen.getByLabelText("Phone (optional)")).toBeDisabled())
+    expect(screen.getByLabelText("Prayer request")).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled()
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+    resolve({ error: "Enter a valid email" })
+    expect(await screen.findByText("Enter a valid email")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText("Phone (optional)")).toBeEnabled())
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled()
+  })
+
+  it("a successful edit clears an earlier list error", async () => {
+    ;(setPrayerRequestStatus as jest.Mock).mockResolvedValue({ error: "Archive failed" })
+    ;(updatePrayerRequest as jest.Mock).mockResolvedValue({ success: "Prayer request saved" })
+    render(<PrayerRequestList requests={[prayer()]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }))
+    expect(await screen.findByText("Archive failed")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled())
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Prayer request saved")).toBeInTheDocument()
+    expect(screen.queryByText("Archive failed")).toBeNull()
+  })
+
   it("edit shows other action errors and thrown errors", async () => {
     ;(updatePrayerRequest as jest.Mock).mockResolvedValueOnce({ error: "Enter a valid email" }).mockRejectedValueOnce(new Error("net"))
     render(<PrayerRequestList requests={[prayer()]} />)
