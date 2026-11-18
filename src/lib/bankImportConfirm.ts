@@ -8,7 +8,8 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { hasDuplicateDonorSplit } from "@/lib/bankSplit"
 import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
-import { MONEY_DECIMAL_RE, isP2034 } from "@/lib/validation"
+import { isP2034 } from "@/lib/validation"
+import { moneyAmountSchema } from "@/lib/actions/transactionValidation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
 import { unsealAccountNumber } from "@/lib/bankAccountToken"
 import { BANKREF_HASH_ERROR, BankRefHashError, createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
@@ -24,7 +25,38 @@ export type BankImportResult =
   // createMany and per-row $transactions are not rolled back). `imported`/
   // `duplicates` carry the partial counts so the route can record the real write
   // in the audit log instead of a false "total failure".
-  | { ok: false; status: number; error: string; imported?: number; duplicates?: number }
+  //
+  // `code` (+ `rowIndex`, the row's position in the submitted array) is the PII-free
+  // identifier of a validation failure; the route audit-logs it instead of `error`,
+  // which embeds the bank payee text.
+  | {
+      ok: false
+      status: number
+      error: string
+      code?: BankImportFailureCode
+      rowIndex?: number
+      imported?: number
+      duplicates?: number
+    }
+
+/** Static, PII-free reason codes for a rejected bank import (safe for the audit log). */
+export type BankImportFailureCode =
+  | "INVALID_REQUEST"
+  | "SESSION_EXPIRED"
+  | "BANKREF_HASH"
+  | "PERIOD_LOCKED"
+  | "PAYMENT_ACCOUNT_INVALID"
+  | "FAMILY_INVALID"
+  | "PERSON_INVALID"
+  | "PERSON_FAMILY_MISMATCH"
+  | "SPLIT_NOT_POSITIVE"
+  | "SPLIT_SUM"
+  | "DUPLICATE_ALLOCATION"
+  | "CATEGORY_MISSING"
+  | "CATEGORY_NOT_FOUND"
+  | "CATEGORY_INACTIVE"
+  | "CATEGORY_TYPE"
+  | "DB_ERROR"
 
 // A YYYY-MM-DD string can be shape-valid yet not a real calendar date
 // ("2026-02-31"). new Date() would roll it into the next month and post the
@@ -41,12 +73,12 @@ const RowSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date"),
   description: z.string().min(1).max(500),
   details: z.string().max(1000).optional(),
-  amount: z.string().regex(MONEY_DECIMAL_RE, "Invalid amount"),
+  amount: moneyAmountSchema,
   type: z.enum(["INCOME", "EXPENSE"]),
   bankRef: z.string().min(1).max(200),
   accountId: z.number().int().positive().nullable(),
   skip: z.boolean(),
-  paymentAccountId: z.number().int().positive().optional(),
+  paymentAccountId: z.number().int().positive(),
   familyId: z.number().int().positive().optional().nullable(),
   personId: z.number().int().positive().optional().nullable(),
   fromPettyCash: z.boolean().optional(),
@@ -54,7 +86,7 @@ const RowSchema = z.object({
     .array(
       z.object({
         accountId: z.number().int().positive(),
-        amount: z.string().regex(MONEY_DECIMAL_RE, "Invalid amount"),
+        amount: moneyAmountSchema,
         familyId: z.number().int().positive().optional().nullable(),
         personId: z.number().int().positive().optional().nullable(),
       })
@@ -148,13 +180,13 @@ function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
 export async function confirmBankImport(rawBody: unknown): Promise<BankImportResult> {
   const parsed = BodySchema.safeParse(rawBody)
   if (!parsed.success) {
-    return { ok: false, status: 400, error: "Invalid request data" }
+    return { ok: false, status: 400, error: "Invalid request data", code: "INVALID_REQUEST" }
   }
 
   const body = parsed.data
   const rows = Array.isArray(body) ? body : body.rows
   if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
-    return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again." }
+    return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again.", code: "SESSION_EXPIRED" }
   }
   let refVariants: (ref: string) => string[]
   try {
@@ -162,7 +194,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   } catch (e) {
     if (!(e instanceof BankRefHashError)) throw e
     // Fail closed: never insert unhashed refs, never throw past the result contract.
-    return { ok: false, status: 500, error: BANKREF_HASH_ERROR }
+    return { ok: false, status: 500, error: BANKREF_HASH_ERROR, code: "BANKREF_HASH" }
   }
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
@@ -175,6 +207,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       return {
         ok: false,
         status: 400,
+        code: "PERIOD_LOCKED",
         error: `One or more transactions fall in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}). Adjust the lock date or exclude those rows.`,
       }
     }
@@ -215,7 +248,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // both manual create and the import picker refuse, defeating deactivation
       // (mirrors the category isActive guard below).
       if (a?.kind !== "BANK" || !a.isActive) {
-        return { ok: false, status: 400, error: "Invalid payment account" }
+        return { ok: false, status: 400, error: "Invalid payment account", code: "PAYMENT_ACCOUNT_INVALID" }
       }
       paymentAccountNameById.set(id, a.name)
     }
@@ -237,7 +270,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     const valid = await prisma.family.findMany({ where: { id: { in: familyIds } }, select: { id: true } })
     const validSet = new Set(valid.map((f) => f.id))
     if (familyIds.some((id) => !validSet.has(id))) {
-      return { ok: false, status: 400, error: "Invalid family reference" }
+      return { ok: false, status: 400, error: "Invalid family reference", code: "FAMILY_INVALID" }
     }
   }
   // Map each person to its owning family so we can reject a row that pairs a
@@ -251,7 +284,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     })
     const validSet = new Set(valid.map((p) => p.id))
     if (personIds.some((id) => !validSet.has(id))) {
-      return { ok: false, status: 400, error: "Invalid person reference" }
+      return { ok: false, status: 400, error: "Invalid person reference", code: "PERSON_INVALID" }
     }
     for (const p of valid) personFamily.set(p.id, p.familyId)
   }
@@ -282,7 +315,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   for (const { familyId, personId } of memberPairs) {
     if (personId == null) continue
     if (familyId != null && personFamily.get(personId) !== familyId) {
-      return { ok: false, status: 400, error: "Person does not belong to the selected family" }
+      return { ok: false, status: 400, error: "Person does not belong to the selected family", code: "PERSON_FAMILY_MISMATCH" }
     }
   }
 
@@ -294,6 +327,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       return {
         ok: false,
         status: 400,
+        code: "SPLIT_NOT_POSITIVE",
+        rowIndex: rows.indexOf(r),
         error: `Split amounts for "${r.description}" (${r.date}) must each be greater than 0`,
       }
     }
@@ -302,6 +337,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       return {
         ok: false,
         status: 400,
+        code: "SPLIT_SUM",
+        rowIndex: rows.indexOf(r),
         error: `Split amounts for "${r.description}" (${r.date}) must total ${r.amount}`,
       }
     }
@@ -312,6 +349,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       return {
         ok: false,
         status: 400,
+        code: "DUPLICATE_ALLOCATION",
+        rowIndex: rows.indexOf(r),
         error: `"${r.description}" (${r.date}) assigns the same member to more than one allocation in the same category — combine them into a single split`,
       }
     }
@@ -327,6 +366,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       return {
         ok: false,
         status: 400,
+        code: "CATEGORY_MISSING",
+        rowIndex: rows.indexOf(r),
         error: `"${r.description}" (${r.date}) needs a category before it can be imported`,
       }
     }
@@ -339,9 +380,9 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     .filter((r) => !r.fromPettyCash)
     .flatMap((r) =>
       r.splits?.length
-        ? r.splits.map((s) => ({ accountId: s.accountId!, type: r.type, label: `"${r.description}" (${r.date})` }))
+        ? r.splits.map((s) => ({ accountId: s.accountId!, type: r.type, label: `"${r.description}" (${r.date})`, rowIndex: rows.indexOf(r) }))
         : r.accountId
-          ? [{ accountId: r.accountId, type: r.type, label: `"${r.description}" (${r.date})` }]
+          ? [{ accountId: r.accountId, type: r.type, label: `"${r.description}" (${r.date})`, rowIndex: rows.indexOf(r) }]
           : []
     )
   const acctIds = Array.from(new Set(acctChecks.map((c) => c.accountId)))
@@ -354,15 +395,17 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     for (const c of acctChecks) {
       const a = acctMap.get(c.accountId)
       if (!a) {
-        return { ok: false, status: 400, error: `Invalid category for ${c.label}: the selected category no longer exists` }
+        return { ok: false, status: 400, code: "CATEGORY_NOT_FOUND", rowIndex: c.rowIndex, error: `Invalid category for ${c.label}: the selected category no longer exists` }
       }
       if (!a.isActive) {
-        return { ok: false, status: 400, error: `Invalid category for ${c.label}: the selected category is inactive` }
+        return { ok: false, status: 400, code: "CATEGORY_INACTIVE", rowIndex: c.rowIndex, error: `Invalid category for ${c.label}: the selected category is inactive` }
       }
       if (a.type !== c.type) {
         return {
           ok: false,
           status: 400,
+          code: "CATEGORY_TYPE",
+          rowIndex: c.rowIndex,
           error: `Invalid category for ${c.label}: this is an ${c.type} transaction but the selected category is ${a.type}`,
         }
       }
@@ -453,6 +496,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   const dbFault = (): BankImportResult => ({
     ok: false,
     status: 500,
+    code: "DB_ERROR",
     error:
       imported > 0
         ? `A database error occurred after ${imported} transaction${imported === 1 ? "" : "s"} were already saved. Re-upload the same statement to import the remaining rows — already-saved rows are skipped automatically.`
