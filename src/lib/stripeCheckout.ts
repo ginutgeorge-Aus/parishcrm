@@ -663,11 +663,11 @@ async function completePaidCheckout(
     // it, or an unpaid delivery reopened it) — never ack a paid session that
     // has no registration without a retry or an ops signal.
     const current = await prisma.checkoutSession.findUnique({ where: { id: staging.id } })
-    if (!current || current.status === "COMPLETED" || current.status === "UNFULFILLED") return { status: 200 }
-    if (current.status === "OPEN" || isLateClaimable(current)) return { status: 500 } // claimable again → Stripe redelivers
+    if (current && (current.status === "COMPLETED" || current.status === "UNFULFILLED")) return { status: 200 }
+    if (current && (current.status === "OPEN" || isLateClaimable(current))) return { status: 500 } // claimable again → Stripe redelivers
     await notifyStripeAlert(
       "charged but checkout no longer claimable",
-      `Session ${session.id}: payment settled but the staged CheckoutSession is ${current.status} with its payload gone. No registration created. Money retained; resolve manually.`,
+      `Session ${session.id}: payment settled but the staged CheckoutSession is ${current ? `${current.status} with its payload gone` : "gone (deleted mid-claim)"}. No registration created. Money retained; resolve manually.`,
     )
     return { status: 200 }
   }
