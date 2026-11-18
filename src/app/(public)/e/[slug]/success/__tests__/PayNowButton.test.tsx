@@ -21,15 +21,15 @@ beforeEach(() => {
 })
 
 it("shows the card-fee note only when passCardFee is set", () => {
-  const { rerender } = render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} />)
+  const { rerender } = render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} churchEmail="office@example.com" />)
   expect(screen.queryByText(/card processing fee/i)).not.toBeInTheDocument()
-  rerender(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={true} />)
+  rerender(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={true} churchEmail="office@example.com" />)
   expect(screen.getByText(/card processing fee/i)).toBeInTheDocument()
 })
 
 it("redirects to the Stripe URL on success", async () => {
   mStart.mockResolvedValue({ ok: true, url: "https://stripe.test/pay" })
-  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} />)
+  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} churchEmail="office@example.com" />)
   await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
   expect(mStart).toHaveBeenCalledWith("fete", "tok-42")
   expect(mNavigate).toHaveBeenCalledWith("https://stripe.test/pay")
