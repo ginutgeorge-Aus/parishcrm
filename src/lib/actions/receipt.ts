@@ -224,8 +224,8 @@ export async function sendBatchReceipts(
     where: { id: { in: ids } },
     include: {
       account: { select: { code: true, name: true } },
-      family: { select: { name: true, people: { select: { email: true, emailConsent: true } } } },
-      person: { select: { firstName: true, lastName: true, emailConsent: true } },
+      family: { select: { name: true, people: { select: { email: true, emailConsent: true, archivedAt: true } } } },
+      person: { select: { firstName: true, lastName: true, emailConsent: true, archivedAt: true } },
     },
   })
   const txById = new Map(txList.map((tx) => [tx.id, tx]))
@@ -256,6 +256,14 @@ export async function sendBatchReceipts(
       errors.push({ transactionId: row.transactionId, error: "Transaction not found" })
       continue
     }
+    // Archive gate: a person archived after the operator loaded the list must
+    // not get a receipt. Reported (not silently dropped), like consent blocks.
+    const archivedBlocked = "Recipient is archived"
+    if (tx.person?.archivedAt) {
+      failed++
+      errors.push({ transactionId: row.transactionId, error: archivedBlocked })
+      continue
+    }
     // Consent gate. A consent block is reported (not silently dropped) so the
     // operator sees why a receipt wasn't sent and it isn't mistaken for a
     // successful send.
@@ -278,6 +286,11 @@ export async function sendBatchReceipts(
           return false
         }
       })
+      if (member?.archivedAt) {
+        failed++
+        errors.push({ transactionId: row.transactionId, error: archivedBlocked })
+        continue
+      }
       if (member?.emailConsent === false) {
         failed++
         errors.push({ transactionId: row.transactionId, error: consentBlocked })
