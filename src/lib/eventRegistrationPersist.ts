@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { mintRegistrationToken } from "@/lib/registrationLink"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { fmtAUD } from "@/lib/formatting"
@@ -133,7 +133,7 @@ async function runRegistrationTxn(
       eventId: event.id,
       // Opaque, unguessable ref — defeats REG-1..N enumeration of the
       // public success page. 6 bytes = 48 bits, @unique-enforced.
-      publicToken: "REG-" + randomBytes(6).toString("hex").toUpperCase(),
+      publicToken: mintRegistrationToken(),
       firstName,
       lastName,
       // email + phone are PII submitted by unauthenticated public users;
