@@ -40,7 +40,7 @@ export type BankImportResult =
     }
 
 /** Static, PII-free reason codes for a rejected bank import (safe for the audit log). */
-export type BankImportFailureCode =
+type BankImportFailureCode =
   | "INVALID_REQUEST"
   | "SESSION_EXPIRED"
   | "BANKREF_HASH"
