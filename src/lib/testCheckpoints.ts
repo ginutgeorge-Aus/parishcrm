@@ -21,6 +21,38 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.17.0-pastoral-followups-prayer",
+    version: "v1.17.0",
+    area: "Pastoral",
+    title: "Follow-up tasks and prayer requests can be added and edited",
+    steps:
+      "Open Pastoral → add a follow-up task for a person and a prayer request → edit the prayer request → confirm both save and show in their lists.",
+  },
+  {
+    id: "v1.17.0-staff-roster",
+    version: "v1.17.0",
+    area: "Roster",
+    title: "Staff roster shows duties and unavailability",
+    steps:
+      "Open Roster → mark a date as unavailable → confirm it shows on the roster → copy the personal calendar link and confirm it loads as an .ics feed.",
+  },
+  {
+    id: "v1.17.0-sacrament-register",
+    version: "v1.17.0",
+    area: "Sacraments",
+    title: "Sacrament record can be added and a certificate printed",
+    steps:
+      "Open Sacraments → add a record → confirm it gets a register number → download its certificate PDF and check the details.",
+  },
+  {
+    id: "v1.17.0-optional-event-slug",
+    version: "v1.17.0",
+    area: "Events",
+    title: "Event can be created without a slug",
+    steps:
+      "Create an event and leave the slug empty → confirm it saves and shows in the events list.",
+  },
+  {
     id: "v1.16.0-sunday-school-progress",
     version: "v1.16.0",
     area: "Sunday School",
