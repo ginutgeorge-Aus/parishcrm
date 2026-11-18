@@ -268,10 +268,12 @@ it("no-ops a concurrent redelivery that loses the atomic claim (TOCTOU)", async 
   // Both deliveries pass findUnique (status OPEN), but this one's claim matches
   // 0 rows — the other delivery already flipped it. Must not persist or refund.
   constructEvent.mockReturnValue(completedEvent("cs_1", "pi_9"))
-  prisma.checkoutSession.findUnique.mockResolvedValue({
-    id: 5, eventId: 7, status: "OPEN", surchargeCents: 0,
-    payload: "enc:" + JSON.stringify({ firstName: "A", totalAmount: 20, items: [], capacityChecks: [] }),
-  })
+  prisma.checkoutSession.findUnique
+    .mockResolvedValueOnce({
+      id: 5, eventId: 7, status: "OPEN", surchargeCents: 0,
+      payload: "enc:" + JSON.stringify({ firstName: "A", totalAmount: 20, items: [], capacityChecks: [] }),
+    })
+    .mockResolvedValueOnce({ id: 5, eventId: 7, status: "COMPLETED", registrationId: null, payload: "enc:{}" })
   prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
   expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
   expect(persistRegistration).not.toHaveBeenCalled()
@@ -419,14 +421,32 @@ it("creates the registration (no alert) when a PAID webhook lands late on an EXP
   expect(notifyStripeAlert).not.toHaveBeenCalled()
 })
 
-it("no-ops a late EXPIRED claim that loses the race (another delivery or the scrub got there first)", async () => {
-  constructEvent.mockReturnValue(completedEvent("cs_1", "pi_late"))
-  prisma.checkoutSession.findUnique.mockResolvedValue({
-    id: 5, eventId: 7, status: "EXPIRED", registrationId: null, surchargeCents: 0, payload: "enc:{}",
+describe("late EXPIRED claim that loses the race", () => {
+  const stale = { id: 5, eventId: 7, status: "EXPIRED", registrationId: null, surchargeCents: 0, payload: "enc:{}" }
+  beforeEach(() => {
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_late"))
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
   })
-  prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
-  expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
-  expect(persistRegistration).not.toHaveBeenCalled()
+
+  it("no-ops (idempotent) when another paid delivery already COMPLETED the row", async () => {
+    prisma.checkoutSession.findUnique.mockResolvedValueOnce(stale).mockResolvedValueOnce({ ...stale, status: "COMPLETED" })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(persistRegistration).not.toHaveBeenCalled()
+    expect(notifyStripeAlert).not.toHaveBeenCalled()
+  })
+
+  it("500s for redelivery when an unpaid delivery reopened the row under the stale read", async () => {
+    prisma.checkoutSession.findUnique.mockResolvedValueOnce(stale).mockResolvedValueOnce({ ...stale, status: "OPEN" })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 500 })
+    expect(persistRegistration).not.toHaveBeenCalled()
+  })
+
+  it("alerts ops when the sweep scrubbed the payload before the claim", async () => {
+    prisma.checkoutSession.findUnique.mockResolvedValueOnce(stale).mockResolvedValueOnce({ ...stale, payload: "" })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(persistRegistration).not.toHaveBeenCalled()
+    expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringContaining("no longer claimable"), expect.any(String))
+  })
 })
 
 it("keeps the alert-only path for an EXPIRED pay-now row (registrationId set) — out of scope here", async () => {
@@ -527,7 +547,7 @@ it("expires the staging row + clears payload on async_payment_failed, no registr
   expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
   expect(persistRegistration).not.toHaveBeenCalled()
   expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
-    where: { stripeSessionId: "cs_fail", status: "OPEN" },
+    where: { stripeSessionId: "cs_fail", OR: [{ status: "OPEN" }, { status: "EXPIRED", registrationId: null, payload: { not: "" } }] },
     data: { status: "EXPIRED", payload: "" },
   })
 })

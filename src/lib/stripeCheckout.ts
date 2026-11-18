@@ -393,10 +393,12 @@ export async function handleStripeWebhook(
     case "checkout.session.async_payment_failed": {
       // Debit failed — the staged PII must not persist. Mark the row terminal
       // and scrub now (the sweep's 72h payload grace is only for a payment
-      // that may still succeed). Idempotent: only an OPEN row matches.
+      // that may still succeed). Idempotent: only an OPEN row, or an EXPIRED
+      // row the sweep left holding its payload (this delivery arrived late),
+      // matches. COMPLETED rows are never touched.
       const session = event.data.object as import("stripe").Stripe.Checkout.Session
       await prisma.checkoutSession.updateMany({
-        where: { stripeSessionId: session.id, status: "OPEN" },
+        where: { stripeSessionId: session.id, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
         data: { status: "EXPIRED", payload: "" },
       })
       return { status: 200 }
@@ -655,7 +657,20 @@ async function completePaidCheckout(
       : { id: staging.id, status: "OPEN" },
     data: { status: "COMPLETED", completedAt: new Date() },
   })
-  if (claim.count === 0) return { status: 200 } // another delivery already claimed it
+  if (claim.count === 0) {
+    // Lost the claim. Re-read: another delivery may have won (idempotent),
+    // but the row may also have changed under our stale read (sweep scrubbed
+    // it, or an unpaid delivery reopened it) — never ack a paid session that
+    // has no registration without a retry or an ops signal.
+    const current = await prisma.checkoutSession.findUnique({ where: { id: staging.id } })
+    if (!current || current.status === "COMPLETED" || current.status === "UNFULFILLED") return { status: 200 }
+    if (current.status === "OPEN" || isLateClaimable(current)) return { status: 500 } // claimable again → Stripe redelivers
+    await notifyStripeAlert(
+      "charged but checkout no longer claimable",
+      `Session ${session.id}: payment settled but the staged CheckoutSession is ${current.status} with its payload gone. No registration created. Money retained; resolve manually.`,
+    )
+    return { status: 200 }
+  }
 
   // Everything below the claim can throw for reasons that are NOT a deliberate
   // "charged but undelivered" outcome (decrypt failure, a transient DB error
