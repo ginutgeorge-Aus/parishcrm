@@ -164,7 +164,7 @@ describe("role matrix: generated from src/lib/actions", () => {
   })
 
   const cases = ENTRIES.flatMap((e) =>
-    ALL_ROLES.filter((role) => e.guards.every((g) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role))).map(
+    ALL_ROLES.filter((role) => e.guards.some((g) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role))).map(
       (role) => [`${e.file}.${e.fn} [${e.guards.join(",")}]`, e, role] as const,
     ),
   )
@@ -179,7 +179,7 @@ describe("role matrix: generated from src/lib/actions", () => {
     writes.length = 0
   })
 
-  it.each(cases)("%s refuses %s with no DB write", async (_label, entry, role) => {
+  it.each(cases.map(([label, entry, role]) => [`${label} / ${role}`, entry, role] as const))("%s refuses with no DB write", async (_label, entry, role) => {
     currentRole = role
     const mod = (await import(`@/lib/actions/${entry.file}`)) as Record<string, (...a: unknown[]) => Promise<unknown>>
     let result: unknown
@@ -194,7 +194,7 @@ describe("role matrix: generated from src/lib/actions", () => {
     // never a success payload.
     if (thrown === undefined && result && typeof result === "object") {
       const r = result as Record<string, unknown>
-      expect(r.success === true || r.ok === true).toBe(false)
+      expect(Boolean(r.success) || Boolean(r.ok)).toBe(false)
     }
   })
 })
