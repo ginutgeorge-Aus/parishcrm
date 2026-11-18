@@ -4,9 +4,10 @@
 // stage an ENCRYPTED payload in CheckoutSession — no plaintext PII at rest.
 
 const create = jest.fn()
+const expire = jest.fn()
 jest.mock("@/lib/stripe", () => ({
   stripeConfigured: () => true,
-  getStripe: () => ({ checkout: { sessions: { create } } }),
+  getStripe: () => ({ checkout: { sessions: { create, expire } } }),
 }))
 jest.mock("@/lib/prisma", () => ({ prisma: { checkoutSession: { create: jest.fn() } } }))
 // Real @/lib/crypto.encrypt runs (AES-256-GCM, keyed by jest.setup.ts's
@@ -118,6 +119,34 @@ it("sets expires_at strictly above Stripe's 30-min floor (latency buffer)", asyn
   const secondsAhead = arg.expires_at - Math.floor(before / 1000)
   // > 1800s (30 min), i.e. a real buffer above the floor — not exactly at it.
   expect(secondsAhead).toBeGreaterThan(30 * 60)
+})
+
+describe("staging insert failure", () => {
+  const event = () => makeEventWithTickets({ id: 7, slug: "camp" })
+  const priced: PricedRegistration = {
+    firstName: "A", lastName: "B", email: "a@b.com", emailHash: "h",
+    items: [{ ticketTypeId: 1, quantity: 1, unitPrice: 10, attendeeNames: ["X"], perAttendeeAnswers: [] }],
+    totalAmount: 10, waivedCount: 0, capacityChecks: [],
+  }
+
+  it("expires the Stripe session and rethrows the original error", async () => {
+    create.mockResolvedValue({ id: "cs_orphan", url: "https://stripe/pay/cs_orphan" })
+    const { prisma } = jest.requireMock("@/lib/prisma")
+    prisma.checkoutSession.create.mockRejectedValueOnce(new Error("db down"))
+    expire.mockResolvedValue({})
+    await expect(createEventCheckoutSession(event(), priced, "https://app.test")).rejects.toThrow("db down")
+    expect(expire).toHaveBeenCalledWith("cs_orphan")
+  })
+
+  it("an expire failure does not mask the original error", async () => {
+    create.mockResolvedValue({ id: "cs_orphan2", url: "https://stripe/pay/cs_orphan2" })
+    const { prisma } = jest.requireMock("@/lib/prisma")
+    prisma.checkoutSession.create.mockRejectedValueOnce(new Error("db down"))
+    expire.mockRejectedValue(new Error("stripe down"))
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    await expect(createEventCheckoutSession(event(), priced, "https://app.test")).rejects.toThrow("db down")
+    errSpy.mockRestore()
+  })
 })
 
 it("tags the session and PaymentIntent with eventId/eventSlug metadata", async () => {

@@ -169,13 +169,23 @@ export async function resetEventRegistrations(eventId: number): Promise<ActionRe
     return { error: "A payment is in progress — wait for it to finish before resetting." }
   }
 
+  // Same for records of money taken: a charged-but-unbooked or completed
+  // checkout, or a cancelled registration that still carries its Stripe ref.
+  const paymentRecords =
+    (await prisma.checkoutSession.count({
+      where: { eventId, fundraiserEntryId: null, status: { in: ["COMPLETED", "UNFULFILLED"] } },
+    })) + (await prisma.registration.count({ where: { eventId, paymentRef: { not: null } } }))
+  if (paymentRecords > 0) {
+    return { error: "This event has card payment records, so its registrations cannot be reset." }
+  }
+
   // Fundraiser staging rows (fundraiserEntryId set) are not registrations: keep them.
   // RegistrationItem + Attendee cascade via schema onDelete: Cascade. One
   // transaction so a mid-way failure leaves nothing half-deleted.
   const [regs, waitlist, checkouts] = await prisma.$transaction([
     prisma.registration.deleteMany({ where: { eventId } }),
     prisma.waitlist.deleteMany({ where: { eventId } }),
-    prisma.checkoutSession.deleteMany({ where: { eventId, fundraiserEntryId: null } }),
+    prisma.checkoutSession.deleteMany({ where: { eventId, fundraiserEntryId: null, status: "EXPIRED" } }),
   ])
 
   await logAudit(actorId(session), "EVENT_REGISTRATIONS_RESET", "Event", eventId, {

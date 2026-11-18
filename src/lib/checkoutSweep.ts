@@ -14,6 +14,19 @@ export const PAYLOAD_GRACE_MS = 72 * 60 * 60 * 1000
 // rows (registrationId set) are excluded; they keep the alert-only path.
 export const LATE_CLAIMABLE_WHERE = { status: "EXPIRED", registrationId: null, payload: { not: "" } } as const
 
+// Pay-now twin: an EXPIRED row tied to an existing Registration. It holds no
+// payload, so late completion needs nothing but the registration itself.
+export const PAY_NOW_LATE_CLAIMABLE_WHERE = { status: "EXPIRED", registrationId: { not: null } } as const
+
+/**
+ * In-memory twin of PAY_NOW_LATE_CLAIMABLE_WHERE.
+ * @param row the staged CheckoutSession fields
+ * @returns whether a paid delivery may still claim the EXPIRED pay-now row
+ */
+export function isPayNowLateClaimable(row: { status: string; registrationId: number | null }): boolean {
+  return row.status === "EXPIRED" && row.registrationId != null
+}
+
 /**
  * In-memory twin of LATE_CLAIMABLE_WHERE. Expiry only means "the Stripe
  * session lapsed by the clock", not "cannot have been paid": a late or

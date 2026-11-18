@@ -38,7 +38,7 @@ jest.mock("@/lib/prisma", () => {
     },
     registrationItem: { count: jest.fn(), aggregate: jest.fn(), groupBy: jest.fn() },
     registration: { count: jest.fn().mockResolvedValue(0) },
-    checkoutSession: { count: jest.fn().mockResolvedValue(0) },
+    checkoutSession: { count: jest.fn().mockResolvedValue(0), deleteMany: jest.fn() },
     fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
     eventImage: {
       upsert: jest.fn(),
@@ -377,6 +377,35 @@ describe("deleteEvent", () => {
     expect(prisma.checkoutSession.count).toHaveBeenLastCalledWith({
       where: { eventId: 1, status: "EXPIRED", registrationId: null, payload: { not: "" } },
     })
+  })
+
+  it("refuses to delete when an UNFULFILLED/COMPLETED checkout records money taken — never calls delete", async () => {
+    mockSession("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    const result = await deleteEvent(1)
+    expect(result).toEqual({ error: expect.stringContaining("card payment records") })
+    expect(prisma.checkoutSession.count).toHaveBeenCalledWith({
+      where: { eventId: 1, status: { in: ["COMPLETED", "UNFULFILLED"] } },
+    })
+    expect(prisma.event.delete).not.toHaveBeenCalled()
+  })
+
+  it("refuses to delete when a CANCELLED registration still carries a paymentRef", async () => {
+    mockSession("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.registration.count as jest.Mock).mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    const result = await deleteEvent(1)
+    expect(result).toEqual({ error: expect.stringContaining("card payment records") })
+    expect(prisma.registration.count).toHaveBeenCalledWith({ where: { eventId: 1, paymentRef: { not: null } } })
+    expect(prisma.event.delete).not.toHaveBeenCalled()
+  })
+
+  it("deletes EXPIRED checkouts explicitly before the event (FK is Restrict)", async () => {
+    mockSession("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "s" })
+    await deleteEvent(1).catch(() => undefined) // redirect() may throw
+    expect(prisma.checkoutSession.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1, status: "EXPIRED" } })
   })
 
   it("refuses to delete an event whose fundraiser has entries — the cascade would destroy its payments", async () => {

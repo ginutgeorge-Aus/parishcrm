@@ -306,6 +306,26 @@ describe("resetEventRegistrations", () => {
     expect(logAudit).not.toHaveBeenCalled()
   })
 
+  it("refuses to reset when a COMPLETED/UNFULFILLED checkout records money taken", async () => {
+    mockSession("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, isPublished: false })
+    ;(prisma.registration.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    const result = await resetEventRegistrations(1)
+    expect(result).toEqual({ error: expect.stringContaining("card payment records") })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("refuses to reset when a CANCELLED registration still carries a paymentRef", async () => {
+    mockSession("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, isPublished: false })
+    ;(prisma.registration.count as jest.Mock).mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValue(0)
+    const result = await resetEventRegistrations(1)
+    expect(result).toEqual({ error: expect.stringContaining("card payment records") })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
   it("deletes registrations, waitlist and checkout sessions for a draft event and logs counts", async () => {
     mockSession("ADMIN")
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, isPublished: false })
@@ -318,7 +338,7 @@ describe("resetEventRegistrations", () => {
     expect(prisma.registration.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1 } })
     expect(prisma.waitlist.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1 } })
     // Fundraiser staging rows (fundraiserEntryId set) must survive a reset.
-    expect(prisma.checkoutSession.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1, fundraiserEntryId: null } })
+    expect(prisma.checkoutSession.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1, fundraiserEntryId: null, status: "EXPIRED" } })
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(logAudit).toHaveBeenCalledWith(1, "EVENT_REGISTRATIONS_RESET", "Event", 1, {
       deletedRegistrations: 3,
