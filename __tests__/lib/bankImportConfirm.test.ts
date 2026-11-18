@@ -488,6 +488,18 @@ describe("confirmBankImport — amount bounds and payment account required", () 
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error("expected success")
     expect(result.skipped).toBe(1)
+    expect(result.imported).toBe(1)
+    const data = mockCreateMany.mock.calls[0][0].data
+    expect(data).toHaveLength(1)
+    expect(data[0].bankRef).toBe("KEPT")
+  })
+
+  it("accepts a skipped row whose split has a zero allocation", async () => {
+    const result = await confirmBankImport([
+      { ...baseRow, bankRef: "SKIPPED", accountId: 5, amount: "0.00", skip: true, splits: [{ accountId: 5, amount: "0.00" }] },
+      { ...baseRow, bankRef: "KEPT", accountId: 5 },
+    ])
+    expect(result.ok).toBe(true)
   })
 
   it("rejects an amount above 99,999,999.99 before any write", async () => {

@@ -87,7 +87,8 @@ const RowSchema = z.object({
     .array(
       z.object({
         accountId: z.number().int().positive(),
-        amount: moneyAmountSchema,
+        // Shape only; checked with moneyAmountSchema in the superRefine for non-skipped rows.
+        amount: z.string().min(1, "Amount is required").max(15),
         familyId: z.number().int().positive().optional().nullable(),
         personId: z.number().int().positive().optional().nullable(),
       })
@@ -100,6 +101,10 @@ const RowSchema = z.object({
     if (r.skip) return
     const res = moneyAmountSchema.safeParse(r.amount)
     if (!res.success) for (const i of res.error.issues) ctx.addIssue({ code: "custom", message: i.message, path: ["amount"] })
+    r.splits?.forEach((s, idx) => {
+      const sr = moneyAmountSchema.safeParse(s.amount)
+      if (!sr.success) for (const i of sr.error.issues) ctx.addIssue({ code: "custom", message: i.message, path: ["splits", idx, "amount"] })
+    })
   })
   // Reject impossible calendar dates so they can't be reposted under another
   // period. Shape is already checked by the field regex above.
