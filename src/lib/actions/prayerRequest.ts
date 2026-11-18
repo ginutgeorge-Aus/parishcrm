@@ -118,6 +118,8 @@ export type PrayerRequestView = {
   personName: string | null
   shareConsent: boolean
   shareConsentAt: Date | null
+  /** True when the text or a requester field could not be decrypted: the UI shows the row read-only. */
+  unreadable: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -156,14 +158,19 @@ function dec(v: string | null): string | null {
  * @param row selected row
  */
 function toView(row: ViewRow): PrayerRequestView {
+  const request = safeDecrypt(row.request)
+  const requesterName = dec(row.requesterName)
+  const requesterEmail = dec(row.requesterEmail)
+  const requesterPhone = dec(row.requesterPhone)
   return {
     id: row.id,
     source: row.source,
     status: row.status,
-    request: safeDecrypt(row.request),
-    requesterName: dec(row.requesterName),
-    requesterEmail: dec(row.requesterEmail),
-    requesterPhone: dec(row.requesterPhone),
+    request,
+    requesterName,
+    requesterEmail,
+    requesterPhone,
+    unreadable: [request, requesterName, requesterEmail, requesterPhone].includes(DECRYPTION_ERROR),
     personId: row.personId,
     personName: row.person ? `${row.person.firstName} ${row.person.lastName}` : null,
     shareConsent: row.shareConsent,

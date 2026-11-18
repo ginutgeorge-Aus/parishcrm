@@ -356,6 +356,12 @@ describe("private reads", () => {
     expect(r).toEqual({ requests: [expect.objectContaining({ request: "Healing", requesterName: "Sam Demo", personName: "Sam Demo" })] })
   })
 
+  it("flags a row with an undecryptable field as unreadable", async () => {
+    p.prayerRequest.findMany.mockResolvedValue([viewRow, { ...viewRow, id: 8, requesterName: "BROKEN" }])
+    const r = (await listPrayerRequests()) as { requests: { unreadable: boolean }[] }
+    expect(r.requests.map((x) => x.unreadable)).toEqual([false, true])
+  })
+
   it("gets one by id", async () => {
     p.prayerRequest.findUnique.mockResolvedValue(viewRow)
     expect(await getPrayerRequest(7)).toEqual({ request: expect.objectContaining({ id: 7, request: "Healing" }) })
