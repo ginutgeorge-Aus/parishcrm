@@ -164,7 +164,7 @@ describe("role matrix: generated from src/lib/actions", () => {
   })
 
   const cases = ENTRIES.flatMap((e) =>
-    ALL_ROLES.filter((role) => e.guards.every((g) => !(roleGuard as Record<string, (r: Role) => boolean>)[g](role))).map(
+    ALL_ROLES.filter((role) => e.guards.every((g) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role))).map(
       (role) => [`${e.file}.${e.fn} [${e.guards.join(",")}]`, e, role] as const,
     ),
   )
