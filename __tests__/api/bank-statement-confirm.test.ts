@@ -63,6 +63,7 @@ const confirmedRow = {
   bankRef: "ANZ_987654321_20250623_60.00_PAYMENTFROMJACK",
   accountId: 1,
   skip: false,
+  paymentAccountId: 1,
 }
 
 function makeRequest(body: unknown) {
@@ -298,9 +299,19 @@ describe("POST /api/import/bank-statement/confirm", () => {
       "IMPORT_BANK_STATEMENT_REJECTED",
       "Transaction",
       undefined,
-      expect.objectContaining({ reason: expect.stringContaining("no longer exists") }),
+      { reason: "CATEGORY_NOT_FOUND", row: 0 },
       undefined,
     )
+  })
+
+  test("rejection audit metadata contains a code and no row description", async () => {
+    ;(prisma.account.findMany as jest.Mock).mockResolvedValue([])
+    await POST(makeRequest([confirmedRow]))
+    const rejected = (logAudit as jest.Mock).mock.calls.find((c) => c[1] === "IMPORT_BANK_STATEMENT_REJECTED")
+    expect(rejected).toBeDefined()
+    const serialized = JSON.stringify(rejected![4])
+    expect(serialized).not.toContain("PAYMENT FROM JACK")
+    expect(serialized).not.toContain("JACK")
   })
 
   test("returns 400 naming the row and both types when account type does not match the row type", async () => {

@@ -13,6 +13,9 @@ jest.mock("@/lib/prisma", () => ({
     account: { findMany: jest.fn() },
     family: { findMany: jest.fn() },
     person: { findMany: jest.fn() },
+    paymentAccount: {
+      findMany: jest.fn().mockResolvedValue([{ id: 1, name: "ANZ Church", kind: "BANK", isActive: true }]),
+    },
   },
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
@@ -52,6 +55,7 @@ it("rejects the import with 400 when a row falls in the locked period", async ()
       bankRef: "ANZ_123_20260501_100.00_PAYMENTFROMTEST_999",
       accountId: 1,
       skip: false,
+      paymentAccountId: 1,
     },
   ]
 
@@ -85,6 +89,7 @@ it("allows import when all rows are after the lock date", async () => {
       bankRef: "ANZ_123_20260501_100.00_PAYMENTFROMTEST_999",
       accountId: 1,
       skip: false,
+      paymentAccountId: 1,
     },
   ]
 
@@ -117,6 +122,7 @@ it("passes through when no lock date is set", async () => {
       bankRef: "ANZ_123_20260501_100.00_PAYMENTFROMTEST_999",
       accountId: 1,
       skip: false,
+      paymentAccountId: 1,
     },
   ]
 
