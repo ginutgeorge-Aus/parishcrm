@@ -471,13 +471,23 @@ describe("confirmBankImport — direction-aware cross-format dedup", () => {
   })
 })
 
-describe("confirmBankImport — amount and payment account schema (AUD-3)", () => {
+describe("confirmBankImport — amount bounds and payment account required", () => {
   it("rejects a zero amount", async () => {
     const result = await confirmBankImport([{ ...baseRow, accountId: 5, amount: "0.00" }])
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error("expected failure")
     expect(result.status).toBe(400)
     expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("accepts a skipped row with a zero amount and imports the others", async () => {
+    const result = await confirmBankImport([
+      { ...baseRow, bankRef: "SKIPPED", accountId: 5, amount: "0.00", skip: true },
+      { ...baseRow, bankRef: "KEPT", accountId: 5 },
+    ])
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.skipped).toBe(1)
   })
 
   it("rejects an amount above 99,999,999.99 before any write", async () => {
@@ -507,7 +517,7 @@ describe("confirmBankImport — amount and payment account schema (AUD-3)", () =
   })
 })
 
-describe("confirmBankImport — failure codes (AUD-3)", () => {
+describe("confirmBankImport — failure codes and rowIndex", () => {
   it("returns a code and rowIndex for a missing category, alongside the human error", async () => {
     const result = await confirmBankImport([
       { ...baseRow, bankRef: "A", accountId: 5 },

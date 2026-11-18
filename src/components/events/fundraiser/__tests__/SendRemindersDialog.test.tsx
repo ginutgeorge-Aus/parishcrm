@@ -5,8 +5,8 @@ import { getReminderPlan, sendFundraiserReminders } from "@/lib/actions/fundrais
 jest.mock("@/lib/actions/fundraiser", () => ({ sendFundraiserReminders: jest.fn(), getReminderPlan: jest.fn() }))
 
 /** Render the dialog, open it and wait for the lazily loaded counts. */
-async function open(props: Partial<{ sendable: number; skippedNoEmail: number; lastSentAt: string | null }> = {}) {
-  ;(getReminderPlan as jest.Mock).mockResolvedValue({ sendable: 3, skippedNoEmail: 0, lastSentAt: null, ...props })
+async function open(props: Partial<{ sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; lastSentAt: string | null }> = {}) {
+  ;(getReminderPlan as jest.Mock).mockResolvedValue({ sendable: 3, skippedNoEmail: 0, skippedRecent: 0, deferred: 0, lastSentAt: null, ...props })
   render(<SendRemindersDialog fundraiserId={4} />)
   fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
   await screen.findByText(/Reminders were last sent|No reminders have been sent yet/)
@@ -33,7 +33,7 @@ describe("SendRemindersDialog", () => {
   })
 
   it("says 'up to N' for any send, since the time budget may stop it early", async () => {
-    await open({ sendable: 200, deferred: 5 } as never)
+    await open({ sendable: 200, deferred: 5 })
     expect(screen.getByText("This will email up to 200 people who still owe money.")).toBeInTheDocument()
   })
 

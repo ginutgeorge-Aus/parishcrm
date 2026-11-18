@@ -49,7 +49,6 @@ type BankImportFailureCode =
   | "FAMILY_INVALID"
   | "PERSON_INVALID"
   | "PERSON_FAMILY_MISMATCH"
-  | "SPLIT_NOT_POSITIVE"
   | "SPLIT_SUM"
   | "DUPLICATE_ALLOCATION"
   | "CATEGORY_MISSING"
@@ -73,7 +72,9 @@ const RowSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date"),
   description: z.string().min(1).max(500),
   details: z.string().max(1000).optional(),
-  amount: moneyAmountSchema,
+  // Shape only here; positivity/bounds are enforced for imported rows in the
+  // superRefine below, so a skipped row (never written) with 0.00 cannot reject the batch.
+  amount: z.string().min(1, "Amount is required").max(15),
   type: z.enum(["INCOME", "EXPENSE"]),
   bankRef: z.string().min(1).max(200),
   accountId: z.number().int().positive().nullable(),
@@ -94,6 +95,12 @@ const RowSchema = z.object({
     .max(20)
     .optional(),
 })
+  // Amount rules apply only to rows that will be written.
+  .superRefine((r, ctx) => {
+    if (r.skip) return
+    const res = moneyAmountSchema.safeParse(r.amount)
+    if (!res.success) for (const i of res.error.issues) ctx.addIssue({ code: "custom", message: i.message, path: ["amount"] })
+  })
   // Reject impossible calendar dates so they can't be reposted under another
   // period. Shape is already checked by the field regex above.
   .refine((r) => isRealCalendarDate(r.date), { message: "Invalid date", path: ["date"] })
@@ -319,19 +326,11 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     }
   }
 
-  // Split rows: every allocation must be positive and sum exactly to the row
-  // total (server must not trust the client total) — reject before any insert.
+  // Split rows: allocations must sum exactly to the row total (server must not
+  // trust the client total) — reject before any insert. Each allocation is already
+  // > 0 via moneyAmountSchema in RowSchema.
   for (const r of toImport) {
     if (r.fromPettyCash || !r.splits?.length) continue
-    if (r.splits.some((s) => toCents(s.amount) <= 0)) {
-      return {
-        ok: false,
-        status: 400,
-        code: "SPLIT_NOT_POSITIVE",
-        rowIndex: rows.indexOf(r),
-        error: `Split amounts for "${r.description}" (${r.date}) must each be greater than 0`,
-      }
-    }
     const sum = r.splits.reduce((t, s) => t + toCents(s.amount), 0)
     if (sum !== toCents(r.amount)) {
       return {
