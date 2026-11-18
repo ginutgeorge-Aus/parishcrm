@@ -7,6 +7,23 @@ import { prisma } from "@/lib/prisma"
 // After this window the payload is scrubbed.
 export const PAYLOAD_GRACE_MS = 72 * 60 * 60 * 1000
 
+// Prisma filter for an EXPIRED new-registration ticket row that still holds
+// its staged payload: a late paid confirmation can still claim it. Pay-now
+// rows (registrationId set) are excluded; they keep the alert-only path.
+export const LATE_CLAIMABLE_WHERE = { status: "EXPIRED", registrationId: null, payload: { not: "" } } as const
+
+/**
+ * In-memory twin of LATE_CLAIMABLE_WHERE. Expiry only means "the Stripe
+ * session lapsed by the clock", not "cannot have been paid": a late or
+ * retried paid confirmation can still build the booking from the payload
+ * while it is held (PAYLOAD_GRACE_MS).
+ * @param row the staged CheckoutSession fields
+ * @returns whether a paid delivery may still claim the EXPIRED row
+ */
+export function isLateClaimable(row: { status: string; registrationId: number | null; payload: string | null }): boolean {
+  return row.status === "EXPIRED" && row.registrationId == null && !!row.payload
+}
+
 /**
  * Expire abandoned pay-now staging rows, then scrub the PII payload of rows
  * that have been expired longer than PAYLOAD_GRACE_MS. A row is OPEN only

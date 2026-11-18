@@ -15,6 +15,7 @@ import { EVENT_CAPACITY_INCLUDE } from "@/lib/eventCapacityInclude"
 import { notifyStripeAlert } from "@/lib/notifications"
 import { completeFundraiserPayment } from "@/lib/fundraiserWebhook"
 import { recordWebhookVerificationFailure } from "@/lib/stripeWebhookAlert"
+import { isLateClaimable, LATE_CLAIMABLE_WHERE } from "@/lib/checkoutSweep"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Money fields arrive as a Prisma Decimal from the DB, but callers may also
@@ -376,10 +377,12 @@ export async function handleStripeWebhook(
         // A live PaymentIntent is still in flight for this row — protect it
         // from the hourly sweep so it survives until settlement
         // resolves, however many days that takes. Idempotent: only an OPEN
-        // row matches (mirrors async_payment_failed below).
+        // row, or an EXPIRED row that still holds its payload (this delivery
+        // arrived after the sweep), matches; the latter is re-opened so the
+        // sweep's 72h payload scrub cannot wipe it before settlement.
         await prisma.checkoutSession.updateMany({
-          where: { stripeSessionId: session.id, status: "OPEN" },
-          data: { expiresAt: new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS) },
+          where: { stripeSessionId: session.id, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
+          data: { status: "OPEN", expiresAt: new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS) },
         })
         return { status: 200 }
       }
@@ -389,7 +392,8 @@ export async function handleStripeWebhook(
       return completePaidCheckout(event.data.object as import("stripe").Stripe.Checkout.Session)
     case "checkout.session.async_payment_failed": {
       // Debit failed — the staged PII must not persist. Mark the row terminal
-      // (mirrors checkoutSweep). Idempotent: only an OPEN row matches.
+      // and scrub now (the sweep's 72h payload grace is only for a payment
+      // that may still succeed). Idempotent: only an OPEN row matches.
       const session = event.data.object as import("stripe").Stripe.Checkout.Session
       await prisma.checkoutSession.updateMany({
         where: { stripeSessionId: session.id, status: "OPEN" },
@@ -602,20 +606,6 @@ async function finalizeDuplicateOrToken(
   }
 }
 
-/**
- * True for a new-registration ticket row that the sweep marked EXPIRED but
- * whose staged payload is still held (inside PAYLOAD_GRACE_MS, see
- * checkoutSweep.ts). Expiry only means "the Stripe session lapsed by the
- * clock", not "cannot have been paid": a late or retried paid confirmation
- * can still build the booking from the payload. Pay-now rows
- * (registrationId set) keep the alert-only path.
- * @param staging the staged CheckoutSession fields
- * @returns whether a paid delivery may claim the EXPIRED row
- */
-function isLateClaimable(staging: { status: string; registrationId: number | null; payload: string | null }): boolean {
-  return staging.status === "EXPIRED" && staging.registrationId == null && !!staging.payload
-}
-
 // Claims the staged CheckoutSession (atomic OPEN→COMPLETED) and persists the
 // real Registration as PAID. The ONLY place a paid Registration is created —
 // never trust a success-page redirect. Contains NO refund calls (see the policy
@@ -661,7 +651,7 @@ async function completePaidCheckout(
   // still be there, so a concurrent sweep scrub makes it lose.
   const claim = await prisma.checkoutSession.updateMany({
     where: lateClaim
-      ? { id: staging.id, status: "EXPIRED", payload: { not: "" } }
+      ? { id: staging.id, ...LATE_CLAIMABLE_WHERE }
       : { id: staging.id, status: "OPEN" },
     data: { status: "COMPLETED", completedAt: new Date() },
   })

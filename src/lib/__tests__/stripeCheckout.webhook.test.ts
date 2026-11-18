@@ -409,7 +409,7 @@ it("creates the registration (no alert) when a PAID webhook lands late on an EXP
   // Atomic claim from EXPIRED, guarded on the payload still being present (a
   // concurrent 72h scrub must make the claim lose).
   expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
-    where: { id: 5, status: "EXPIRED", payload: { not: "" } },
+    where: { id: 5, status: "EXPIRED", registrationId: null, payload: { not: "" } },
     data: { status: "COMPLETED", completedAt: expect.any(Date) },
   })
   expect(persistRegistration).toHaveBeenCalledWith(expect.anything(), expect.anything(),
@@ -491,9 +491,15 @@ it("does NOT create a registration when payment_status is not 'paid' (async meth
   // A delayed/async method (e.g. BECS) can settle days later — extend the
   // staging row's expiry well past the hourly sweep so the eventual
   // async_payment_succeeded webhook doesn't hit an already-EXPIRED row.
+  // An EXPIRED row that still holds its payload (unpaid `completed` delivered
+  // late, after the sweep) is re-opened too, so the 72h scrub can't wipe it
+  // before settlement.
   expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
-    where: { stripeSessionId: "cs_async", status: "OPEN" },
-    data: { expiresAt: expect.any(Date) },
+    where: {
+      stripeSessionId: "cs_async",
+      OR: [{ status: "OPEN" }, { status: "EXPIRED", registrationId: null, payload: { not: "" } }],
+    },
+    data: { status: "OPEN", expiresAt: expect.any(Date) },
   })
   const arg = prisma.checkoutSession.updateMany.mock.calls[0][0]
   expect(arg.data.expiresAt.getTime()).toBeGreaterThan(Date.now() + 60 * 60 * 1000)
