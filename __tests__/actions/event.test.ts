@@ -364,7 +364,7 @@ describe("deleteEvent", () => {
       error: "This event has registrations or a payment in progress — cancel them individually before deleting.",
     })
     expect(prisma.event.delete).not.toHaveBeenCalled()
-    expect(prisma.checkoutSession.count).toHaveBeenCalledWith({ where: { eventId: 1, status: "OPEN" } })
+    expect(prisma.checkoutSession.count).toHaveBeenCalledWith({ where: { eventId: 1, OR: [{ status: "OPEN" }, { status: "EXPIRED", registrationId: null, payload: { not: "" } }] } })
   })
 
   it("refuses to delete an event whose fundraiser has entries — the cascade would destroy its payments", async () => {

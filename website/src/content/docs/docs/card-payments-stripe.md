@@ -61,7 +61,7 @@ or badly-signed request is rejected without being parsed or logged. Handles:
 | Event | Effect |
 |-------|--------|
 | `checkout.session.completed` (payment_status = `paid`) | Claims the staging row (atomic `OPEN`→`COMPLETED`, so a redelivered webhook can't double-process) and creates the `Registration` as `PAID` — or, for a pay-now session, flips the existing `PENDING` registration to `PAID` |
-| `checkout.session.completed` (not yet settled, e.g. a delayed bank-debit method) / `checkout.session.async_payment_succeeded` | Extends the staging row's expiry so the sweep doesn't scrub it before settlement, then completes once success actually fires |
+| `checkout.session.completed` (not yet settled, e.g. a delayed bank-debit method) / `checkout.session.async_payment_succeeded` | Extends the staging row's expiry (and re-opens an expired row that still holds its payload) so the sweep doesn't scrub it before settlement, then completes once success actually fires |
 | `checkout.session.async_payment_failed` | Marks the staging row `EXPIRED` — no registration is created |
 | `charge.refunded` (full) | Resolves the registration by its Stripe PaymentIntent and flips it to `CANCELLED`, freeing the seat |
 | `charge.refunded` (partial) | Left alone — surfaced as an ops alert for manual review, since the parish's refunds are all-or-nothing |

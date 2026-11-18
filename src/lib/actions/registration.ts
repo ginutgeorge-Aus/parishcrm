@@ -1,5 +1,6 @@
 "use server"
 
+import { LATE_CLAIMABLE_WHERE } from "@/lib/checkoutSweep"
 import { z } from "zod"
 import { auth } from "@/auth"
 import { paymentMethodOf } from "@/lib/paymentMethod"
@@ -162,7 +163,7 @@ export async function resetEventRegistrations(eventId: number): Promise<ActionRe
   // deleteEvent's OPEN-checkout guard. Fundraiser checkouts are excluded: the
   // reset keeps their staging rows, so they cannot be stranded by it.
   const openCheckouts = await prisma.checkoutSession.count({
-    where: { eventId, status: "OPEN", fundraiserEntryId: null },
+    where: { eventId, fundraiserEntryId: null, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
   })
   if (openCheckouts > 0) {
     return { error: "A payment is in progress — wait for it to finish before resetting." }
