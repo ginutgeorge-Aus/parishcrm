@@ -397,10 +397,52 @@ it("still alerts for an unstaged paid session with no metadata and no payment_li
   errSpy.mockRestore()
 })
 
-it("alerts when a PAID webhook matches an already-EXPIRED staging row — sweep beat settlement/retry, money charged with no registration", async () => {
+it("creates the registration (no alert) when a PAID webhook lands late on an EXPIRED row whose payload the sweep kept", async () => {
+  constructEvent.mockReturnValue(completedEvent("cs_1", "pi_late"))
+  prisma.checkoutSession.findUnique.mockResolvedValue({
+    id: 5, eventId: 7, status: "EXPIRED", registrationId: null, surchargeCents: 0,
+    payload: "enc:" + JSON.stringify({ firstName: "A", totalAmount: 20, items: [], capacityChecks: [] }),
+  })
+  prisma.event.findUnique.mockResolvedValue({ id: 7, ticketTypes: [] })
+  persistRegistration.mockResolvedValue({ ok: true, ref: "REG-LATE" })
+  expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+  // Atomic claim from EXPIRED, guarded on the payload still being present (a
+  // concurrent 72h scrub must make the claim lose).
+  expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
+    where: { id: 5, status: "EXPIRED", payload: { not: "" } },
+    data: { status: "COMPLETED", completedAt: expect.any(Date) },
+  })
+  expect(persistRegistration).toHaveBeenCalledWith(expect.anything(), expect.anything(),
+    { paymentStatus: "PAID", paymentRef: "pi_late" })
+  expect(prisma.checkoutSession.update).toHaveBeenCalledWith(
+    expect.objectContaining({ where: { id: 5 }, data: { publicToken: "REG-LATE" } }))
+  expect(notifyStripeAlert).not.toHaveBeenCalled()
+})
+
+it("no-ops a late EXPIRED claim that loses the race (another delivery or the scrub got there first)", async () => {
+  constructEvent.mockReturnValue(completedEvent("cs_1", "pi_late"))
+  prisma.checkoutSession.findUnique.mockResolvedValue({
+    id: 5, eventId: 7, status: "EXPIRED", registrationId: null, surchargeCents: 0, payload: "enc:{}",
+  })
+  prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
+  expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+  expect(persistRegistration).not.toHaveBeenCalled()
+})
+
+it("keeps the alert-only path for an EXPIRED pay-now row (registrationId set) — out of scope here", async () => {
   const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
   constructEvent.mockReturnValue(completedEvent("cs_1", "pi_9"))
-  prisma.checkoutSession.findUnique.mockResolvedValue({ id: 5, eventId: 7, status: "EXPIRED" })
+  prisma.checkoutSession.findUnique.mockResolvedValue({ id: 5, eventId: 7, status: "EXPIRED", registrationId: 3, payload: "" })
+  expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+  expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+  expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringContaining("charged"), expect.any(String))
+  errSpy.mockRestore()
+})
+
+it("alerts when a PAID webhook matches an already-EXPIRED staging row with an empty payload — scrubbed, money charged with no registration", async () => {
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  constructEvent.mockReturnValue(completedEvent("cs_1", "pi_9"))
+  prisma.checkoutSession.findUnique.mockResolvedValue({ id: 5, eventId: 7, status: "EXPIRED", registrationId: null, payload: "" })
   expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
   expect(persistRegistration).not.toHaveBeenCalled()
   expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled() // no claim attempt on a non-OPEN row
@@ -579,6 +621,24 @@ describe("reversal delivered before its checkout completion", () => {
     expect(prisma.registration.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 21 }, data: { paymentStatus: "CANCELLED" } }))
     errSpy.mockRestore()
+  })
+
+  it("defers with 500 while an EXPIRED row still holds its payload — a late completion could still create the booking", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(refundEvent())
+    prisma.checkoutSession.findUnique.mockResolvedValue({
+      status: "EXPIRED", publicToken: null, registrationId: null, payload: "enc:{}",
+    })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 500 })
+    errSpy.mockRestore()
+  })
+
+  it("acknowledges when the EXPIRED row's payload is already scrubbed", async () => {
+    constructEvent.mockReturnValue(refundEvent())
+    prisma.checkoutSession.findUnique.mockResolvedValue({
+      status: "EXPIRED", publicToken: null, registrationId: null, payload: "",
+    })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
   })
 
   it("acknowledges when the checkout terminated without a registration (UNFULFILLED)", async () => {

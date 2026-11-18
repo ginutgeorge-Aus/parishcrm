@@ -89,9 +89,13 @@ follow-up instead of showing "still finalising" forever.
 ### Abandoned-checkout cleanup (`POST /api/cron/sweep-checkouts`)
 
 An hourly, bearer-token-gated cron (`src/lib/checkoutSweep.ts`) marks any `CheckoutSession` still
-`OPEN` past its expiry as `EXPIRED` and scrubs its encrypted PII payload — so an abandoned
-checkout (someone who never completed Stripe Checkout) doesn't leave registrant data sitting
-around indefinitely. A misconfigured/missing `CRON_SECRET` makes the sweep refuse every call
+`OPEN` past its expiry as `EXPIRED`, then scrubs the encrypted PII payload of rows that have been
+expired for more than 72 hours — so an abandoned checkout (someone who never completed Stripe
+Checkout) doesn't leave registrant data sitting around indefinitely. The 72-hour grace covers
+Stripe's webhook retry window: if a paid confirmation arrives late (for example the app was down
+when Stripe first called), the webhook still claims the `EXPIRED` row and creates the
+registration instead of only alerting ops. A paid confirmation that arrives after the payload was
+scrubbed still raises the "charged but no registration" ops alert. A misconfigured/missing `CRON_SECRET` makes the sweep refuse every call
 (HTTP 503) rather than silently no-op, so the failure is visible in logs.
 
 ### Security

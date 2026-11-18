@@ -469,9 +469,9 @@ async function handleNonOpenStaging(
   }
   // COMPLETED/UNFULFILLED is a benign already-claimed redelivery race — that
   // outcome already signalled ops (or succeeded) on its own first pass, so
-  // stay quiet. EXPIRED is different: the sweep scrubbed this row (e.g. the
-  // delayed-settlement or unclaim-retry expiry extensions above still ran
-  // out, or predate this fix) and a paid webhook has now arrived for a row
+  // stay quiet. EXPIRED is different: only an EXPIRED row that cannot be
+  // claimed late gets here (payload already scrubbed after the sweep's grace
+  // window, or a pay-now row), and a paid webhook has now arrived for a row
   // with no Registration and no PII left to recover it from. Money
   // is retained (no-refund policy) — that must not be a silent 200.
   if (staging.status === "EXPIRED") {
@@ -602,6 +602,20 @@ async function finalizeDuplicateOrToken(
   }
 }
 
+/**
+ * True for a new-registration ticket row that the sweep marked EXPIRED but
+ * whose staged payload is still held (inside PAYLOAD_GRACE_MS, see
+ * checkoutSweep.ts). Expiry only means "the Stripe session lapsed by the
+ * clock", not "cannot have been paid": a late or retried paid confirmation
+ * can still build the booking from the payload. Pay-now rows
+ * (registrationId set) keep the alert-only path.
+ * @param staging the staged CheckoutSession fields
+ * @returns whether a paid delivery may claim the EXPIRED row
+ */
+function isLateClaimable(staging: { status: string; registrationId: number | null; payload: string | null }): boolean {
+  return staging.status === "EXPIRED" && staging.registrationId == null && !!staging.payload
+}
+
 // Claims the staged CheckoutSession (atomic OPEN→COMPLETED) and persists the
 // real Registration as PAID. The ONLY place a paid Registration is created —
 // never trust a success-page redirect. Contains NO refund calls (see the policy
@@ -635,15 +649,20 @@ async function completePaidCheckout(
   if (staging.fundraiserEntryId != null || session.metadata?.fundraiserEntryId) {
     return completeFundraiserPayment(session, staging)
   }
-  if (staging.status !== "OPEN") return handleNonOpenStaging(session, staging)
+  const lateClaim = isLateClaimable(staging)
+  if (staging.status !== "OPEN" && !lateClaim) return handleNonOpenStaging(session, staging)
 
-  // Atomically claim the row: flip OPEN→COMPLETED in a single conditional
-  // UPDATE before any side effect. Stripe retries delivery, so two near-
-  // simultaneous redeliveries can both pass the findUnique above; only the one
-  // whose updateMany matches (count===1) owns the transition and proceeds — the
-  // loser no-ops. Prevents double registration (TOCTOU).
+  // Atomically claim the row: flip OPEN→COMPLETED (or a late EXPIRED→COMPLETED,
+  // see isLateClaimable) in a single conditional UPDATE before any side effect.
+  // Stripe retries delivery, so two near-simultaneous redeliveries can both
+  // pass the findUnique above; only the one whose updateMany matches
+  // (count===1) owns the transition and proceeds — the loser no-ops. Prevents
+  // double registration (TOCTOU). The late claim also requires the payload to
+  // still be there, so a concurrent sweep scrub makes it lose.
   const claim = await prisma.checkoutSession.updateMany({
-    where: { id: staging.id, status: "OPEN" },
+    where: lateClaim
+      ? { id: staging.id, status: "EXPIRED", payload: { not: "" } }
+      : { id: staging.id, status: "OPEN" },
     data: { status: "COMPLETED", completedAt: new Date() },
   })
   if (claim.count === 0) return { status: 200 } // another delivery already claimed it
@@ -849,7 +868,7 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
   if (!data[0]) return false
   const staging = await prisma.checkoutSession.findUnique({
     where: { stripeSessionId: data[0].id },
-    select: { status: true, publicToken: true, fundraiserEntryId: true },
+    select: { status: true, publicToken: true, fundraiserEntryId: true, registrationId: true, payload: true },
   })
   if (staging?.fundraiserEntryId != null || data[0].metadata?.fundraiserEntryId) {
     if (staging?.status === "OPEN") return true
@@ -891,5 +910,11 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
     }
     return false
   }
-  return staging?.status === "OPEN" || (staging?.status === "COMPLETED" && !staging.publicToken)
+  // An EXPIRED row that still holds its payload can still be claimed by a late
+  // completion (isLateClaimable), so it is in flight too.
+  return (
+    staging?.status === "OPEN" ||
+    (staging?.status === "COMPLETED" && !staging.publicToken) ||
+    (!!staging && isLateClaimable(staging))
+  )
 }
