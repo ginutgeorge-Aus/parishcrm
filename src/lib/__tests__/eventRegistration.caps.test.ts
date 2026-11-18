@@ -171,10 +171,21 @@ describe("AUD-2-03 — confirmation mail budgets", () => {
 })
 
 describe("AUD-2-03 — name fields", () => {
+  it.each(["A.Smith", "J.R. Tolkien", "Mary-Jane O.Brien", "St.John", "Mr.Au"])("still accepts dotted name %s", async (firstName) => {
+    findUnique.mockResolvedValue(makeEvent())
+    const result = await createEventRegistration("fete", makeBody({ firstName }), "1.2.3.4")
+    expect(result.ok).toBe(true)
+  })
+
   it.each([
     ["first name URL", { firstName: "Visit http://evil.example" }],
     ["last name www", { lastName: "see www.evil.example" }],
     ["attendee name URL", { attendeeNames: { "1": ["Jane Doe", "https://evil.example"] } }],
+    ["bare domain in first name", { firstName: "visit bit.ly/x" }],
+    ["bare .com in last name", { lastName: "evil.com" }],
+    ["bare domain in attendee name", { attendeeNames: { "1": ["Jane Doe", "free-gift.xyz"] } }],
+    ["unlisted-TLD domain", { firstName: "evil.co" }],
+    ["short host with path", { firstName: "t.ly/x" }],
     ["first name over 60 chars", { firstName: "a".repeat(61) }],
     ["last name over 60 chars", { lastName: "a".repeat(61) }],
   ])("rejects %s with 400 and writes nothing", async (_n, override) => {

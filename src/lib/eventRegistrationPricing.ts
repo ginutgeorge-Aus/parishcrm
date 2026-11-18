@@ -56,7 +56,19 @@ function canonicalizeByTicketTypeId<V>(map: Record<string, V[]> | undefined): Re
 
 // AUD-2-03: name fields are echoed into confirmation mail under the church's
 // name, so reject link-like content (a relay/phishing vector) and cap length.
-const noLinks = (v: string) => !/:\/\/|www\./i.test(v)
+// Bare domains: (1) `host.tld/` path form and (2) common abuse TLDs, both any
+// case; (3) any lowercase `word.tld` (names capitalise after a dot, so "A.Smith"
+// and "St.John" pass while "evil.co" is rejected).
+const BARE_DOMAIN_ANY_CASE =
+  /[a-z0-9-]+\.[a-z]{2,}\/|[a-z0-9-]{2,}\.(?:com|net|org|io|ly|info|biz|xyz|app|link|click|site|online|tk|gl)(?![a-z])/i
+const BARE_DOMAIN_LOWER = /[a-z0-9-]{2,}\.[a-z]{2,}(?![a-z])/
+/**
+ * True when a name carries no link-like content (scheme, www, or bare domain).
+ * @param v candidate name
+ * @returns whether the name is acceptable
+ */
+const noLinks = (v: string) =>
+  !/:\/\/|www\./i.test(v) && !BARE_DOMAIN_ANY_CASE.test(v) && !BARE_DOMAIN_LOWER.test(v)
 const NO_LINKS_MSG = "Names cannot contain web addresses"
 const nameField = z.string().min(1).max(60).refine(noLinks, NO_LINKS_MSG)
 
