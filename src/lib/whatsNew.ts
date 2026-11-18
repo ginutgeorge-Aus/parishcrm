@@ -20,6 +20,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.17.0",
+    date: "2026-11-19",
+    highlights: [
+      "Pastoral care: track follow-up tasks and prayer requests, with a public prayer request form.",
+      "Staff roster: see your roster, mark days you are unavailable, and subscribe to a personal calendar feed.",
+      "Sacraments: keep a register of sacrament records and print certificates.",
+      "Events: an event no longer needs a web address (slug).",
+    ],
+  },
+  {
     version: "v1.16.0",
     date: "2026-11-14",
     highlights: [
