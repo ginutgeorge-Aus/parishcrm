@@ -746,6 +746,15 @@ describe("authorizeCredentials — OTP mode", () => {
     )
   })
 
+  it("OTP consume resets only the OTP fields, leaving the password counter to verifyPassword's CAS", async () => {
+    const validExpiry = new Date(Date.now() + 5 * 60 * 1000)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, otpCode: "hashed:123456", otpExpiresAt: validExpiry })
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
+    const consume = (prisma.user.updateMany as jest.Mock).mock.calls.find(([a]) => "otpCode" in (a.where ?? {}))
+    expect(consume?.[0].data).toEqual({ otpCode: null, otpExpiresAt: null, failedOtpAttempts: 0, otpLockedUntil: null })
+  })
+
   it("only lets one of two concurrent requests consume the same OTP", async () => {
     const validExpiry = new Date(Date.now() + 5 * 60 * 1000)
     const storedUser = { ...baseUser, otpCode: "hashed:123456", otpExpiresAt: validExpiry }

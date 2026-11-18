@@ -5,7 +5,7 @@ import { setVolunteerView, regenerateVolunteerToken } from "@/lib/actions/eventA
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    event: { findUnique: jest.fn(), update: jest.fn() },
+    event: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     auditLog: { create: jest.fn() },
   },
 }))
@@ -31,23 +31,26 @@ describe("setVolunteerView", () => {
     asRole("VIEWER")
     expect(await setVolunteerView(1, true)).toEqual({ error: "Unauthorized" })
     expect(prisma.event.update).not.toHaveBeenCalled()
+    expect(prisma.event.updateMany).not.toHaveBeenCalled()
   })
 
-  it("mints a token when enabling and none exists", async () => {
+  it("mints a token when enabling, writing only where no token exists yet", async () => {
     asRole("ADMIN")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: null })
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     const res = await setVolunteerView(1, true)
     expect(res).toHaveProperty("token")
     const token = (res as { token: string | null }).token
     expect(typeof token).toBe("string")
-    expect(prisma.event.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 1 }, data: { volunteerToken: hashToken(token as string) } }),
-    )
+    expect(prisma.event.updateMany).toHaveBeenCalledWith({
+      where: { id: 1, volunteerToken: null },
+      data: { volunteerToken: hashToken(token as string) },
+    })
   })
 
-  it("refuses to turn on when already on, so a stale tab cannot kill the live shared link", async () => {
+  it("refuses to turn on when already on (stale tab or a lost race), so the live shared link survives", async () => {
     asRole("ADMIN")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "digest" })
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
     const res = await setVolunteerView(1, true)
     expect(res).toEqual({ error: "Volunteer view is already on. Reload the page." })
     expect(prisma.event.update).not.toHaveBeenCalled()
@@ -55,7 +58,7 @@ describe("setVolunteerView", () => {
 
   it("nulls the token when disabling", async () => {
     asRole("ADMIN")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "old" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
     const res = await setVolunteerView(1, false)
     expect(res).toEqual({ token: null })
     expect(prisma.event.update).toHaveBeenCalledWith(
@@ -63,10 +66,18 @@ describe("setVolunteerView", () => {
     )
   })
 
-  it("404s a missing event", async () => {
+  it("404s a missing event when enabling", async () => {
     asRole("ADMIN")
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(null)
     expect(await setVolunteerView(999, true)).toEqual({ error: "Event not found" })
+  })
+
+  it("404s a missing event when disabling", async () => {
+    asRole("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(null)
+    expect(await setVolunteerView(999, false)).toEqual({ error: "Event not found" })
+    expect(prisma.event.update).not.toHaveBeenCalled()
   })
 
   it("rejects an invalid id before any DB access", async () => {
@@ -74,6 +85,7 @@ describe("setVolunteerView", () => {
     expect(await setVolunteerView(-1, true)).toEqual({ error: "Invalid event" })
     expect(prisma.event.findUnique).not.toHaveBeenCalled()
     expect(prisma.event.update).not.toHaveBeenCalled()
+    expect(prisma.event.updateMany).not.toHaveBeenCalled()
   })
 })
 
@@ -81,14 +93,33 @@ describe("regenerateVolunteerToken", () => {
   it("blocks non-editors", async () => {
     asRole("AUDITOR")
     expect(await regenerateVolunteerToken(1)).toEqual({ error: "Unauthorized" })
+    expect(prisma.event.updateMany).not.toHaveBeenCalled()
   })
 
-  it("sets a fresh token", async () => {
+  it("sets a fresh token only while the view is on", async () => {
     asRole("PASTOR")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     const res = await regenerateVolunteerToken(1)
     const token = (res as { token: string | null }).token
     expect(typeof token).toBe("string")
     expect(token).not.toBe("")
+    expect(prisma.event.updateMany).toHaveBeenCalledWith({
+      where: { id: 1, volunteerToken: { not: null } },
+      data: { volunteerToken: hashToken(token as string) },
+    })
+  })
+
+  it("refuses when the view is off, so a stale tab cannot re-enable a disabled link", async () => {
+    asRole("PASTOR")
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    expect(await regenerateVolunteerToken(1)).toEqual({ error: "Volunteer view is off. Reload the page." })
+  })
+
+  it("404s a missing event", async () => {
+    asRole("PASTOR")
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(null)
+    expect(await regenerateVolunteerToken(999)).toEqual({ error: "Event not found" })
   })
 })

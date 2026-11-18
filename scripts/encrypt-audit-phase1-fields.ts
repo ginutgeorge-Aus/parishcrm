@@ -7,7 +7,7 @@ if (!process.env.DATABASE_URL) {
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { encrypt, keyIdOf } from "../src/lib/cryptoCore"
-import { hashToken, isHashedToken } from "../src/lib/tokenHash"
+import { canonicalStoredToken } from "../src/lib/tokenHash"
 import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpers"
 
 // One-time backfill for audit 2026-11 phase 1 (AUD-1-17): these free-text columns are now
@@ -58,21 +58,27 @@ async function backfill(label: string, delegate: Delegate, field: string): Promi
   return changed
 }
 
-/** Replace raw share-link tokens with their SHA-256 digest. Digests are skipped, so re-runs are no-ops. */
+/**
+ * Replace raw share-link tokens with their SHA-256 digest, and lowercase any uppercased digest so DB
+ * lookups (which compare verbatim) can match it. Canonical digests are skipped, so re-runs are no-ops.
+ */
 async function hashTokens(): Promise<void> {
   const events = await prisma.event.findMany({ where: { volunteerToken: { not: null } }, select: { id: true, volunteerToken: true } })
   let n = 0
   for (const e of events) {
-    if (e.volunteerToken && !isHashedToken(e.volunteerToken)) {
+    const next = e.volunteerToken ? canonicalStoredToken(e.volunteerToken) : null
+    if (next) {
       n++
-      if (APPLY) await prisma.event.update({ where: { id: e.id }, data: { volunteerToken: hashToken(e.volunteerToken) } })
+      // Guarded on the value read: a concurrent regenerate matches 0 rows and is never overwritten.
+      if (APPLY) await prisma.event.updateMany({ where: { id: e.id, volunteerToken: e.volunteerToken }, data: { volunteerToken: next } })
     }
   }
   console.log(`event.volunteerToken: ${n} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
 
   const row = await prisma.appSetting.findUnique({ where: { key: "venueUsage.calendarToken" } })
-  const venue = row?.value && !isHashedToken(row.value) ? 1 : 0
-  if (venue && APPLY) await prisma.appSetting.update({ where: { key: "venueUsage.calendarToken" }, data: { value: hashToken(row!.value) } })
+  const nextVenue = row?.value ? canonicalStoredToken(row.value) : null
+  const venue = nextVenue ? 1 : 0
+  if (nextVenue && APPLY) await prisma.appSetting.updateMany({ where: { key: "venueUsage.calendarToken", value: row!.value }, data: { value: nextVenue } })
   console.log(`venueUsage.calendarToken: ${venue} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
 }
 

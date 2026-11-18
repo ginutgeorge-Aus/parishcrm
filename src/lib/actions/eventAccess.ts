@@ -35,25 +35,33 @@ export async function setVolunteerView(id: number, enabled: boolean): Promise<Vo
   if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
-  const existing = await prisma.event.findUnique({
-    where: { id },
-    select: { id: true, volunteerToken: true },
-  })
-  if (!existing) return { error: "Event not found" }
-
-  // Turning on when it is already on (a stale tab) would replace the live shared link: refuse instead.
-  if (enabled && existing.volunteerToken) return { error: "Volunteer view is already on. Reload the page." }
-  // Only a digest is stored, so an existing link cannot be shown again: turning the view on mints a
-  // fresh token and returns it once.
-  const token = enabled ? generateVolunteerToken() : null
-  await prisma.event.update({ where: { id }, data: { volunteerToken: token ? hashToken(token) : null } })
+  let token: string | null = null
+  if (enabled) {
+    // Only a digest is stored, so an existing link cannot be shown again: turning the view on mints a
+    // fresh token and returns it once. Turning on when it is already on (a stale tab, or two
+    // concurrent enables) would replace the live shared link, so the write is conditional on the
+    // token still being null: the loser of a race gets the already-on error, not a second token.
+    token = generateVolunteerToken()
+    const { count } = await prisma.event.updateMany({ where: { id, volunteerToken: null }, data: { volunteerToken: hashToken(token) } })
+    if (count === 0) {
+      const exists = await prisma.event.findUnique({ where: { id }, select: { id: true } })
+      return { error: exists ? "Volunteer view is already on. Reload the page." : "Event not found" }
+    }
+  } else {
+    const existing = await prisma.event.findUnique({ where: { id }, select: { id: true } })
+    if (!existing) return { error: "Event not found" }
+    await prisma.event.update({ where: { id }, data: { volunteerToken: null } })
+  }
   await logAudit(actorId(session), enabled ? "VOLUNTEER_VIEW_ENABLED" : "VOLUNTEER_VIEW_DISABLED", "Event", id)
   revalidatePath(`/events/${id}/registrations`)
   return { token }
 }
 
 /**
- * Mint a fresh token, invalidating any previously-shared link. canEdit-gated.
+ * Mint a fresh token, invalidating any previously-shared link. Only while the view is on: the write
+ * is conditional on a non-null token, so a stale tab cannot re-enable a link someone turned off.
+ * canEdit-gated.
+ * @param id event id
  */
 export async function regenerateVolunteerToken(id: number): Promise<VolunteerTokenResult> {
   const session = await auth()
@@ -62,11 +70,15 @@ export async function regenerateVolunteerToken(id: number): Promise<VolunteerTok
   if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
-  const existing = await prisma.event.findUnique({ where: { id }, select: { id: true } })
-  if (!existing) return { error: "Event not found" }
-
   const token = generateVolunteerToken()
-  await prisma.event.update({ where: { id }, data: { volunteerToken: hashToken(token) } })
+  const { count } = await prisma.event.updateMany({
+    where: { id, volunteerToken: { not: null } },
+    data: { volunteerToken: hashToken(token) },
+  })
+  if (count === 0) {
+    const exists = await prisma.event.findUnique({ where: { id }, select: { id: true } })
+    return { error: exists ? "Volunteer view is off. Reload the page." : "Event not found" }
+  }
   await logAudit(actorId(session), "VOLUNTEER_VIEW_REGENERATED", "Event", id)
   revalidatePath(`/events/${id}/registrations`)
   return { token }
