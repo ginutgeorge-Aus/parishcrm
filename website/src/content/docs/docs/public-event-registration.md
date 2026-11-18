@@ -73,7 +73,8 @@ explicit "registration cancelled" state instead of live booking details.
 3. Validates the submitted body with Zod (ticket quantities capped at 100 per type and 100
    attendees total per registration; custom-question maps capped at 50 keys) and rejects any
    answer to a question the event doesn't actually have. Names are limited to 60 characters
-   and cannot contain web addresses (`://` or `www.`).
+   and cannot contain web addresses (`://`, `www.`, or a bare domain such as `bit.ly/x` or `example.com`).
+   Initials and capitalised abbreviations like `A.Smith` or `St.John` are fine.
 4. Runs three layered bot defences before anything else: a hidden **honeypot** field that a
    script but not a human fills in, a signed **timing token** issued when the page rendered
    (rejects submissions faster than 3 seconds or older than 2 hours), and — only when
