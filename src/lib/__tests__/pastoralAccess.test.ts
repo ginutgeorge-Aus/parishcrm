@@ -1,6 +1,11 @@
 /** @jest-environment node */
 import { UserRole } from "@/lib/generated/prisma/enums"
-import { followUpViewerFromSession, followUpVisibilityWhere, liveFollowUpTarget } from "@/lib/pastoralAccess"
+import {
+  dueByTodayWhere,
+  followUpViewerFromSession,
+  followUpVisibilityWhere,
+  liveFollowUpTarget,
+} from "@/lib/pastoralAccess"
 import {
   canBeFollowUpAssignee,
   canManageFollowUps,
@@ -9,6 +14,13 @@ import {
 } from "@/lib/roleGuard"
 
 const ALL = Object.values(UserRole)
+
+describe("dueByTodayWhere", () => {
+  it("matches tasks dated on or before the given day", () => {
+    const today = new Date("2026-11-18T00:00:00.000Z")
+    expect(dueByTodayWhere(today)).toEqual({ dueDate: { lte: today } })
+  })
+})
 
 describe("pastoral role helpers", () => {
   it("manage follow-ups = ADMIN | PASTOR", () => {
