@@ -330,6 +330,41 @@ describe("sendBatchReceipts", () => {
     })
   })
 
+  it("skips a person archived after the batch was loaded", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const txArchived = {
+      ...mockTransaction,
+      person: { firstName: "Jane", lastName: "Doe", emailConsent: true, archivedAt: new Date() },
+    }
+    mockFindMany.mockResolvedValue([txArchived])
+    mockSendEmail.mockResolvedValue(undefined)
+    const result = await sendBatchReceipts([{ transactionId: 10, toEmail: "jane@example.com" }])
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      sent: 0,
+      failed: 1,
+      errors: [{ transactionId: 10, error: "Recipient is archived" }],
+    })
+  })
+
+  it("skips family receipt when the matching member is archived", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const txFamilyArchived = {
+      ...mockTransaction,
+      person: null,
+      family: { name: "Smith", people: [{ email: "enc:jane@example.com", emailConsent: true, archivedAt: new Date() }] },
+    }
+    mockFindMany.mockResolvedValue([txFamilyArchived])
+    mockSendEmail.mockResolvedValue(undefined)
+    const result = await sendBatchReceipts([{ transactionId: 10, toEmail: "jane@example.com" }])
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      sent: 0,
+      failed: 1,
+      errors: [{ transactionId: 10, error: "Recipient is archived" }],
+    })
+  })
+
   it("sends when person has emailConsent=true", async () => {
     mockSession.mockResolvedValue(adminSession)
     const txConsent = { ...mockTransaction, person: { firstName: "Jane", lastName: "Doe", emailConsent: true } }
