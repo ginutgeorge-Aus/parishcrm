@@ -590,6 +590,17 @@ describe("fetchTransactionsForReceipt", () => {
     const r = result as { transactions: { description: string }[] }
     expect(r.transactions[0].description).toBe("Sunday Offering")
   })
+
+  it("skips archived people when picking the default recipient (archived person must not get a receipt address)", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    mockFindMany.mockResolvedValue([])
+    await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
+    const arg = mockFindMany.mock.calls[mockFindMany.mock.calls.length - 1][0]
+    expect(arg.include.family.select.people.where).toMatchObject({
+      archivedAt: null,
+      emailConsent: true,
+    })
+  })
 })
 
 // --- decrypt on email send ---
