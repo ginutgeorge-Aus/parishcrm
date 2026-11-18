@@ -220,7 +220,8 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
     mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: "013-999", bankAccount: "12345678" })
     // Sweep flipped the row EXPIRED, then a late webhook (e.g. BECS) confirmed
     // the charge — customer was charged but the row was never token-stamped.
-    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "EXPIRED" })
+    // Payload already scrubbed, so the late webhook could not build the booking.
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "EXPIRED", registrationId: null, payload: "" })
 
     const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_expired"))
 
@@ -228,6 +229,16 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
     expect(html).not.toMatch(/being finalised/i)
     expect(html).not.toContain("Bank transfer details")
     expect(mockRegFindFirst).not.toHaveBeenCalled()
+  })
+
+  it("shows 'being finalised' for an EXPIRED session that still holds its payload — a late Stripe confirmation can still create the booking", async () => {
+    mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: "013-999", bankAccount: "12345678" })
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "EXPIRED", registrationId: null, payload: "enc:x" })
+
+    const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_late"))
+
+    expect(html).toMatch(/being finalised/i)
+    expect(html).not.toMatch(/couldn&#x27;t complete your registration/i)
   })
 
   it("shows 'being finalised' — not 'couldn't complete' — for a COMPLETED session with no publicToken yet (webhook mid-persist)", async () => {

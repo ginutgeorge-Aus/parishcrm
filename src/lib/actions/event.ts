@@ -1,5 +1,6 @@
 "use server"
 
+import { LATE_CLAIMABLE_WHERE } from "@/lib/checkoutSweep"
 import { auth } from "@/auth"
 import { logger } from "@/lib/logger"
 import { actorId } from "@/lib/actor"
@@ -286,7 +287,7 @@ async function assertNoActiveRegistrationsOrCheckouts(tx: Prisma.TransactionClie
     where: { eventId: id, paymentStatus: { not: "CANCELLED" } },
   })
   const openCheckouts = await tx.checkoutSession.count({
-    where: { eventId: id, status: "OPEN" },
+    where: { eventId: id, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
   })
   if (activeRegistrations > 0 || openCheckouts > 0) {
     throw new Error("GUARDED_DELETE_BLOCKED")

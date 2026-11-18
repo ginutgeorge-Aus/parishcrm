@@ -89,7 +89,8 @@ export function anonymisedWaitlistData(now: Date) {
 
 // every card checkout stages CheckoutSession.payload = an encrypted
 // PricedRegistration JSON blob (firstName/lastName/email/phone/customAnswers).
-// It's cleared to "" on EXPIRED/async-payment-failed, but the COMPLETED and
+// It's cleared to "" 72h after EXPIRED (checkoutSweep) and at once on
+// async-payment-failed, but the COMPLETED and
 // UNFULFILLED paths deliberately retain it ("Payload retained for ops") and
 // nothing ever clears it afterward — a full encrypted PII copy survives
 // Registration/Attendee anonymisation indefinitely. Scrub it on the same
