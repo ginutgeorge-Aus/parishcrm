@@ -13,8 +13,9 @@ underlying fields are protected, and [Roles-and-Permissions](/parishcrm/docs/rol
 - The privacy policy is public at `/privacy` — reachable without logging in, since privacy
   legislation typically requires it be visible to anyone, not just members.
 - Anyone with accounting access can view relevant audit trail entries where the UI surfaces
-  them (e.g. who sent a receipt, and to what address, on the receipt-audit and transaction
-  pages).
+  them (e.g. who sent a receipt, and when, on the receipt-audit and transaction pages). The
+  recipient address itself is shown only to roles that can see people records; `AUDITOR` sees
+  "Hidden".
 - An ADMIN can export a full JSON record of a person's stored data via the person export
   feature — used to respond to an access request.
 - Retention purges are **not** run automatically by the app, and there's no "purge now" button
@@ -50,9 +51,9 @@ which family the person belongs to, not the person's new phone number or notes c
 
 **Read access to audit data.** Audit entries aren't generally browsable as a raw log by
 non-admins; specific views surface relevant slices to the roles that need them — for
-example, accounting roles (including `AUDITOR`) can see who a giving receipt was emailed to
-and when, as part of receipt-audit accountability, without being able to see broader member
-PII (see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/) for why `AUDITOR` is excluded from people/family records
+example, accounting roles (including `AUDITOR`) can see that and when a giving receipt was
+emailed, as part of receipt-audit accountability, but the recipient address is hidden from
+roles without people access, so `AUDITOR` cannot see member PII (see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/) for why `AUDITOR` is excluded from people/family records
 generally).
 
 **PII retention purges.** Two operator-run scripts anonymise personal data once it's no longer
