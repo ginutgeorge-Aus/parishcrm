@@ -17,6 +17,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { canManageSundaySchool, isAdmin } from "@/lib/roleGuard"
 import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { ClassFormSchema, currentSchoolYear, planRollover } from "@/lib/sundaySchool"
+import { enrolCandidateWhere } from "@/lib/sundaySchoolAccess"
 import { holdYear, isYearLockedTx, lockLiveClass, lockStateError, withLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
@@ -196,6 +197,8 @@ export async function removeTeacher(classId: number, personId: number): Promise<
  * moved: their enrolment is re-pointed and `enrolledAt` restarts, which bounds
  * what their progress page lists for this class. Re-enrolling a child already
  * here changes nothing. canManageSundaySchool-gated; ids deduped and capped.
+ * Roles without people access (HEADMASTER) may only enrol children or people
+ * already enrolled this year (`enrolCandidateWhere`); others get PERSON_GONE.
  */
 export async function enrolChildren(classId: number, personIds: number[]): Promise<ActionResultWithSuccess> {
   const g = await editableClass(classId)
@@ -206,10 +209,14 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
   if (ids.length > MAX_BATCH) return { error: "Too many people at once" }
   if (!ids.every(isValidPgId)) return { error: "Invalid person" }
 
-  const found = await prisma.person.findMany({ where: { id: { in: ids }, archivedAt: null }, select: { id: true } })
-  if (found.length !== ids.length) return { error: PERSON_GONE }
-
   const year = g.cls.year
+  // Same PERSON_GONE for "hidden from this role" as for "missing": a different
+  // message would reveal which ids are adults.
+  const found = await prisma.person.findMany({
+    where: { id: { in: ids }, archivedAt: null, ...enrolCandidateWhere(g.session?.user?.role, year) },
+    select: { id: true },
+  })
+  if (found.length !== ids.length) return { error: PERSON_GONE }
   let movedFrom: { classId: number }[] = []
   try {
     // FOR SHARE on the class row blocks a concurrent archive (its UPDATE needs
@@ -223,6 +230,18 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       const people = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "Person" WHERE id = ANY(${ids}) AND "archivedAt" IS NULL FOR SHARE`
       if (people.length !== ids.length) throw new Error(PERSON_GONE)
+      // Scope recheck (AUD-5-01): the pre-transaction lookup can go stale if an
+      // unenrol commits meanwhile. FOR SHARE on these enrolment rows makes a
+      // concurrent unenrol's DELETE wait until we commit (or already be visible
+      // here), so the eligibility read below holds at commit time.
+      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
+      await tx.$queryRaw`
+        SELECT id FROM "SundaySchoolEnrolment" WHERE "personId" = ANY(${ids}) AND year = ${year} FOR SHARE`
+      const stillEligible = await tx.person.findMany({
+        where: { id: { in: ids }, archivedAt: null, ...enrolCandidateWhere(g.session?.user?.role, year) },
+        select: { id: true },
+      })
+      if (stillEligible.length !== ids.length) throw new Error(PERSON_GONE)
       // Read inside the transaction (after the locks) so the audit count and the
       // revalidated paths reflect what this write actually moved.
       // Only a live class counts as a "move"; a row left in an archived class is

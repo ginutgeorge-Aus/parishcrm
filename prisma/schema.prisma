@@ -695,7 +695,7 @@ model CheckoutSession {
   id              Int            @id @default(autoincrement())
   stripeSessionId String         @unique
   eventId         Int
-  event           Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event           Event          @relation(fields: [eventId], references: [id], onDelete: Restrict)
   status          CheckoutStatus @default(OPEN)
   payload         String // encrypted PricedRegistration JSON
   totalAmount     Decimal        @db.Decimal(10, 2)
