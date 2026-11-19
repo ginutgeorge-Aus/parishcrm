@@ -234,6 +234,46 @@ describe("authorizeCredentials", () => {
     expect(lockCall[0].data.failedLoginAttempts).toBe(0)
   })
 
+  it("claims the attempt before comparing: 10 concurrent wrong passwords get at most 5 compares", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash, failedLoginAttempts: 0 })
+    // DB stand-in: the `lt: 5` filter is evaluated atomically against the live counter.
+    let counter = 0
+    ;(prisma.user.update as jest.Mock).mockImplementation(async () => {
+      if (counter >= 5) throw Object.assign(new Error("not found"), { code: "P2025" })
+      counter += 1
+      return { failedLoginAttempts: counter }
+    })
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, () => authorizeCredentials({ email: "admin@example.com", password: "wrongpassword" })),
+    )
+    const compared = results.filter((r) => r.status === "fulfilled").length
+    const locked = results.filter((r) => r.status === "rejected" && r.reason instanceof AccountLocked).length
+    expect(compared).toBe(5)
+    expect(locked).toBe(5)
+  })
+
+  it("claims the attempt before comparing: 10 concurrent wrong OTP codes get at most 5 compares", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      ...baseUser, passwordHash, otpCode: "hashed:123456", otpExpiresAt: new Date(Date.now() + 60_000),
+    })
+    let counter = 0
+    ;(prisma.user.update as jest.Mock).mockImplementation(async (args: { where: Record<string, unknown> }) => {
+      if (!("failedOtpAttempts" in args.where)) return {}
+      if (counter >= 5) throw Object.assign(new Error("not found"), { code: "P2025" })
+      counter += 1
+      return { failedOtpAttempts: counter }
+    })
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, () =>
+        authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "000000" }),
+      ),
+    )
+    expect(results.filter((r) => r.status === "fulfilled").length).toBe(5)
+    expect(results.filter((r) => r.status === "rejected" && r.reason instanceof AccountLocked).length).toBe(5)
+  })
+
   it("throws AccountLocked when account is locked", async () => {
     const passwordHash = await hash("correctpassword", 10)
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
@@ -298,8 +338,10 @@ describe("authorizeCredentials", () => {
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword" })
     ).rejects.toBeInstanceOf(AccountLocked)
-    // Must NOT issue a fresh OTP or reset the lockout
-    expect(prisma.user.update).not.toHaveBeenCalled()
+    // Must NOT issue a fresh OTP or reset the lockout (the only write is the password-attempt claim)
+    expect(prisma.user.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ otpCode: expect.anything() }) }),
+    )
   })
 
   it("issues a fresh OTP once the OTP lockout has expired (boundary)", async () => {
@@ -426,7 +468,7 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(queryRaw).toHaveBeenCalledTimes(1)
     expect(findUnique).toHaveBeenCalledTimes(1)
     expect(findUnique).toHaveBeenCalledWith({ where: { id: 9 } })
-    expect((prisma.user.update as jest.Mock).mock.calls[0][0].where).toEqual({ id: 9 })
+    expect((prisma.user.update as jest.Mock).mock.calls[0][0].where).toEqual({ id: 9, failedLoginAttempts: { lt: 5 } })
   })
 
   it("mixed-case hit: a legacy Admin@Example.com row resolves from any-case, padded input", async () => {
@@ -535,7 +577,7 @@ describe("authorizeCredentials — email normalisation", () => {
     const updates = (prisma.user.update as jest.Mock).mock.calls
     expect(updates).toHaveLength(3)
     for (const [arg] of updates) {
-      expect(arg.where).toEqual({ id: baseUser.id })
+      expect(arg.where).toEqual({ id: baseUser.id, failedLoginAttempts: { lt: 5 } })
       expect(arg.data.failedLoginAttempts).toEqual({ increment: 1 })
     }
   })
@@ -968,6 +1010,7 @@ describe("authorizeCredentials — trusted device skip", () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash, failedLoginAttempts: 4 })
     ;(prisma.trustedDevice.findFirst as jest.Mock).mockResolvedValue({ id: "dev1", userId: 1, expiresAt: new Date(Date.now() + 1000) })
     ;(prisma.trustedDevice.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 5 })
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
 
     await authorizeCredentials(
@@ -975,9 +1018,9 @@ describe("authorizeCredentials — trusted device skip", () => {
       reqWithCookie("trusted_device=GOODTOKEN"),
     )
 
-    // Compare-and-swap on the value read at login start, so a wrong-password
+    // Compare-and-swap on the value this request claimed, so a wrong-password
     // increment that lands in between isn't wiped (#83).
-    expect(prisma.user.updateMany).toHaveBeenCalledWith({ where: { id: 1, failedLoginAttempts: 4 }, data: { failedLoginAttempts: 0 } })
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({ where: { id: 1, failedLoginAttempts: 5 }, data: { failedLoginAttempts: 0 } })
     expect(prisma.user.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedLoginAttempts: 0 } }))
   })
 
@@ -996,18 +1039,19 @@ describe("authorizeCredentials — trusted device skip", () => {
     expect(result).not.toBeNull()
   })
 
-  it("skips the counter write when there are no prior password failures", async () => {
+  it("releases the attempt it claimed on a first-time correct login (counter 1 -> 0, CAS on 1)", async () => {
     const passwordHash = await hash("correctpassword", 10)
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash })
     ;(prisma.trustedDevice.findFirst as jest.Mock).mockResolvedValue({ id: "dev1", userId: 1, expiresAt: new Date(Date.now() + 1000) })
     ;(prisma.trustedDevice.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 1 })
 
     await authorizeCredentials(
       { email: "admin@example.com", password: "correctpassword", mode: "password", remember: "false" },
       reqWithCookie("trusted_device=GOODTOKEN"),
     )
 
-    expect(prisma.user.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedLoginAttempts: 0 } }))
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({ where: { id: 1, failedLoginAttempts: 1 }, data: { failedLoginAttempts: 0 } })
   })
 
   it("sends OTP when the cookie token does not match any device", async () => {
@@ -1357,9 +1401,11 @@ describe("authorizeCredentials — TOTP", () => {
       email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456",
     })
     expect(result).toMatchObject({ id: "1", email: "admin@example.com" })
-    // Counter reset is folded into verifySecondFactor's write — no separate update.
+    // Counter reset is folded into verifySecondFactor's write — no separate reset update.
     expect(verifySecondFactor).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), "123456", { resetLockouts: true })
-    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(prisma.user.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: 0 }) }),
+    )
   })
 
   it("totp mode rejects a valid code with a wrong password, without checking the code", async () => {
@@ -1410,11 +1456,13 @@ describe("authorizeCredentials — TOTP", () => {
     })
     expect(result).toBeNull()
     expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN_FAILED", "User", 1, { reason: "totp_secret_unreadable" }, undefined)
-    expect(prisma.user.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
-    )
+    // The slot claimed before the compare is refunded, and no lock is applied.
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 1, failedOtpAttempts: { gt: 0 } },
+      data: { failedOtpAttempts: { decrement: 1 } },
+    })
     expect(prisma.user.updateMany).not.toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
+      expect.objectContaining({ data: expect.objectContaining({ otpLockedUntil: expect.any(Date) }) }),
     )
   })
 

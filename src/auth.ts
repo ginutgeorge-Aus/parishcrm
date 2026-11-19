@@ -90,20 +90,40 @@ function clientIpFrom(request?: Request): { ip: string | undefined; key: string 
 
 type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
 
+type AttemptField = "failedLoginAttempts" | "failedOtpAttempts"
+
 /**
- * Counts one wrong second-factor code against the user, locks the account for 15 minutes at 5
- * failures, and audit-logs the failed login.
+ * Claims one guess slot BEFORE the secret is compared. The `lt: 5` filter makes the claim atomic,
+ * so N concurrent guesses can never produce more than 5 compares (a read-then-increment lets them
+ * all pass the check first). The claimed attempt stays counted on failure; success resets it.
+ * @param userId the account being guessed against
+ * @param field which counter to claim from
+ * @returns the counter value after the claim, or null when all 5 slots are taken (treat as locked)
+ */
+async function claimAttempt(userId: number, field: AttemptField): Promise<number | null> {
+  try {
+    const row = await prisma.user.update({
+      where: { id: userId, [field]: { lt: 5 } },
+      data: { [field]: { increment: 1 } },
+      select: { [field]: true },
+    })
+    return (row as unknown as Record<AttemptField, number | undefined>)?.[field] ?? 0
+  } catch (err) {
+    if ((err as { code?: string })?.code === "P2025") return null
+    throw err
+  }
+}
+
+/**
+ * Handles one wrong second-factor code: locks the account for 15 minutes once the claimed attempt
+ * was the 5th, and audit-logs the failed login. The attempt itself was counted by `claimAttempt`.
  * @param userId the account that failed
  * @param reason short reason code for the audit log
  * @param ip client IP for the audit log, if known
+ * @param attempts counter value returned by `claimAttempt` for this guess
  */
-async function recordOtpFailure(userId: number, reason: string, ip: string | undefined): Promise<void> {
-  const { failedOtpAttempts: newOtpAttempts } = await prisma.user.update({
-    where: { id: userId },
-    data: { failedOtpAttempts: { increment: 1 } },
-    select: { failedOtpAttempts: true },
-  })
-  if (newOtpAttempts >= 5) {
+async function recordOtpFailure(userId: number, reason: string, ip: string | undefined, attempts: number): Promise<void> {
+  if (attempts >= 5) {
     // Match null OR an already-expired lock — filtering on `otpLockedUntil: null`
     // alone means the account can never re-lock after its first lockout expires,
     // because the field then holds a stale (past) timestamp, not null.
@@ -193,15 +213,14 @@ async function verifyPassword(email: string, password: string, ip: string | unde
     throw new AccountLocked()
   }
 
+  // Claim the guess slot before the compare so concurrent guesses can't all pass the lock check.
+  const claimed = await claimAttempt(user.id, "failedLoginAttempts")
+  if (claimed === null) throw new AccountLocked()
+
   const passwordValid = await compare(password, user.passwordHash)
 
   if (!passwordValid) {
-    const { failedLoginAttempts: newAttempts } = await prisma.user.update({
-      where: { id: user.id },
-      data: { failedLoginAttempts: { increment: 1 } },
-      select: { failedLoginAttempts: true },
-    })
-    if (newAttempts >= 5) {
+    if (claimed >= 5) {
       // Match null OR an already-expired lock (same class of bug as
       // the OTP lock above): `lockedUntil: null` alone never re-locks after expiry.
       await prisma.user.updateMany({
@@ -222,11 +241,11 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   // just the email-OTP one — trusted-device and DISABLE_OTP logins skip the
   // OTP write, so stale typos would otherwise accumulate into a lockout.
   // The OTP counter/lock is separate and deliberately untouched here.
-  // Compare-and-swap on the value read above: a concurrent wrong-password
+  // Compare-and-swap on the value this request claimed: a concurrent wrong-password
   // increment makes this a no-op instead of being silently wiped.
-  if (user.failedLoginAttempts > 0) {
+  if (claimed > 0) {
     await prisma.user.updateMany({
-      where: { id: user.id, failedLoginAttempts: user.failedLoginAttempts },
+      where: { id: user.id, failedLoginAttempts: claimed },
       data: { failedLoginAttempts: 0 },
     })
   }
@@ -443,12 +462,14 @@ export async function authorizeCredentials(
 
     // DB stores the HMAC of the OTP; hash the submitted code and compare.
     // Timing-safe comparison — guard against length mismatch (throws if unequal lengths)
+    const claimedOtp = await claimAttempt(user.id, "failedOtpAttempts")
+    if (claimedOtp === null) throw new AccountLocked()
     const storedBuf = Buffer.from(user.otpCode, "utf8")
     const inputBuf = Buffer.from(hashOtp(otp), "utf8")
     const otpValid = storedBuf.length === inputBuf.length && timingSafeEqual(storedBuf, inputBuf)
 
     if (!otpValid) {
-      await recordOtpFailure(user.id, "invalid_otp", ip)
+      await recordOtpFailure(user.id, "invalid_otp", ip, claimedOtp)
       return null
     }
 
@@ -490,15 +511,21 @@ export async function authorizeCredentials(
     if (!user || !user.totpEnabledAt) return null
     if (user.otpLockedUntil && user.otpLockedUntil > new Date()) throw new AccountLocked()
 
+    const claimedTotp = await claimAttempt(user.id, "failedOtpAttempts")
+    if (claimedTotp === null) throw new AccountLocked()
     const result = await verifySecondFactor(user, credentials.code, { resetLockouts: true })
     if (!result.ok) {
       // Server-side fault (unreadable stored secret), not a wrong guess: don't
       // count it towards the user's OTP lockout.
       if (result.reason === "totp_secret_unreadable") {
+        await prisma.user.updateMany({
+          where: { id: user.id, failedOtpAttempts: { gt: 0 } },
+          data: { failedOtpAttempts: { decrement: 1 } },
+        })
         void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: result.reason }, ip)
         return null
       }
-      await recordOtpFailure(user.id, result.reason, ip)
+      await recordOtpFailure(user.id, result.reason, ip, claimedTotp)
       return null
     }
     if (result.via === "backup") {
