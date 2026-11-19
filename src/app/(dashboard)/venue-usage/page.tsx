@@ -18,8 +18,9 @@ export default async function VenueUsagePage(
   const settings = await readVenueUsageSettings()
   if (!settings.enabled) redirect("/")
 
-  // Only a digest is stored (not a usable link), and the page passes on just whether one exists. Still read
-  // after the canEdit gate above, so a non-editor never learns whether the calendar link is on.
+  // New resets store only a digest (not a usable link), but a legacy value not yet backfilled may still be a
+  // usable token. Either way the page passes on just a boolean, never the stored value. Read after the canEdit
+  // gate above, so a non-editor never learns whether the calendar link is on.
   const token = await readCalendarToken()
 
   const today = sydneyTodayYMD()
