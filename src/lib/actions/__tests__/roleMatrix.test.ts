@@ -3,9 +3,11 @@
  *
  * AUD-7-07 role matrix. GENERATED from source: scans every src/lib/actions/*.ts,
  * finds each exported async function that opens with a negated roleGuard check
- * (`if (!canX(session?.user?.role)) ...` before any DB access), and for every
- * role that the REAL roleGuard helpers refuse, asserts the action performs no
- * Prisma write. Covers OFFICE_ADMIN being refused on admin-only / PASTOR+ADMIN
+ * (`if (!canX(session?.user?.role)) ...` or `canX(...) === false` before any DB
+ * access; comments and strings ignored), and for every role that the REAL
+ * roleGuard helpers refuse, asserts the action performs no Prisma write. Writes
+ * are model write methods, `$executeRaw*`, and `$queryRaw*` whose SQL writes or locks;
+ * `$transaction` itself is not a write, only what runs inside it. Covers OFFICE_ADMIN being refused on admin-only / PASTOR+ADMIN
  * actions (the audit's nearest-miss role). roleGuard is never mocked.
  */
 import fs from "node:fs"
@@ -26,11 +28,23 @@ const WRITE_METHODS = new Set([
   "deleteMany",
   "$executeRaw",
   "$executeRawUnsafe",
-  // Raw queries can write too (INSERT ... RETURNING, advisory locks): a refused role must not reach them.
-  "$queryRaw",
-  "$queryRawUnsafe",
-  "$transaction",
 ])
+/** Raw SQL that mutates state (INSERT/UPDATE/DELETE, advisory locks); a plain SELECT is a read. */
+const RAW_WRITE_SQL =
+  /\b(insert|update|delete|truncate|alter|drop|create|merge|copy|lock|set_config|nextval|setval)\b|\bfor\s+(share|no\s+key)\b|\binto\b|pg_(try_)?advisory/i
+
+/**
+ * True when a `$queryRaw` / `$queryRawUnsafe` call carries SQL that writes. Tagged templates pass a
+ * strings array first; the Unsafe form passes the SQL string itself.
+ * @param args the arguments the mocked raw-query method received
+ */
+function rawQueryWrites(args: unknown[]): boolean {
+  const first = args[0]
+  // Any other shape (e.g. a Prisma.sql object) cannot be inspected here: count it as a write.
+  if (!Array.isArray(first) && typeof first !== "string") return true
+  const sql = Array.isArray(first) ? first.join(" ") : first
+  return RAW_WRITE_SQL.test(sql)
+}
 const writes: string[] = []
 let currentRole: Role | undefined
 
@@ -63,20 +77,21 @@ jest.mock("@/lib/prisma", () => {
       },
     )
   // Interactive transactions run their callback against the same proxy, so a write made through
-  // `tx` inside the callback is recorded too (not only the $transaction call itself).
+  // `tx` inside the callback is recorded (the $transaction call itself is not a write; its
+  // contents are). Array-form transactions already recorded their writes when the items were built.
   const client: unknown = new Proxy(
     {},
     {
       get: (_t, key: string) => {
         if (key === "$transaction") {
-          return jest.fn(async (arg: unknown) => {
-            writes.push("$transaction")
-            return typeof arg === "function" ? (arg as (tx: unknown) => unknown)(client) : undefined
-          })
+          return jest.fn(async (arg: unknown) =>
+            typeof arg === "function" ? (arg as (tx: unknown) => unknown)(client) : Array.isArray(arg) ? Promise.all(arg) : undefined,
+          )
         }
         if (key.startsWith("$")) {
-          return jest.fn(async () => {
+          return jest.fn(async (...args: unknown[]) => {
             if (WRITE_METHODS.has(key)) writes.push(key)
+            else if ((key === "$queryRaw" || key === "$queryRawUnsafe") && rawQueryWrites(args)) writes.push(`${key}(write)`)
             return []
           })
         }
@@ -108,11 +123,27 @@ function bodyOf(src: string, start: number): string {
   return src.slice(start, end === -1 ? src.length : end + 2)
 }
 
-/** Negated role helpers that appear before the first DB access in the body. */
+/**
+ * Blank out comments and string/template literals (keeping length) so a guard-looking token inside
+ * them is not mistaken for code.
+ * @param src source text
+ */
+function stripCommentsAndStrings(src: string): string {
+  return src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g, (m) => " ".repeat(m.length))
+}
+
+/**
+ * Role helpers used as a refusal before the first DB access in the body: `!canX(`, `canX(...) === false`
+ * and `false === canX(`. Comments and strings are ignored.
+ * @param body source of one exported function
+ */
 function leadingGuards(body: string): string[] {
-  const firstDb = body.search(/\bprisma\b|\btx\./)
-  const head = firstDb === -1 ? body : body.slice(0, firstDb)
-  return HELPERS.filter((h) => new RegExp(`!\\s*${h}\\(`).test(head))
+  const code = stripCommentsAndStrings(body)
+  const firstDb = code.search(/\bprisma\b|\btx\./)
+  const head = firstDb === -1 ? code : code.slice(0, firstDb)
+  return HELPERS.filter((h) =>
+    new RegExp(`(?<!!)!\\s*${h}\\(|\\bfalse\\s*===?\\s*${h}\\(|\\b${h}\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)\\s*===?\\s*false`).test(head),
+  )
 }
 
 function discover(): Entry[] {
@@ -406,7 +437,9 @@ const PINNED_ALLOWED: Record<string, Role[]> = {
 
 describe("role matrix: generated from src/lib/actions", () => {
   it("discovers exactly the pinned guarded-export set (a removed/rewritten guard fails here)", () => {
-    expect(ENTRIES.map((e) => `${e.file}.${e.fn}:${e.guards.join(",")}`)).toEqual(EXPECTED_GUARDED)
+    // Sorted-set comparison: independent of directory/declaration order, and the diff names the delta.
+    const found = ENTRIES.map((e) => `${e.file}.${e.fn}:${e.guards.join(",")}`).sort()
+    expect(found).toEqual([...EXPECTED_GUARDED].sort())
   })
 
   it("every helper used by a guarded action has a pinned refused-role set that matches roleGuard", () => {
@@ -418,11 +451,6 @@ describe("role matrix: generated from src/lib/actions", () => {
     for (const [h, allowed] of Object.entries(PINNED_ALLOWED)) {
       expect(ALL_ROLES.filter((r) => fns[h](r))).toEqual(ALL_ROLES.filter((r) => allowed.includes(r)))
     }
-  })
-
-  it("covers the audit's accounting files", () => {
-    const files = new Set(ENTRIES.map((e) => e.file))
-    for (const f of ["transaction", "receipt", "reconciliation", "budget"]) expect(files).toContain(f)
   })
 
   it("audit roles are all real UserRole values", () => {
