@@ -340,7 +340,7 @@ describe("POST /api/events/[slug]/register", () => {
       ],
     })
     const res = await POST(
-      makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 60, "2": 41 } }),
+      makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 60, "2": 41 }, attendeeNames: {} }),
       { params: Promise.resolve({ slug: "harvest" }) }
     )
     expect(res.status).toBe(400)
