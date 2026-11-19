@@ -52,6 +52,16 @@ describe("requireRole", () => {
     await expect(requireRole(canEdit)).rejects.toThrow("missing a valid user id")
   })
 
+  it.each(["abc", "0", "-3"])("throws for invalid id %s", async (id) => {
+    mockAuth.mockResolvedValue(session(UserRole.ADMIN, id))
+    await expect(requireRole(canEdit)).rejects.toThrow("missing a valid user id")
+  })
+
+  it("denies a session with no user", async () => {
+    mockAuth.mockResolvedValue({ expires: "2099-01-01" })
+    expect(await requireRole(canEdit)).toEqual({ error: "Unauthorized" })
+  })
+
   it("does not read the id of a denied session", async () => {
     mockAuth.mockResolvedValue(session(UserRole.VIEWER, ""))
     expect(await requireRole(canEdit)).toEqual({ error: "Unauthorized" })

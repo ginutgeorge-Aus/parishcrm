@@ -13,9 +13,14 @@ export type RoleGranted = { session: Session; actor: number }
  * Server Action role gate: one call replaces the hand-written
  * `const session = await auth(); if (!canX(session?.user?.role)) return { error: "Unauthorized" }`.
  * Use: `const gate = await requireRole(canEdit); if ("error" in gate) return gate`.
- * Behaviour matches the hand-written form: a missing session or role is denied
- * (predicates treat `undefined` as no access). On success it also resolves the
- * validated numeric actor id via `actorId`, which throws if the id is invalid.
+ * Denial matches the hand-written form: a missing session or role is denied
+ * (predicates treat `undefined` as no access). Unlike the hand-written form,
+ * an ALLOWED session also resolves the validated numeric actor id via
+ * `actorId`, which throws if the id is invalid (fail closed: a session with a
+ * role but no id is malformed). The denial is the `ActionResult` error arm, so
+ * it fits actions typed `ActionResult`; other result shapes need their own
+ * mapping. Only for role-only predicates: gates needing the target role or a
+ * per-record check (e.g. `canAssignRole`) stay hand-written.
  * @param predicate a roleGuard helper such as `canEdit`
  * @returns `{ session, actor }` when allowed, else `{ error: "Unauthorized" }`
  */
