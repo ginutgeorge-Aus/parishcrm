@@ -186,6 +186,7 @@ Measures the capped decrypt-in-memory paths (legacy suburb scan, transaction sea
 
 ```bash
 export DATABASE_URL=<local db url> ENCRYPTION_KEY="$(openssl rand -base64 32)"   # same key for BOTH commands; scripts do not read .env.local
+ALLOW_DEMO_SEED=true npm run db:seed                  # base admin user, chart of accounts, General fund, payment accounts (throwaway local DB only)
 SEED_SCALE=large npx tsx scripts/perf/seed-volume.ts   # ~11 min on prisma dev (PGlite); omit SEED_SCALE for the 2k-person default
 npx tsx scripts/perf/bench-decrypt.ts                  # BENCH_RUNS=5 default, prints median ms per path
 ```

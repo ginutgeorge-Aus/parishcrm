@@ -99,10 +99,13 @@ const benches: Array<() => Promise<Result>> = [
 
 /** Fails fast if seeded PII is plaintext or does not decrypt under the current ENCRYPTION_KEY. */
 async function assertSeedDecrypts(): Promise<void> {
-  const [p, t] = await Promise.all([
-    prisma.person.findFirst({ where: { email: { not: null } }, select: { email: true } }),
+  // Base seed (prisma/seed.ts) stores plaintext emails for its two fixtures, so sample a few
+  // and use the first encrypted one; if none is encrypted the volume seed did not run with a key.
+  const [people, t] = await Promise.all([
+    prisma.person.findMany({ where: { email: { not: null } }, select: { email: true }, take: 50 }),
     prisma.transaction.findFirst({ select: { description: true } }),
   ])
+  const p = people.find((x) => x.email && keyIdOf(x.email) !== null) ?? people[0]
   for (const [label, v] of [["person.email", p?.email], ["transaction.description", t?.description]] as const) {
     if (!v || keyIdOf(v) === null) throw new Error(`${label} is missing or plaintext. Seed with scripts/perf/seed-volume.ts first.`)
     if (safeDecrypt(v) === DECRYPTION_ERROR_PLACEHOLDER) throw new Error(`${label} does not decrypt: ENCRYPTION_KEY differs from the one used to seed.`)
