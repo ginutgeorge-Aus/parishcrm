@@ -99,7 +99,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
-import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
+import { AUDIT_FAILED_ERROR, AuditWriteError } from "@/lib/auditGuard"
 import { createSession, closeSession, deleteSession, ensureWeeklySession } from "@/lib/actions/pettyCashSession"
 import { createReceipt, updateReceipt, deleteReceipt } from "@/lib/actions/pettyCashReceipt"
 import { createExpense, updateExpense, deleteExpense } from "@/lib/actions/pettyCashExpense"
@@ -195,6 +195,31 @@ describe("createSession", () => {
       data: expect.objectContaining({ title: "22-MAY-2026", custodianId: 3 }),
     })
     expect(mockRedirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/7")
+  })
+
+  it("audits the session open in the same transaction as the create", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockCreateSession.mockResolvedValue({ id: 7 })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3", openingBalance: "12.34" }))
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "PETTY_CASH_SESSION_CREATED",
+      "PettyCashSession",
+      7,
+      { title: "22-MAY-2026", custodianId: 3, openingBalance: "12.34" },
+    )
+  })
+
+  it("returns the audit-failed error and does not redirect when the audit write fails", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockCreateSession.mockResolvedValue({ id: 7 })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    mockLogAuditTx.mockRejectedValueOnce(new AuditWriteError(new Error("db down")))
+    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3" }))
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
   it.each([

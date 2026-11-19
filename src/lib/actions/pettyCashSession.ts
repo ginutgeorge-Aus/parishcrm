@@ -63,16 +63,29 @@ export async function createSession(
 
   let created
   try {
-    created = await prisma.pettyCashSession.create({
-      data: {
+    // Audit in the same transaction: opening a session fixes the custodian and
+    // opening float, so a session must never exist without its audit row.
+    created = await prisma.$transaction(async (tx) => {
+      const row = await tx.pettyCashSession.create({
+        data: {
+          title,
+          custodianId: parsed.data.custodianId,
+          openingBalance: parsed.data.openingBalance,
+        },
+      })
+      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_CREATED", "PettyCashSession", row.id, {
         title,
         custodianId: parsed.data.custodianId,
         openingBalance: parsed.data.openingBalance,
-      },
+      })
+      return row
     })
   } catch (e) {
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "createSession")
     if (e && typeof e === "object" && "code" in e && e.code === "P2002")
       return { error: `A session for ${title} already exists` }
+    // Plain (non-retrying) tx: a serialization conflict is a "try again", not a 500.
+    if (isP2034(e)) return { error: "Conflict while creating the session — please try again." }
     throw e
   }
   revalidatePath("/accounting/petty-cash")
