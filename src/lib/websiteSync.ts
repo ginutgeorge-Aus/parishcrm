@@ -116,7 +116,7 @@ export function buildEventPayload(event: EventForSync): WebsiteEventPayload {
       (base && event.slug && event.images?.some((i) => i.kind === "BANNER")
         ? `${base}/api/events/${event.slug}/image/banner`
         : null),
-    revision: event.updatedAt.toISOString(),
+    revision: toRevision(event.updatedAt),
   }
 }
 
@@ -255,25 +255,28 @@ export async function syncEventToWebsite(eventId: number): Promise<void> {
   try {
     const event = await prisma.event.findUnique({ where: { id: eventId }, select: SYNC_SELECT })
     if (!event) return
-    const payload = buildEventPayload(event)
-    // Re-check right before sending: the snapshot read above can be followed by a
-    // delete (and its webhook) while we build the payload, and an upsert sent after
-    // the delete would resurrect the event on the website.
-    const stillThere = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } })
-    if (!stillThere) return
-    await postToWebsite({ action: "upsert", event: payload })
+    await postToWebsite({ action: "upsert", event: buildEventPayload(event) })
   } catch (e) {
     logger.error("[website-sync] upsert failed", { error: e instanceof Error ? e.message : String(e) })
   }
 }
 
-// Tell the website to remove a deleted event. `revision` is the deletion time
-// (ms precision, same format as an upsert's `revision`): the receiver keeps it as
-// a tombstone and drops any upsert whose revision is not newer, so an upsert that
-// arrives late cannot resurrect the event.
+export type WebsiteDeletePayload = { action: "delete"; crmId: number; revision: string }
+
+// Revision string shared by upserts (Event.updatedAt) and deletes (send time):
+// ISO 8601 UTC, ms precision, so receivers compare them as plain strings.
+function toRevision(d: Date): string {
+  return d.toISOString()
+}
+
+// Tell the website to remove a deleted event. `revision` is the send time of the
+// delete (taken after the delete committed, so it is later than the event's last
+// `updatedAt`): the receiver keeps it as a tombstone and drops any upsert whose
+// revision is not newer, so an upsert that arrives late cannot resurrect the event.
 export async function syncEventDeletion(crmId: number): Promise<void> {
   try {
-    await postToWebsite({ action: "delete", crmId, revision: new Date().toISOString() })
+    const payload: WebsiteDeletePayload = { action: "delete", crmId, revision: toRevision(new Date()) }
+    await postToWebsite(payload)
   } catch (e) {
     logger.error("[website-sync] delete failed", { error: e instanceof Error ? e.message : String(e) })
   }

@@ -471,15 +471,17 @@ describe("late upsert after delete (resurrection)", () => {
     jest.restoreAllMocks()
   })
 
-  it("does not POST an upsert when the event was deleted after the snapshot was read", async () => {
+  // Receiver rule (docs/event-webhook.md): drop an upsert whose revision is not
+  // strictly newer than the delete's tombstone revision.
+  it("delete revision is newer than the last upsert revision, so a late upsert loses to the tombstone", async () => {
     process.env.WEBSITE_SYNC_URL = "https://example.org/api/crm-sync.php"
     process.env.WEBSITE_SYNC_SECRET = "shared-secret"
-    // 1st read (snapshot) finds the event; the re-check just before sending finds it gone.
-    ;(prisma.event.findUnique as jest.Mock).mockReset()
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValueOnce(baseEvent).mockResolvedValueOnce(null)
+    const upsertRevision = buildEventPayload(baseEvent).revision
     const fetchSpy = jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
-    await syncEventToWebsite(42)
-    expect(fetchSpy).not.toHaveBeenCalled()
+    await syncEventDeletion(42)
+    const [, opts] = fetchSpy.mock.calls[0] as [string, { body: string }]
+    const { revision: tombstone } = JSON.parse(opts.body)
+    expect(upsertRevision <= tombstone).toBe(true)
   })
 })
 
