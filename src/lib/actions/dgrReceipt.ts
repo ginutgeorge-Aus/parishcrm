@@ -352,19 +352,13 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   } catch {
     // Never log the raw error — SMTP messages can embed the recipient email.
     logger.error("sendDgrReceipt delivery failed", { receiptNo: row.receiptNo })
-    try {
-      await prisma.$transaction(async (tx) => {
-        const failed = await tx.dgrReceipt.updateMany({
-          where: { id, status: "SENDING" },
-          data: { status: "FAILED", errorMessage: "Email delivery failed. Please try again." },
-        })
-        if (failed.count > 0) await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo })
-      })
-    } catch (e) {
-      const mapped = auditTxErrorResult(e, "sendDgrReceipt", SAVE_BUSY)
-      if (mapped) return mapped
-      throw e
-    }
+    // Terminal-state recovery: write FAILED unconditionally and audit best-effort. A rolled-back
+    // flip would leave the row wedged in SENDING (the claim only accepts DRAFT/FAILED).
+    await prisma.dgrReceipt.updateMany({
+      where: { id, status: "SENDING" },
+      data: { status: "FAILED", errorMessage: "Email delivery failed. Please try again." },
+    })
+    await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo })
     revalidatePath(LIST_PATH)
     return { error: "Could not email the receipt. It has been marked failed." }
   }

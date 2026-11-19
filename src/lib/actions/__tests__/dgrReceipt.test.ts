@@ -511,23 +511,15 @@ describe("sendDgrReceipt", () => {
       })
     )
     // Never log the raw error (it can embed the recipient email).
-    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "DGR_RECEIPT_FAILED", "DgrReceipt", 5, { receiptNo: "DGR-2025-003" })
+    expect(mockLogAudit).toHaveBeenCalledWith(1, "DGR_RECEIPT_FAILED", "DgrReceipt", 5, { receiptNo: "DGR-2025-003" })
   })
 
-  it("returns AUDIT_FAILED_ERROR when the FAILED audit write fails (status flip rolled back)", async () => {
+  it("still returns the could-not-email error when the FAILED audit write throws (row never wedged in SENDING)", async () => {
     ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
     mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
     mockSendEmail.mockRejectedValue(new Error("SMTP down"))
-    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
-    expect(await sendDgrReceipt(5)).toEqual({ error: AUDIT_FAILED_ERROR })
-  })
-
-  it("does not audit FAILED when no SENDING row matched", async () => {
-    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
-    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
-    mockSendEmail.mockRejectedValue(new Error("SMTP down"))
-    ;(prisma.dgrReceipt.updateMany as jest.Mock).mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
-    await sendDgrReceipt(5)
+    const res = await sendDgrReceipt(5)
+    expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
     expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 

@@ -37,7 +37,11 @@ written to an append-only audit table via a single `logAudit(userId, action, res
 resourceId?, metadata?, ip?)` helper (`src/lib/audit.ts`). The write never throws back into
 the calling request — a database outage or schema drift must not take down the primary
 action the user was performing — but a failed audit write is itself logged, so a systemic
-audit-logging failure doesn't go silently unnoticed. The recorded IP address is always the
+audit-logging failure doesn't go silently unnoticed. The exception is financial and
+safeguarding records (accounting settings, invoices, customers, payment accounts, giving
+and DGR receipt drafts, clearances, person/family deletes): their audit row is written by
+`logAuditTx` in the same database transaction as the change, so if the audit write fails the
+change is rolled back and the user is asked to retry. The recorded IP address is always the
 one derived from the trusted reverse proxy's header position, never a raw, client-spoofable
 value.
 
