@@ -9,9 +9,8 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
-import { logAuditTx } from "@/lib/audit"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
-import { MONEY_DECIMAL_RE, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2002, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
@@ -82,7 +81,7 @@ export async function createSession(
     })
   } catch (e) {
     if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "createSession")
-    if (e && typeof e === "object" && "code" in e && e.code === "P2002")
+    if (isP2002(e))
       return { error: `A session for ${title} already exists` }
     // Plain (non-retrying) tx: a serialization conflict is a "try again", not a 500.
     if (isP2034(e)) return { error: "Conflict while creating the session — please try again." }
@@ -123,15 +122,21 @@ export async function updateSessionCustodian(
   })
   if (!custodian) return { error: "Custodian not found" }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.pettyCashSession.update({
-      where: { id },
-      data: { custodianId: parsed.data.custodianId },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.pettyCashSession.update({
+        where: { id },
+        data: { custodianId: parsed.data.custodianId },
+      })
+      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_CUSTODIAN_UPDATED", "PettyCashSession", id, {
+        custodianId: parsed.data.custodianId,
+      })
     })
-    await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_CUSTODIAN_UPDATED", "PettyCashSession", id, {
-      custodianId: parsed.data.custodianId,
-    })
-  })
+  } catch (e) {
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "updateSessionCustodian")
+    if (isP2034(e)) return { error: "Conflict while updating the custodian — please try again." }
+    throw e
+  }
 
   revalidatePath(`/accounting/petty-cash/sessions/${id}`)
   revalidatePath("/accounting/petty-cash")
@@ -168,7 +173,7 @@ function findPriorSessionId(
 // Prisma's unique-violation code — used where a check-then-create/upsert race
 // is resolved by treating a concurrent winner's P2002 as "already exists".
 function isUniqueViolation(e: unknown): boolean {
-  return !!(e && typeof e === "object" && "code" in e && e.code === "P2002")
+  return isP2002(e)
 }
 
 export type EnsureWeeklyResult = {
@@ -334,7 +339,9 @@ export async function closeSession(
   // conditional updateMany lets exactly one win — the loser matches no row and
   // is told the session is already closed, so it can't overwrite the earlier,
   // already-audited close (countedCash/variance/notes/closedAt).
-  const closed = await prisma.$transaction(async (tx) => {
+  let closed: boolean
+  try {
+    closed = await prisma.$transaction(async (tx) => {
     const { count } = await tx.pettyCashSession.updateMany({
       where: { id, status: "OPEN" },
       data: {
@@ -350,13 +357,18 @@ export async function closeSession(
     // receipts/expenses/transfers are rejected), so who closed it must be on the
     // trail whether or not a physical count was taken. `counted` records
     // which; countedCash/variance are null on a count-less close.
-    await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
+    await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
       counted: countedCash !== null,
       countedCash,
       variance: closingVariance,
     })
     return true
   })
+  } catch (e) {
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "closeSession")
+    if (isP2034(e)) return { error: "Conflict while closing the session — please try again." }
+    throw e
+  }
   if (!closed) return { error: "Session already closed" }
   revalidatePath("/accounting/petty-cash")
   revalidatePath(`/accounting/petty-cash/sessions/${id}`)

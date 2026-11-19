@@ -99,7 +99,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
-import { AUDIT_FAILED_ERROR, AuditWriteError } from "@/lib/auditGuard"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import { createSession, closeSession, deleteSession, ensureWeeklySession } from "@/lib/actions/pettyCashSession"
 import { createReceipt, updateReceipt, deleteReceipt } from "@/lib/actions/pettyCashReceipt"
 import { createExpense, updateExpense, deleteExpense } from "@/lib/actions/pettyCashExpense"
@@ -216,8 +216,33 @@ describe("createSession", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     mockCreateSession.mockResolvedValue({ id: 7 })
     mockFindPersonFirst.mockResolvedValue({ id: 3 })
-    mockLogAuditTx.mockRejectedValueOnce(new AuditWriteError(new Error("db down")))
+    mockLogAuditTx.mockRejectedValueOnce(new Error("db down"))
     const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3" }))
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it("maps a unique violation (incl. adapter-pg shape) to a friendly duplicate error", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    mockCreateSession.mockRejectedValueOnce({ cause: { kind: "UniqueConstraintViolation" } })
+    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3" }))
+    expect(result).toEqual({ error: "A session for 22-MAY-2026 already exists" })
+  })
+
+  it("returns a try-again error on a serialization conflict", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    mockCreateSession.mockRejectedValueOnce({ code: "P2034" })
+    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3" }))
+    expect(result?.error).toMatch(/try again/i)
+  })
+
+  it("closeSession returns the audit-failed error when the audit write fails", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockFindSession.mockResolvedValue({ id: 1, status: "OPEN" })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("db down"))
+    const result = await closeSession(1, undefined, fd({}))
     expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
     expect(mockRedirect).not.toHaveBeenCalled()
   })
