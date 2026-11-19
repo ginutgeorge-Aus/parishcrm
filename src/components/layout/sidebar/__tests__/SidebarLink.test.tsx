@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react"
 import { ListTodo } from "lucide-react"
 import { SidebarLink } from "../SidebarLink"
