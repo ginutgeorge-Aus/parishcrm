@@ -1,6 +1,7 @@
 /** @jest-environment node */
-import { canMarkExam, canMarkRoll, isRollMarker } from "@/lib/sundaySchoolAccess"
+import { canMarkExam, canMarkRoll, enrolCandidateWhere, isRollMarker } from "@/lib/sundaySchoolAccess"
 import { prisma } from "@/lib/prisma"
+import { UserRole } from "@/lib/generated/prisma/enums"
 
 jest.mock("@/lib/prisma", () => ({ prisma: { sundaySchoolRollMarker: { findUnique: jest.fn() } } }))
 
@@ -43,5 +44,16 @@ describe("isRollMarker", () => {
     await expect(isRollMarker(9, 4)).resolves.toBe(true)
     await expect(isRollMarker(9, 4)).resolves.toBe(false)
     expect(findUnique).toHaveBeenCalledWith(expectedQuery)
+  })
+})
+
+describe("enrolCandidateWhere", () => {
+  it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN])("%s: no extra filter", (role) => {
+    expect(enrolCandidateWhere(role, 2026)).toEqual({})
+  })
+  it.each([UserRole.HEADMASTER, UserRole.TEACHER, undefined])("%s: children or already enrolled this year", (role) => {
+    expect(enrolCandidateWhere(role, 2026)).toEqual({
+      OR: [{ role: "CHILD" }, { sundaySchoolEnrolments: { some: { year: 2026, class: { archivedAt: null } } } }],
+    })
   })
 })

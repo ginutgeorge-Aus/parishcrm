@@ -352,6 +352,41 @@ describe("addTeacher", () => {
 })
 
 describe("enrolChildren", () => {
+  describe("headmaster enrol scope (AUD-5-01)", () => {
+    const where = () => (prisma.person.findMany as jest.Mock).mock.calls[0][0].where
+    it("HEADMASTER rejects an adult who is not enrolled this year", async () => {
+      as(UserRole.HEADMASTER)
+      liveClass()
+      ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
+      expect(await enrolChildren(1, [7])).toEqual({ error: "Person not found" })
+      expect(where().OR).toEqual([{ role: "CHILD" }, { sundaySchoolEnrolments: { some: { year: 2026, class: { archivedAt: null } } } }])
+      expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
+    })
+    it("HEADMASTER accepts a CHILD or an adult already enrolled this year", async () => {
+      as(UserRole.HEADMASTER)
+      liveClass()
+      ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }, { id: 3 }])
+      ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+      expect(await enrolChildren(1, [2, 3])).toEqual({ success: "Enrolled 2" })
+      expect(prisma.sundaySchoolEnrolment.upsert).toHaveBeenCalledTimes(2)
+    })
+    it("HEADMASTER is refused when the person stops being eligible before commit", async () => {
+      as(UserRole.HEADMASTER)
+      liveClass()
+      ;(prisma.person.findMany as jest.Mock).mockResolvedValueOnce([{ id: 7 }]).mockResolvedValueOnce([])
+      expect(await enrolChildren(1, [7])).toEqual({ error: "Person not found" })
+      expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
+      expect(prisma.sundaySchoolEnrolment.updateMany).not.toHaveBeenCalled()
+    })
+    it("OFFICE_ADMIN still enrols anyone not archived", async () => {
+      as(UserRole.OFFICE_ADMIN)
+      liveClass()
+      ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 7 }])
+      ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+      await enrolChildren(1, [7])
+      expect(where()).toEqual({ id: { in: [7] }, archivedAt: null })
+    })
+  })
   it("upserts by personId_year and reports moves", async () => {
     as(UserRole.ADMIN)
     liveClass()
