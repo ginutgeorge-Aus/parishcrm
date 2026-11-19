@@ -31,7 +31,7 @@ const WRITE_METHODS = new Set([
 ])
 /** Raw SQL that mutates state (INSERT/UPDATE/DELETE, advisory locks); a plain SELECT is a read. */
 const RAW_WRITE_SQL =
-  /\b(insert|update|delete|truncate|alter|drop|create|merge|copy|lock|set_config|nextval|setval)\b|\bfor\s+(share|no\s+key)\b|\binto\b|pg_(try_)?advisory/i
+  /\b(insert|update|delete|truncate|alter|drop|create|merge|copy|lock|set_config|nextval|setval)\b|\bfor\s+(key\s+share|share|no\s+key\s+update|update)\b|\binto\b|pg_(try_)?advisory/i
 
 /**
  * True when a `$queryRaw` / `$queryRawUnsafe` call carries SQL that writes. Tagged templates pass a
@@ -71,8 +71,8 @@ jest.mock("@/lib/prisma", () => {
     new Proxy(
       {},
       {
-        get: (_t, method: string) =>
-          jest.fn(async () => {
+        get: (_t, method: string | symbol) =>
+          typeof method === "symbol" ? undefined : jest.fn(async () => {
             if (WRITE_METHODS.has(method)) writes.push(`${name}.${method}`)
             return method.startsWith("find") ? (method === "findMany" ? findManyRows : null) : method === "count" ? 0 : undefined
           }),
@@ -84,7 +84,8 @@ jest.mock("@/lib/prisma", () => {
   const client: unknown = new Proxy(
     {},
     {
-      get: (_t, key: string) => {
+      get: (_t, key: string | symbol) => {
+        if (typeof key === "symbol") return undefined
         if (key === "$transaction") {
           return jest.fn(async (arg: unknown) =>
             typeof arg === "function" ? (arg as (tx: unknown) => unknown)(client) : Array.isArray(arg) ? Promise.all(arg) : undefined,
@@ -148,18 +149,42 @@ function leadingGuards(body: string): string[] {
   )
 }
 
-function discover(): Entry[] {
+/**
+ * Scan every `src/lib/actions/*.ts` that mentions roleGuard and return each exported async function
+ * whose body opens with a negated roleGuard check, plus the exports discovery cannot see: arrow
+ * exports (`export const f = async (...) =>`) and function exports that call a roleGuard helper
+ * before any DB access without matching the guard shape (a rewritten guard).
+ */
+function discover(): { entries: Entry[]; undiscovered: string[] } {
   const out: Entry[] = []
+  const undiscovered: string[] = []
   for (const file of fs.readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".ts")).sort()) {
     const src = fs.readFileSync(path.join(ACTIONS_DIR, file), "utf8")
     if (!src.includes("roleGuard")) continue
+    const base = file.replace(/\.ts$/, "")
     for (const m of src.matchAll(/^export async function (\w+)\s*\(/gm)) {
       const body = bodyOf(src, m.index!)
       const guards = leadingGuards(body)
-      if (guards.length) out.push({ file: file.replace(/\.ts$/, ""), fn: m[1], guards })
+      if (guards.length) out.push({ file: base, fn: m[1], guards })
+      else if (callsHelperBeforeDb(body)) undiscovered.push(`${base}.${m[1]}`)
+    }
+    for (const m of src.matchAll(/^export const (\w+)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\(|\w+\s*=>)/gm)) {
+      undiscovered.push(`${base}.${m[1]}`)
     }
   }
-  return out
+  return { entries: out, undiscovered: undiscovered.sort() }
+}
+
+/**
+ * True when the body calls any roleGuard helper before its first DB access (comments and strings
+ * ignored), i.e. it looks guarded even though `leadingGuards` did not recognise the shape.
+ * @param body source of one exported function
+ */
+function callsHelperBeforeDb(body: string): boolean {
+  const code = stripCommentsAndStrings(body)
+  const firstDb = code.search(/\bprisma\b|\btx\./)
+  const head = firstDb === -1 ? code : code.slice(0, firstDb)
+  return HELPERS.some((h) => new RegExp(`\\b${h}\\(`).test(head))
 }
 
 /** A value that survives any property access, call, string or number coercion. */
@@ -202,8 +227,11 @@ function isRefusalShape(r: unknown): boolean {
  * @param e the thrown value
  */
 function isRefusalThrow(e: unknown): boolean {
-  return e instanceof Error && /^(REDIRECT:|NOT_FOUND$)/.test(e.message)
+  return e instanceof Error && REFUSAL_THROW.test(e.message)
 }
+
+/** Error messages thrown by the redirect/notFound mocks: the only throws that count as a refusal. */
+const REFUSAL_THROW = /^(REDIRECT:\/(login|unauthorized|forbidden)\b|NOT_FOUND$)/
 
 /**
  * Fixtures for actions that return an empty read for the default junk arguments, which would make a
@@ -222,10 +250,20 @@ function formData(): FormData {
   return new FormData()
 }
 
-const ENTRIES = discover()
+const { entries: ENTRIES, undiscovered: UNDISCOVERED } = discover()
 
-/** Error messages thrown by the redirect/notFound mocks: the only throws that count as a refusal. */
-const REFUSAL_THROW = /^(REDIRECT:\/(login|unauthorized|forbidden)\b|NOT_FOUND$)/
+/**
+ * Exports whose several guards are ANY-of (`if (!a(r) && !b(r)) refuse`): a role is refused only when
+ * every guard refuses it. Every other multi-guard export is treated as ALL-of (some guard refusing is
+ * enough). Pinned so a new multi-guard export forces a decision.
+ */
+const ANY_OF = new Set(["registration.getRegistrationDetail"])
+
+/**
+ * Exports that look guarded (or are arrow exports) but that discovery cannot parse, pinned so a
+ * newly unparsed export fails loudly. Empty when every guard is discoverable.
+ */
+const EXPECTED_UNDISCOVERED: string[] = []
 
 /**
  * Pinned guarded-export set, one `file.fn:guard[,guard]` per line. Discovery only
@@ -480,6 +518,9 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(rawQueryWrites([["SELECT id FROM t WHERE a = ", ""]])).toBe(false)
     expect(rawQueryWrites(["INSERT INTO t VALUES (1)"])).toBe(true)
     expect(rawQueryWrites([["SELECT 1 FROM t FOR SHARE"]])).toBe(true)
+    expect(rawQueryWrites([["SELECT 1 FROM t FOR KEY SHARE"]])).toBe(true)
+    expect(rawQueryWrites([["SELECT 1 FROM t FOR UPDATE"]])).toBe(true)
+    expect(rawQueryWrites([["SELECT 1 FROM t FOR NO KEY UPDATE"]])).toBe(true)
     expect(rawQueryWrites([{ sql: "UPDATE t" }])).toBe(true)
   })
 
@@ -503,8 +544,27 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(roleGuard.canEdit("OFFICE_ADMIN" as Role)).toBe(true)
   })
 
+  it("finds no guarded-looking export that discovery cannot parse (arrow exports, rewritten guards)", () => {
+    expect(UNDISCOVERED).toEqual(EXPECTED_UNDISCOVERED)
+  })
+
+  it("classifies every multi-guard export as ANY-of, and every ANY-of pin is a discovered multi-guard export", () => {
+    const multi = ENTRIES.filter((e) => e.guards.length > 1).map((e) => `${e.file}.${e.fn}`)
+    expect([...ANY_OF].sort()).toEqual(multi.sort())
+  })
+
+  it("isRefusalThrow accepts only login/unauthorized/forbidden redirects and not-found", () => {
+    expect(isRefusalThrow(new Error("REDIRECT:/login"))).toBe(true)
+    expect(isRefusalThrow(new Error("NOT_FOUND"))).toBe(true)
+    expect(isRefusalThrow(new Error("REDIRECT:/anywhere"))).toBe(false)
+    expect(isRefusalThrow(new Error("NOT_FOUND_EXTRA"))).toBe(false)
+  })
+
   const cases = ENTRIES.flatMap((e) =>
-    ALL_ROLES.filter((role) => e.guards.some((g) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role))).map(
+    ALL_ROLES.filter((role) => {
+      const refuses = (g: string) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role)
+      return ANY_OF.has(`${e.file}.${e.fn}`) ? e.guards.every(refuses) : e.guards.some(refuses)
+    }).map(
       (role) => [`${e.file}.${e.fn} [${e.guards.join(",")}]`, e, role] as const,
     ),
   )
@@ -540,14 +600,9 @@ describe("role matrix: generated from src/lib/actions", () => {
   })
 })
 
-describe("role matrix: pinned discovery (a dropped or rewritten guard must fail here)", () => {
-  // Discovery only finds exports whose guard it can parse, so removing a guard silently drops the
-  // export from the generated cases. Pin the discovered set, and pin which roles each helper
-  // refuses, so either change shows up as a reviewed snapshot diff.
-  it("pins every guarded export and its guards", () => {
-    expect(Object.fromEntries(ENTRIES.map((e) => [`${e.file}.${e.fn}`, e.guards.join(",")]))).toMatchSnapshot()
-  })
-
+describe("role matrix: pinned helper strength", () => {
+  // The guarded-export set is pinned inline (EXPECTED_GUARDED) only. Pin which roles each helper
+  // refuses so a widened or narrowed helper shows up as a reviewed snapshot diff.
   it("pins the roles each one-argument roleGuard helper refuses", () => {
     const guard = roleGuard as unknown as Record<string, (r: Role) => boolean>
     const refused = Object.fromEntries(HELPERS.map((h) => [h, ALL_ROLES.filter((r) => !guard[h](r)).sort()]))
