@@ -306,7 +306,17 @@ export async function sendBatchReceipts(
     // txById is a snapshot from before the loop; an operator may have archived or
     // opted out this recipient while earlier rows were sending. Re-read just
     // before the send (1 extra query per row, max MAX_RECEIPT_BATCH_SIZE).
-    const lateBlock = await recheckReceiptRecipient(row.transactionId, row.toEmail)
+    let lateBlock: string | null
+    try {
+      lateBlock = await recheckReceiptRecipient(row.transactionId, row.toEmail)
+    } catch {
+      // Fail closed for this row only: never send unverified, never log raw
+      // error text (may embed the address), keep earlier results and go on.
+      logger.error("[receipt] sendBatchReceipts recheck failed", { transactionId: row.transactionId })
+      failed++
+      errors.push({ transactionId: row.transactionId, error: "Could not verify recipient" })
+      continue
+    }
     if (lateBlock) {
       failed++
       errors.push({ transactionId: row.transactionId, error: lateBlock })

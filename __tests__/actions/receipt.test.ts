@@ -763,11 +763,15 @@ describe("receipt recipient gate (archived + consent), single and batch", () => 
       { ...mockTransaction, id: 3, person: person({}) },
     ]
     mockFindMany.mockResolvedValue(rows)
-    // Snapshot says all fine; fresh read for id 2 says archived, id 3 opted out.
+    // Fresh-state fixtures for ids 2 and 3 become blocked only AFTER the first
+    // email is sent, proving the per-row recheck runs after the first send.
+    const blockedFresh: Record<number, unknown> = {
+      2: { ...rows[1], person: person({ archivedAt: new Date() }) },
+      3: { ...rows[2], person: person({ emailConsent: false }) },
+    }
     mockFindUnique.mockImplementation(async ({ where }: { where: { id: number } }) => {
-      if (where.id === 2) return { ...rows[1], person: person({ archivedAt: new Date() }) }
-      if (where.id === 3) return { ...rows[2], person: person({ emailConsent: false }) }
-      return rows[0]
+      if (where.id !== 1 && mockSendEmail.mock.calls.length >= 1) return blockedFresh[where.id]
+      return rows[where.id - 1]
     })
     mockSendEmail.mockResolvedValue(undefined)
     const r = await sendBatchReceipts([
@@ -785,6 +789,29 @@ describe("receipt recipient gate (archived + consent), single and batch", () => 
         { transactionId: 3, error: "Recipient has not consented to email receipts" },
       ],
     })
+  })
+
+  it("batch: recheck read failure on one row is recorded safely, row not sent, batch continues", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const rows = [
+      { ...mockTransaction, id: 1, person: person({}) },
+      { ...mockTransaction, id: 2, person: person({}) },
+      { ...mockTransaction, id: 3, person: person({}) },
+    ]
+    mockFindMany.mockResolvedValue(rows)
+    mockFindUnique.mockImplementation(async ({ where }: { where: { id: number } }) => {
+      if (where.id === 2) throw new Error("db down for b@example.com")
+      return rows[where.id - 1]
+    })
+    mockSendEmail.mockResolvedValue(undefined)
+    const r = await sendBatchReceipts([
+      { transactionId: 1, toEmail: "a@example.com" },
+      { transactionId: 2, toEmail: "b@example.com" },
+      { transactionId: 3, toEmail: "c@example.com" },
+    ])
+    expect(mockSendEmail.mock.calls.map((c) => c[0])).toEqual(["a@example.com", "c@example.com"])
+    expect(r).toEqual({ sent: 2, failed: 1, errors: [{ transactionId: 2, error: "Could not verify recipient" }] })
+    expect(JSON.stringify(r)).not.toContain("b@example.com")
   })
 
   it("fetch: no prefill for archived or opted-out person, nor archived family", async () => {
