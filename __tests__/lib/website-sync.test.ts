@@ -449,6 +449,38 @@ describe("syncEventDeletion", () => {
     expect(parsed.action).toBe("delete")
     expect(parsed.crmId).toBe(42)
   })
+
+  it("stamps the delete with a revision so the receiver can tombstone it", async () => {
+    process.env.WEBSITE_SYNC_URL = "https://example.org/api/crm-sync.php"
+    process.env.WEBSITE_SYNC_SECRET = "shared-secret"
+    const fetchSpy = jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
+    const before = Date.now()
+    await syncEventDeletion(42)
+    const [, opts] = fetchSpy.mock.calls[0] as [string, { body: string }]
+    const { revision } = JSON.parse(opts.body)
+    expect(new Date(revision).toISOString()).toBe(revision)
+    expect(new Date(revision).getTime()).toBeGreaterThanOrEqual(before)
+  })
+})
+
+describe("late upsert after delete (resurrection)", () => {
+  const OLD = { url: process.env.WEBSITE_SYNC_URL, secret: process.env.WEBSITE_SYNC_SECRET }
+  afterEach(() => {
+    process.env.WEBSITE_SYNC_URL = OLD.url
+    process.env.WEBSITE_SYNC_SECRET = OLD.secret
+    jest.restoreAllMocks()
+  })
+
+  it("does not POST an upsert when the event was deleted after the snapshot was read", async () => {
+    process.env.WEBSITE_SYNC_URL = "https://example.org/api/crm-sync.php"
+    process.env.WEBSITE_SYNC_SECRET = "shared-secret"
+    // 1st read (snapshot) finds the event; the re-check just before sending finds it gone.
+    ;(prisma.event.findUnique as jest.Mock).mockReset()
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValueOnce(baseEvent).mockResolvedValueOnce(null)
+    const fetchSpy = jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
+    await syncEventToWebsite(42)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe("isWebsiteSyncConfigured", () => {

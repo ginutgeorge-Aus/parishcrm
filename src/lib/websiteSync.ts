@@ -255,16 +255,25 @@ export async function syncEventToWebsite(eventId: number): Promise<void> {
   try {
     const event = await prisma.event.findUnique({ where: { id: eventId }, select: SYNC_SELECT })
     if (!event) return
-    await postToWebsite({ action: "upsert", event: buildEventPayload(event) })
+    const payload = buildEventPayload(event)
+    // Re-check right before sending: the snapshot read above can be followed by a
+    // delete (and its webhook) while we build the payload, and an upsert sent after
+    // the delete would resurrect the event on the website.
+    const stillThere = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } })
+    if (!stillThere) return
+    await postToWebsite({ action: "upsert", event: payload })
   } catch (e) {
     logger.error("[website-sync] upsert failed", { error: e instanceof Error ? e.message : String(e) })
   }
 }
 
-// Tell the website to remove a deleted event.
+// Tell the website to remove a deleted event. `revision` is the deletion time
+// (ms precision, same format as an upsert's `revision`): the receiver keeps it as
+// a tombstone and drops any upsert whose revision is not newer, so an upsert that
+// arrives late cannot resurrect the event.
 export async function syncEventDeletion(crmId: number): Promise<void> {
   try {
-    await postToWebsite({ action: "delete", crmId })
+    await postToWebsite({ action: "delete", crmId, revision: new Date().toISOString() })
   } catch (e) {
     logger.error("[website-sync] delete failed", { error: e instanceof Error ? e.message : String(e) })
   }
