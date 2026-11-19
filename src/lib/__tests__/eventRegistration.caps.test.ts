@@ -186,7 +186,6 @@ describe("AUD-2-03 — name fields", () => {
     ["bare domain in attendee name", { attendeeNames: { "1": ["Jane Doe", "free-gift.xyz"] } }],
     ["unlisted-TLD domain", { firstName: "evil.co" }],
     ["short host with path", { firstName: "t.ly/x" }],
-    ["too many attendee names across ticket types", { attendeeNames: { "1": Array(60).fill("Jane Doe"), "2": Array(41).fill("Jane Doe") } }],
     ["first name over 60 chars", { firstName: "a".repeat(61) }],
     ["last name over 60 chars", { lastName: "a".repeat(61) }],
   ])("rejects %s with 400 and writes nothing", async (_n, override) => {
@@ -194,6 +193,26 @@ describe("AUD-2-03 — name fields", () => {
     const result = await createEventRegistration("fete", makeBody(override), "1.2.3.4")
     expect(result).toMatchObject({ ok: false, status: 400 })
     expect(tx.registration.create).not.toHaveBeenCalled()
+  })
+})
+
+describe("AUD-2-03 — aggregate attendee-name cap", () => {
+  const split = (a: number, c: number) => ({
+    tickets: { "1": a, "2": c },
+    attendeeNames: { "1": Array(a).fill("Jane Doe"), "2": Array(c).fill("Jane Doe") },
+  })
+
+  it("rejects 101 names across ticket types with the aggregate-cap error", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    const result = await createEventRegistration("fete", makeBody(split(60, 41)), "1.2.3.4")
+    expect(result).toMatchObject({ ok: false, status: 400, error: "Too many attendee names" })
+    expect(tx.registration.create).not.toHaveBeenCalled()
+  })
+
+  it("accepts exactly 100 names across ticket types", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    const result = await createEventRegistration("fete", makeBody(split(60, 40)), "1.2.3.4")
+    expect(result.ok).toBe(true)
   })
 })
 
