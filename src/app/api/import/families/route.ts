@@ -7,7 +7,8 @@ import { parseCsv } from "@/lib/csv"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromRequest } from "@/lib/clientIp"
-import { encrypt, hmacEmail, hmacMobile, hmacSuburb } from "@/lib/crypto"
+import { encrypt, hmacSuburb } from "@/lib/crypto"
+import { encryptPersonFields } from "@/lib/personFields"
 import { actorId } from "@/lib/actor"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
@@ -146,20 +147,21 @@ export async function POST(req: NextRequest) {
       continue
     }
     seenInBatch.add(key)
-    createData.push({
+    const personData = {
       familyId,
       firstName: person.firstName,
       lastName: person.lastName,
-      dateOfBirth: person.dateOfBirth ? encrypt(person.dateOfBirth.toISOString().slice(0, 10)) : undefined,
+      dateOfBirth: person.dateOfBirth ? person.dateOfBirth.toISOString().slice(0, 10) : undefined,
       gender: person.gender,
       role: person.role,
       classification: person.classification,
-      email: person.email ? encrypt(person.email) : undefined,
-      emailHash: person.email ? hmacEmail(person.email) : undefined, // blind index
-      mobile: person.mobile ? encrypt(person.mobile) : undefined,
-      mobileHash: person.mobile ? hmacMobile(person.mobile) : undefined, // blind index (mirrors emailHash)
+      email: person.email || undefined,
+      mobile: person.mobile || undefined,
       consentUpdatedAt: new Date(), // match the normal create path
-    })
+    }
+    // shared helper encrypts + sets the blind indexes (same as the form path)
+    encryptPersonFields(personData)
+    createData.push(personData)
     createMeta.push({ rowNum: idx + 2, firstName: person.firstName, lastName: person.lastName })
   }
 
