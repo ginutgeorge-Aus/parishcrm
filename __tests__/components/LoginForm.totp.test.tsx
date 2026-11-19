@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { LoginForm } from "@/components/auth/LoginForm"
 import { signIn } from "next-auth/react"
 import { trustDevice } from "@/lib/actions/trustedDevice"
@@ -65,10 +65,86 @@ describe("LoginForm — authenticator step", () => {
 
   it("email fallback refused while backup codes exist explains why and stays on the authenticator step", async () => {
     await toTotpStep()
-    mockSignIn.mockResolvedValueOnce({ code: "TotpRequired", error: "TotpRequired", ok: false })
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false })
     fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
-    expect(await screen.findByText(/Email codes are turned off for accounts with an authenticator app/)).toBeInTheDocument()
-    expect(screen.getByLabelText("Authenticator code")).toBeInTheDocument()
+    // One notice only, and the untouched authenticator code is not marked invalid.
+    expect(await screen.findAllByText(/Email codes are off while you have unused backup codes/)).toHaveLength(1)
+    expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Authenticator code")).not.toHaveAttribute("aria-invalid")
+  })
+
+  it("OTP-step resend refused while backup codes exist moves to the authenticator step with the email button hidden", async () => {
+    // Reach the OTP step via the email fallback (no backup codes at that point).
+    await toTotpStep()
+    mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    await screen.findByLabelText("Verification code")
+    // Backup codes were generated since: the resend is refused with TotpRequiredBackup.
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: /resend/i }))
+    await screen.findByLabelText("Authenticator code")
+    expect(screen.getAllByText(/Email codes are off while you have unused backup codes/)).toHaveLength(1)
+    expect(screen.getByLabelText("Authenticator code")).not.toHaveAttribute("aria-invalid")
+    expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Failed to resend. Try again.")).not.toBeInTheDocument()
+  })
+
+  it("ignores a late resend reply after the user went Back from the OTP step", async () => {
+    await toTotpStep()
+    mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    await screen.findByLabelText("Verification code")
+    let settle!: (v: unknown) => void
+    mockSignIn.mockReturnValueOnce(new Promise((r) => { settle = r }))
+    fireEvent.click(screen.getByRole("button", { name: /resend/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Back to password step" }))
+    await screen.findByLabelText("Password")
+    await act(async () => { settle({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false }) })
+    expect(screen.getByLabelText("Password")).toBeInTheDocument()
+    expect(screen.queryByLabelText("Authenticator code")).not.toBeInTheDocument()
+  })
+
+  it("ignores a late email-fallback rejection after Back and re-entry", async () => {
+    await toTotpStep()
+    let fail!: (e: unknown) => void
+    mockSignIn.mockReturnValueOnce(new Promise((_, rej) => { fail = rej }))
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    fireEvent.click(screen.getByRole("button", { name: /Back to password step/ }))
+    await screen.findByLabelText("Password")
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequired", error: "TotpRequired", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+    await screen.findByLabelText("Authenticator code")
+    await act(async () => { fail(new Error("network")) })
+    expect(screen.queryByText("Something went wrong. Please try again.")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Authenticator code")).not.toHaveAttribute("aria-invalid")
+  })
+
+  it("ignores a late resend rejection after Back and re-entry", async () => {
+    await toTotpStep()
+    mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    await screen.findByLabelText("Verification code")
+    let fail!: (e: unknown) => void
+    mockSignIn.mockReturnValueOnce(new Promise((_, rej) => { fail = rej }))
+    fireEvent.click(screen.getByRole("button", { name: /resend/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Back to password step" }))
+    await screen.findByLabelText("Password")
+    mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+    await screen.findByLabelText("Verification code")
+    await act(async () => { fail(new Error("network")) })
+    expect(screen.queryByText("Failed to resend. Try again.")).not.toBeInTheDocument()
+  })
+
+  it("hides the email-code button and explains why when backup codes exist", async () => {
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false })
+    render(<LoginForm churchName="Demo Church" />)
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "admin@example.com" } })
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+    await screen.findByLabelText("Authenticator code")
+    expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
+    expect(screen.getByText(/Email codes are off while you have unused backup codes/)).toBeInTheDocument()
   })
 
   it("email fallback requests an emailed code and moves to the OTP step", async () => {

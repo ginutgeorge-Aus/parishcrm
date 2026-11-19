@@ -45,12 +45,21 @@ describe("POST /api/cron/error-issues", () => {
     expect(await res.json()).toEqual({ error: "digest failed", stage: "list" })
     spy.mockRestore()
   })
-  it("502 stage unknown for a plain error, no error text in the body", async () => {
+  it("500 for a local purge-stage failure (not an upstream GitHub error)", async () => {
+    process.env.CRON_SECRET = "s"
+    ;(runErrorDigestLocked as jest.Mock).mockRejectedValue(new DigestStageError("purge", new Error("db down")))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const res = await POST(req("Bearer s"))
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: "digest failed", stage: "purge" })
+    spy.mockRestore()
+  })
+  it("500 stage unknown for a plain error, no error text in the body", async () => {
     process.env.CRON_SECRET = "s"
     ;(runErrorDigestLocked as jest.Mock).mockRejectedValue(new Error("secret db detail"))
     const spy = jest.spyOn(console, "error").mockImplementation(() => {})
     const res = await POST(req("Bearer s"))
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(500)
     expect(JSON.stringify(await res.json())).not.toContain("secret db detail")
     spy.mockRestore()
   })

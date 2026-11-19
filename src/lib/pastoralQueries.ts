@@ -3,7 +3,7 @@ import type { Session } from "next-auth"
 import { sydneyToday } from "@/lib/dates"
 import { prisma } from "@/lib/prisma"
 import { FollowUpStatus, UserRole } from "@/lib/generated/prisma/enums"
-import { followUpViewerFromSession, liveFollowUpTarget } from "@/lib/pastoralAccess"
+import { dueByTodayWhere, followUpViewerFromSession, liveFollowUpTarget } from "@/lib/pastoralAccess"
 
 /**
  * In-app notification count for an already-resolved session: the user's own
@@ -21,7 +21,7 @@ export async function countDueFollowUpsFor(session: Session | null): Promise<num
       ...liveFollowUpTarget(),
       assigneeId: ctx.viewer.id,
       status: { in: [FollowUpStatus.OPEN, FollowUpStatus.IN_PROGRESS] },
-      dueDate: { lte: sydneyToday() },
+      ...dueByTodayWhere(sydneyToday()),
     },
   })
 }

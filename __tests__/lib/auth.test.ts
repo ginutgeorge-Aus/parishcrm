@@ -30,7 +30,7 @@ jest.mock("@/lib/prisma", () => ({
     appSetting: {
       findUnique: jest.fn(),
     },
-    backupCode: { count: jest.fn().mockResolvedValue(0) },
+    backupCode: { findFirst: jest.fn().mockResolvedValue(null) },
     passkey: {
       findUnique: jest.fn(),
       updateMany: jest.fn(),
@@ -746,6 +746,15 @@ describe("authorizeCredentials — OTP mode", () => {
     )
   })
 
+  it("OTP consume resets only the OTP fields, leaving the password counter to verifyPassword's CAS", async () => {
+    const validExpiry = new Date(Date.now() + 5 * 60 * 1000)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, otpCode: "hashed:123456", otpExpiresAt: validExpiry })
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
+    const consume = (prisma.user.updateMany as jest.Mock).mock.calls.find(([a]) => "otpCode" in (a.where ?? {}))
+    expect(consume?.[0].data).toEqual({ otpCode: null, otpExpiresAt: null, failedOtpAttempts: 0, otpLockedUntil: null })
+  })
+
   it("only lets one of two concurrent requests consume the same OTP", async () => {
     const validExpiry = new Date(Date.now() + 5 * 60 * 1000)
     const storedUser = { ...baseUser, otpCode: "hashed:123456", otpExpiresAt: validExpiry }
@@ -1299,29 +1308,37 @@ describe("authorizeCredentials — TOTP", () => {
 
   it("emailFallback=true issues the email OTP only when no unused backup codes remain", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
-    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue(null)
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password", emailFallback: "true" }),
     ).rejects.toBeInstanceOf(OtpSent)
-    expect(prisma.backupCode.count).toHaveBeenCalledWith({ where: { userId: 1, usedAt: null } })
+    expect(prisma.backupCode.findFirst).toHaveBeenCalledWith({ where: { userId: 1, usedAt: null }, select: { id: true } })
     expect(sendOtpEmail).toHaveBeenCalled()
   })
 
   it("emailFallback=true is refused (TotpRequired, no email) while unused backup codes exist (AUD-1-18)", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
-    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(3)
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue({ id: "b1" })
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password", emailFallback: "true" }),
-    ).rejects.toBeInstanceOf(TotpRequired)
+    ).rejects.toMatchObject({ code: "TotpRequiredBackup" })
     expect(sendOtpEmail).not.toHaveBeenCalled()
   })
 
-  it("does not count backup codes when no email fallback was requested", async () => {
+  it("password step signals unused backup codes with the TotpRequiredBackup code", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue({ id: "b1" })
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password" }),
-    ).rejects.toBeInstanceOf(TotpRequired)
-    expect(prisma.backupCode.count).not.toHaveBeenCalled()
+    ).rejects.toMatchObject({ code: "TotpRequiredBackup" })
+  })
+
+  it("password step uses the plain TotpRequired code when no backup codes remain", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue(null)
+    await expect(
+      authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password" }),
+    ).rejects.toMatchObject({ code: "TotpRequired" })
   })
 
   it("trusted device still bypasses TOTP", async () => {

@@ -9,15 +9,15 @@ import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 function RegenerateButton({ onConfirm }: Readonly<{ onConfirm: () => Promise<{ error: string } | undefined> }>) {
   return (
     <DeleteConfirmButton
-              onConfirm={onConfirm}
-              title="Regenerate the link?"
-              description="The old link will stop working."
-              triggerLabel="Regenerate"
-              triggerVariant="outline"
-              triggerSize="sm"
-              confirmLabel="Regenerate"
-              pendingLabel="Regenerating…"
-            />
+      onConfirm={onConfirm}
+      title="Regenerate the link?"
+      description="The old link will stop working."
+      triggerLabel="Regenerate"
+      triggerVariant="outline"
+      triggerSize="sm"
+      confirmLabel="Regenerate"
+      pendingLabel="Regenerating…"
+    />
   )
 }
 
@@ -96,30 +96,34 @@ export function VolunteerViewToggle({ eventId, slug, initialEnabled }: Readonly<
         </Button>
       </div>
 
-      {enabled && !link && (
+      {enabled && (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <p className="flex-1 text-sm text-muted-foreground">
-            The link is active. For security it is shown only when created: regenerate it to get a new one.
-          </p>
-          <RegenerateButton onConfirm={handleRegenerate} />
-        </div>
-      )}
-
-      {link && (
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Input
-            readOnly
-            value={link}
-            onFocus={(e) => e.currentTarget.select()}
-            className="flex-1"
-          />
+          {link ? (
+            <Input
+              readOnly
+              value={link}
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1"
+            />
+          ) : (
+            <p className="flex-1 text-sm text-muted-foreground">
+              The link is active. For security it is shown only when created: regenerate it to get a new one.
+            </p>
+          )}
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={copy}>
-              {copied ? "Copied" : "Copy"}
-            </Button>
+            {link && (
+              <Button variant="outline" size="sm" onClick={copy}>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            )}
             <RegenerateButton onConfirm={handleRegenerate} />
           </div>
         </div>
+      )}
+      {link && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Copy this link now. It is shown only once; if you lose it, regenerate to get a new one.
+        </p>
       )}
 
       {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}

@@ -14,6 +14,14 @@ export type DigestStage = "list" | "create" | "purge"
  */
 export class DigestStageError extends Error {
   readonly stage: DigestStage
+  /** Issues filed before the failure (0 when it failed before any were). */
+  filed = 0
+  /** Fingerprints skipped (already had an open issue) before the failure. */
+  skipped = 0
+  /**
+   * @param stage which digest step failed
+   * @param cause the underlying error, kept off `message`
+   */
   constructor(stage: DigestStage, cause: unknown) {
     super(`digest failed at ${stage}`, { cause })
     this.name = "DigestStageError"
@@ -116,7 +124,12 @@ export async function runErrorDigest(
     }
   }
 
-  if (failure) throw failure
+  if (failure) {
+    // Partial progress survives the throw so the caller can log what was already filed.
+    failure.filed = filed
+    failure.skipped = skipped
+    throw failure
+  }
   return { filed, skipped, purged }
 }
 

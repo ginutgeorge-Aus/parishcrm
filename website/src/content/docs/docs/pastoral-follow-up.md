@@ -14,7 +14,7 @@ to the roles below.
 |---|---|---|---|
 | Follow-ups: see every task, add, delete | yes | no | no |
 | Follow-ups: see and update tasks assigned to them | yes | yes | no |
-| Prayer requests: list, add, answer, archive, withdraw sharing | yes | no | no |
+| Prayer requests: list, add, edit, answer, archive, withdraw sharing | yes | no | no |
 
 A follow-up can only be assigned to a login with edit access (ADMIN, PASTOR or OFFICE_ADMIN). An
 assignee sees only their own tasks, and can change a task's status but not its text, due date or
@@ -47,6 +47,12 @@ are due today or earlier, the same ones the count shows (`/follow-ups?assignee=m
 a member sent it themselves, whether it is **Private** or **OK to share**, the request text and any
 name and contact the requester gave.
 
+- **Edit** opens a form to change the request text, the requester's name, email and phone, and
+  **OK to share**. The linked member is kept as it is. If someone else changed the request after you
+  opened the page, the save is refused and asks you to reload the page; your changes are not saved.
+  Changing the wording of an **OK to share** request makes it private again until the requester
+  agrees to the new wording. A request whose stored text cannot be read (for example after an
+  encryption key problem) shows as read-only with no **Edit** button.
 - **Mark answered**, **Archive** and **Restore** move a request between the statuses.
 - **Withdraw sharing** (on an **OK to share** request) makes it private again when the requester
   changes their mind. It changes only the sharing choice, so it works even if someone else edited

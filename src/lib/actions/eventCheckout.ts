@@ -12,7 +12,7 @@ import { featureGuard } from "@/lib/featureFlags"
 import { rateKeyFromHeaders, resolveClientIp } from "@/lib/clientIp"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
-import { REGISTRATION_TOKEN_RE, registrationLinkWhere } from "@/lib/registrationLink"
+import { REGISTRATION_TOKEN_RE, REGISTRATION_LINK_EXPIRED_MESSAGE, isSlugArg, registrationLinkWhere } from "@/lib/registrationLink"
 
 // Fundraiser entry public tokens are base64url (mintEntryToken); reject anything else before a DB lookup.
 const FUNDRAISER_TOKEN_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -42,7 +42,7 @@ export async function startEventCheckout(
   // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
   if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
   // Runtime type is caller-controlled: an object here would reach Prisma as a filter.
-  if (typeof slug !== "string") return { ok: false, status: 404, error: "Event not found" }
+  if (!isSlugArg(slug)) return { ok: false, status: 404, error: "Event not found" }
 
   // Shared with createEventRegistration so both flows agree on ticket/capacity
   // data and the include shape can't silently drift between them.
@@ -111,8 +111,9 @@ export async function startExistingRegistrationCheckout(
   // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
   if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
   // Runtime types are caller-controlled: reject non-strings and malformed tokens before any DB read.
-  if (typeof slug !== "string" || typeof publicToken !== "string" || !REGISTRATION_TOKEN_RE.test(publicToken)) {
-    return { ok: false, status: 404, error: "Registration not found" }
+  if (!isSlugArg(slug)) return { ok: false, status: 404, error: "Event not found" }
+  if (typeof publicToken !== "string" || !REGISTRATION_TOKEN_RE.test(publicToken)) {
+    return { ok: false, status: 404, error: REGISTRATION_LINK_EXPIRED_MESSAGE }
   }
 
   const event = await prisma.event.findUnique({
@@ -140,7 +141,7 @@ export async function startExistingRegistrationCheckout(
     },
   })
   if (!registration) {
-    return { ok: false, status: 404, error: "Registration not found" }
+    return { ok: false, status: 404, error: REGISTRATION_LINK_EXPIRED_MESSAGE }
   }
   if (registration.paymentStatus !== "PENDING") {
     return { ok: false, status: 400, error: "This registration is not awaiting payment" }

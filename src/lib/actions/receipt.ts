@@ -6,7 +6,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { sendReceiptEmail } from "@/lib/email"
-import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
+import { canAccessAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { encrypt, decrypt, safeDecrypt } from "@/lib/crypto"
 import { format } from "date-fns"
@@ -21,6 +21,9 @@ import { featureGuard } from "@/lib/featureFlags"
 // same recipient inside this window is treated as a no-op so a donor never gets
 // two identical tax-receipt emails.
 const RECEIPT_DEBOUNCE_MS = 10_000
+
+const CONSENT_BLOCKED_MSG = "Recipient has not consented to email receipts"
+const ARCHIVED_BLOCKED_MSG = "Recipient is archived"
 
 const MAX_RECEIPT_BATCH_SIZE = 200
 const RECEIPT_FETCH_CAP = 500
@@ -82,36 +85,60 @@ function buildReceiptData(
   }
 }
 
-// Consent gate for the single-send path: mirrors sendBatchReceipts — an
-// opted-out recipient must not receive a receipt regardless of which send
-// path (single vs batch) is used. Returns the block reason, or null when the
-// send may proceed.
-function checkSingleReceiptConsent(
-  tx: {
-    person: { emailConsent: boolean } | null
-    family: { people: { email: string | null; emailConsent: boolean }[] } | null
-  },
-  toEmail: string
-): string | null {
-  const consentBlocked = "Recipient has not consented to email receipts"
-  if (tx.person?.emailConsent === false) {
-    return consentBlocked
+/** Transaction shape the recipient gate needs (person + family with members). */
+type ReceiptRecipientTx = {
+  person: { emailConsent: boolean; archivedAt: Date | null } | null
+  family: {
+    archivedAt: Date | null
+    people: { email: string | null; emailConsent: boolean; archivedAt: Date | null }[]
+  } | null
+}
+
+/**
+ * Recipient gate shared by the single and batch send paths: an archived or
+ * opted-out recipient must not receive a receipt. Person-linked rows check that
+ * person; family-only rows check the family and EVERY member whose email matches
+ * `toEmail` (not just the first, so shared member emails are row-order independent).
+ * Archived is checked before consent. Returns the block reason, or null to proceed.
+ */
+function checkReceiptRecipient(tx: ReceiptRecipientTx, toEmail: string): string | null {
+  if (tx.person) {
+    if (tx.person.archivedAt) return ARCHIVED_BLOCKED_MSG
+    if (tx.person.emailConsent === false) return CONSENT_BLOCKED_MSG
+    return null
   }
-  if (!tx.person && tx.family) {
-    const member = tx.family.people?.find((p) => {
-      if (!p.email) return false
-      try {
-        return decrypt(p.email).toLowerCase() === toEmail.toLowerCase()
-      } catch {
-        // Corrupt/legacy member ciphertext can't be compared — treat as no-match.
-        return false
-      }
-    })
-    if (member?.emailConsent === false) {
-      return consentBlocked
+  if (!tx.family) return null
+  if (tx.family.archivedAt) return ARCHIVED_BLOCKED_MSG
+  const target = toEmail.toLowerCase()
+  const matches = (tx.family.people ?? []).filter((p) => {
+    if (!p.email) return false
+    try {
+      return decrypt(p.email).toLowerCase() === target
+    } catch {
+      // Corrupt/legacy member ciphertext can't be compared — treat as no-match.
+      return false
     }
-  }
+  })
+  if (matches.some((m) => m.archivedAt)) return ARCHIVED_BLOCKED_MSG
+  if (matches.some((m) => m.emailConsent === false)) return CONSENT_BLOCKED_MSG
   return null
+}
+
+/**
+ * Re-read the recipient state and re-run the gate. Used right before a send, after
+ * awaits during which another operator may have archived or opted out the recipient.
+ * A transaction that vanished counts as blocked.
+ */
+async function recheckReceiptRecipient(transactionId: number, toEmail: string): Promise<string | null> {
+  const fresh = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+    select: {
+      family: { select: { archivedAt: true, people: { select: { email: true, emailConsent: true, archivedAt: true } } } },
+      person: { select: { emailConsent: true, archivedAt: true } },
+    },
+  })
+  if (!fresh) return "Transaction not found"
+  return checkReceiptRecipient(fresh, toEmail)
 }
 
 // Debounce: if an identical SUCCESS send to this recipient landed in the
@@ -150,16 +177,18 @@ export async function sendSingleReceipt(
     where: { id: transactionId },
     include: {
       account: { select: { code: true, name: true } },
-      family: { select: { name: true, people: { select: { email: true, emailConsent: true } } } },
-      person: { select: { firstName: true, lastName: true, emailConsent: true } },
+      family: {
+        select: { name: true, archivedAt: true, people: { select: { email: true, emailConsent: true, archivedAt: true } } },
+      },
+      person: { select: { firstName: true, lastName: true, emailConsent: true, archivedAt: true } },
     },
   })
   if (!tx) return { error: "Transaction not found" }
 
   const sentById = actorId(session)
 
-  const consentError = checkSingleReceiptConsent(tx, toEmail)
-  if (consentError) return { error: consentError }
+  const blockReason = checkReceiptRecipient(tx, toEmail)
+  if (blockReason) return { error: blockReason }
 
   const churchRes = await getChurchSettingsForReceipt()
   if ("error" in churchRes) return { error: churchRes.error }
@@ -169,6 +198,10 @@ export async function sendSingleReceipt(
   if (await wasReceiptRecentlySent(transactionId, toEmail)) {
     return { success: `Receipt already sent to ${toEmail}` }
   }
+
+  // Recipient may have been archived/opted out during the awaits above.
+  const lateBlock = await recheckReceiptRecipient(transactionId, toEmail)
+  if (lateBlock) return { error: lateBlock }
 
   try {
     await sendReceiptEmail(toEmail, data)
@@ -200,7 +233,11 @@ export async function sendSingleReceipt(
   return { success: `Receipt sent to ${toEmail}` }
 }
 
-/** Email a batch of giving receipts. ADMIN/PASTOR only. */
+/**
+ * Email a batch of giving receipts. ADMIN/PASTOR only. Each row is gated against the
+ * pre-loop snapshot, then re-checked against fresh DB state right before its send so
+ * a recipient archived or opted out mid-batch is skipped (reported in `errors`).
+ */
 export async function sendBatchReceipts(
   rows: { transactionId: number; toEmail: string }[]
 ): Promise<BatchReceiptResult> {
@@ -224,8 +261,10 @@ export async function sendBatchReceipts(
     where: { id: { in: ids } },
     include: {
       account: { select: { code: true, name: true } },
-      family: { select: { name: true, people: { select: { email: true, emailConsent: true } } } },
-      person: { select: { firstName: true, lastName: true, emailConsent: true } },
+      family: {
+        select: { name: true, archivedAt: true, people: { select: { email: true, emailConsent: true, archivedAt: true } } },
+      },
+      person: { select: { firstName: true, lastName: true, emailConsent: true, archivedAt: true } },
     },
   })
   const txById = new Map(txList.map((tx) => [tx.id, tx]))
@@ -256,33 +295,32 @@ export async function sendBatchReceipts(
       errors.push({ transactionId: row.transactionId, error: "Transaction not found" })
       continue
     }
-    // Consent gate. A consent block is reported (not silently dropped) so the
-    // operator sees why a receipt wasn't sent and it isn't mistaken for a
-    // successful send.
-    const consentBlocked = "Recipient has not consented to email receipts"
-    // Person-linked: skip if that person opted out.
-    if (tx.person?.emailConsent === false) {
+    // Recipient gate. A block is reported (not silently dropped) so the operator
+    // sees why a receipt wasn't sent and it isn't mistaken for a successful send.
+    const blockReason = checkReceiptRecipient(tx, row.toEmail)
+    if (blockReason) {
       failed++
-      errors.push({ transactionId: row.transactionId, error: consentBlocked })
+      errors.push({ transactionId: row.transactionId, error: blockReason })
       continue
     }
-    // Family-linked (no person): skip if the recipient matches a member who opted out.
-    if (!tx.person && tx.family) {
-      const member = tx.family.people?.find((p) => {
-        if (!p.email) return false
-        try {
-          return decrypt(p.email).toLowerCase() === row.toEmail.toLowerCase()
-        } catch {
-          // Corrupt/legacy member ciphertext can't be compared — treat as no-match
-          // rather than throwing out of the loop and aborting the whole batch.
-          return false
-        }
-      })
-      if (member?.emailConsent === false) {
-        failed++
-        errors.push({ transactionId: row.transactionId, error: consentBlocked })
-        continue
-      }
+    // txById is a snapshot from before the loop; an operator may have archived or
+    // opted out this recipient while earlier rows were sending. Re-read just
+    // before the send (1 extra query per row, max MAX_RECEIPT_BATCH_SIZE).
+    let lateBlock: string | null
+    try {
+      lateBlock = await recheckReceiptRecipient(row.transactionId, row.toEmail)
+    } catch {
+      // Fail closed for this row only: never send unverified, never log raw
+      // error text (may embed the address), keep earlier results and go on.
+      logger.error("[receipt] sendBatchReceipts recheck failed", { transactionId: row.transactionId })
+      failed++
+      errors.push({ transactionId: row.transactionId, error: "Could not verify recipient" })
+      continue
+    }
+    if (lateBlock) {
+      failed++
+      errors.push({ transactionId: row.transactionId, error: lateBlock })
+      continue
     }
     const data = buildReceiptData(tx, church)
     // Write the ReceiptSend row immediately after each attempt — not in a single
@@ -337,17 +375,43 @@ export async function sendBatchReceipts(
   return { sent, failed, errors }
 }
 
-/** List giving transactions in a date range for receipting. Accounting viewers only. */
+/**
+ * Prefill address for a receipt row. An archived or opted-out person gets no
+ * prefill (the send gate would block it anyway), and an archived family is skipped.
+ * Falls back to the first family member (query order) whose address passes the
+ * send gate, i.e. no member sharing that address is archived or opted out.
+ */
+function defaultReceiptEmail(tx: {
+  person: { email: string | null; emailConsent: boolean; archivedAt: Date | null } | null
+  family: {
+    archivedAt: Date | null
+    people: { email: string | null; emailConsent: boolean; archivedAt: Date | null }[]
+  } | null
+}): string | null {
+  if (tx.person) {
+    if (tx.person.archivedAt || tx.person.emailConsent === false) return null
+    if (tx.person.email) return safeDecrypt(tx.person.email)
+  }
+  if (!tx.family || tx.family.archivedAt) return null
+  for (const m of tx.family.people) {
+    if (!m.email || m.archivedAt || m.emailConsent === false) continue
+    const addr = safeDecrypt(m.email)
+    if (!isValidEmail(addr)) continue
+    if (checkReceiptRecipient({ person: null, family: tx.family }, addr) === null) return addr
+  }
+  return null
+}
+
+/** List giving transactions in a date range for receipting. ADMIN/PASTOR only: rows carry decrypted member emails. */
 export async function fetchTransactionsForReceipt(
   from: string,
   to: string,
   accountId?: number
 ): Promise<FetchResult> {
-  // Read path — AUDITOR is allowed (matches the canViewAccounting page guard on
-  // /accounting/receipt-audit). The actual send actions stay canAccessAccounting
-  // (ADMIN/PASTOR). Previously this read used the stricter mutate-guard.
+  // Rows include decrypted member emails, so this matches the send actions and the
+  // /accounting/send-receipts page (ADMIN/PASTOR). AUDITOR gets no member contact details.
   const session = await auth()
-  if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("receipts")
   if (off) return off
 
@@ -370,14 +434,18 @@ export async function fetchTransactionsForReceipt(
       family: {
         select: {
           name: true,
+          archivedAt: true,
           people: {
-            select: { email: true },
-            where: { email: { not: null }, emailConsent: true },
-            take: 1,
+            // All members with an email, not just eligible ones: the prefill must see
+            // archived/opted-out members sharing an address to match the send gate.
+            select: { email: true, emailConsent: true, archivedAt: true },
+            where: { email: { not: null } },
+            // Same deterministic order as loadStatementFamilies: HEAD first, then name, then id.
+            orderBy: [{ role: "asc" }, { firstName: "asc" }, { lastName: "asc" }, { id: "asc" }],
           },
         },
       },
-      person: { select: { firstName: true, lastName: true, email: true } },
+      person: { select: { firstName: true, lastName: true, email: true, emailConsent: true, archivedAt: true } },
       receiptSends: { orderBy: { sentAt: "desc" }, take: 1, select: { sentAt: true } },
     },
   })
@@ -390,10 +458,7 @@ export async function fetchTransactionsForReceipt(
     amount: centsToNumber(toCents(tx.amount)),
     familyName: tx.family?.name ?? null,
     personName: tx.person ? `${tx.person.firstName} ${tx.person.lastName}` : null,
-    defaultEmail:
-      (tx.person?.email ? safeDecrypt(tx.person.email) : null) ??
-      (tx.family?.people[0]?.email ? safeDecrypt(tx.family.people[0].email) : null) ??
-      null,
+    defaultEmail: defaultReceiptEmail(tx),
     lastSentAt: tx.receiptSends[0]?.sentAt ?? null,
   }))
 

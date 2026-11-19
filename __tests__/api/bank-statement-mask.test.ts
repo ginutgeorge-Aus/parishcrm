@@ -210,7 +210,7 @@ describe("confirm token validation", () => {
     paymentAccountId: 1,
     skip: false,
   }
-  const invalid = { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again." }
+  const invalid = { ok: false, status: 400, code: "SESSION_EXPIRED", error: "This statement review has expired. Re-upload the statement and try again." }
 
   it("rejects masked rows with no token", async () => {
     expect(await confirmBankImport({ rows: [maskedRow] })).toEqual(invalid)
@@ -237,7 +237,7 @@ describe("confirm token validation", () => {
   })
 
   it("keeps the generic error for schema failures", async () => {
-    expect(await confirmBankImport({ rows: "nope" })).toEqual({ ok: false, status: 400, error: "Invalid request data" })
+    expect(await confirmBankImport({ rows: "nope" })).toEqual({ ok: false, status: 400, code: "INVALID_REQUEST", error: "Invalid request data" })
   })
 
   it("treats a QIF ref with a mask-looking segment as an ordinary ref", async () => {
@@ -402,7 +402,7 @@ describe("v1 blind-index key unavailable (#459 review)", () => {
     const { body } = await parse("%PDF-1.4", "s.pdf", "anz")
     mockKeyState.broken = true
     const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
-    expect(result).toEqual({ ok: false, status: 500, error: BANKREF_HASH_ERROR })
+    expect(result).toEqual({ ok: false, status: 500, code: "BANKREF_HASH", error: BANKREF_HASH_ERROR })
     expect(createMany).not.toHaveBeenCalled()
   })
 })

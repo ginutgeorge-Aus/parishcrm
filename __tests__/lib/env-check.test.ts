@@ -273,6 +273,8 @@ describe("env-check", () => {
     it("does not warn on a single replica", () => {
       process.env.CHURCH_NAME = "Example Church"
       process.env.CONTAINER_APP_REPLICA_COUNT = "1"
+      process.env.TURNSTILE_SECRET_KEY = "secret"
+      process.env.TURNSTILE_SITE_KEY = "site"
       expect(collectEnvWarnings()).toEqual([])
     })
   })

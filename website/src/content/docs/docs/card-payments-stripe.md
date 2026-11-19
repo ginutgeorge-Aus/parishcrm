@@ -61,7 +61,7 @@ or badly-signed request is rejected without being parsed or logged. Handles:
 | Event | Effect |
 |-------|--------|
 | `checkout.session.completed` (payment_status = `paid`) | Claims the staging row (atomic `OPEN`→`COMPLETED`, so a redelivered webhook can't double-process) and creates the `Registration` as `PAID` — or, for a pay-now session, flips the existing `PENDING` registration to `PAID` |
-| `checkout.session.completed` (not yet settled, e.g. a delayed bank-debit method) / `checkout.session.async_payment_succeeded` | Extends the staging row's expiry so the sweep doesn't scrub it before settlement, then completes once success actually fires |
+| `checkout.session.completed` (not yet settled, e.g. a delayed bank-debit method) / `checkout.session.async_payment_succeeded` | Extends the staging row's expiry (and re-opens an expired row that still holds its payload) so the sweep doesn't scrub it before settlement, then completes once success actually fires |
 | `checkout.session.async_payment_failed` | Marks the staging row `EXPIRED` — no registration is created |
 | `charge.refunded` (full) | Resolves the registration by its Stripe PaymentIntent and flips it to `CANCELLED`, freeing the seat |
 | `charge.refunded` (partial) | Left alone — surfaced as an ops alert for manual review, since the parish's refunds are all-or-nothing |
@@ -89,9 +89,13 @@ follow-up instead of showing "still finalising" forever.
 ### Abandoned-checkout cleanup (`POST /api/cron/sweep-checkouts`)
 
 An hourly, bearer-token-gated cron (`src/lib/checkoutSweep.ts`) marks any `CheckoutSession` still
-`OPEN` past its expiry as `EXPIRED` and scrubs its encrypted PII payload — so an abandoned
-checkout (someone who never completed Stripe Checkout) doesn't leave registrant data sitting
-around indefinitely. A misconfigured/missing `CRON_SECRET` makes the sweep refuse every call
+`OPEN` past its expiry as `EXPIRED`, then scrubs the encrypted PII payload of rows that have been
+expired for more than 72 hours — so an abandoned checkout (someone who never completed Stripe
+Checkout) doesn't leave registrant data sitting around indefinitely. The 72-hour grace covers
+Stripe's webhook retry window: if a paid confirmation arrives late (for example the app was down
+when Stripe first called), the webhook still claims the `EXPIRED` row and creates the
+registration instead of only alerting ops. A paid confirmation that arrives after the payload was
+scrubbed still raises the "charged but no registration" ops alert. A misconfigured/missing `CRON_SECRET` makes the sweep refuse every call
 (HTTP 503) rather than silently no-op, so the failure is visible in logs.
 
 ### Security

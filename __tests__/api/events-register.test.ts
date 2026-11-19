@@ -14,11 +14,12 @@ const validToken = () => issueFormToken(Date.now() - 5_000)
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     event: { findUnique: jest.fn() },
-    registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
     registrationItem: { create: jest.fn() },
     $transaction: jest.fn(),
   },
 }))
+jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(() => Promise.resolve(true)) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -99,7 +100,7 @@ describe("POST /api/events/[slug]/register", () => {
   it("uses endDate over date to decide a multi-day event is still open", async () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ ...mockEvent, date: new Date("2020-01-01"), endDate: new Date("2999-12-31") })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     const res = await POST(makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 } }), { params: Promise.resolve({ slug: "harvest" }) })
     expect(res.status).toBe(200)
@@ -113,7 +114,7 @@ describe("POST /api/events/[slug]/register", () => {
     })
     const createMock = jest.fn().mockResolvedValue({ id: 1, publicToken: "tok" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     const res = await POST(makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 7 } }), { params: Promise.resolve({ slug: "harvest" }) })
     expect(res.status).toBe(200)
@@ -125,7 +126,7 @@ describe("POST /api/events/[slug]/register", () => {
   it("allows registration on a recurring event with no date set", async () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ ...mockEvent, date: null, endDate: null })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     const res = await POST(makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 } }), { params: Promise.resolve({ slug: "harvest" }) })
     expect(res.status).toBe(200)
@@ -146,7 +147,7 @@ describe("POST /api/events/[slug]/register", () => {
   it("creates registration and returns the opaque ref token on success", async () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 42, publicToken: "REG-DEADBEEF12" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 42, publicToken: "REG-DEADBEEF12" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     const res = await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", phone: "", tickets: { "1": 2 }, customAnswers: {} }),
@@ -164,7 +165,7 @@ describe("POST /api/events/[slug]/register", () => {
     const create = jest.fn()
     const findFirst = jest.fn().mockResolvedValue({ publicToken: "REG-ORIGINAL01" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst, create }, registrationItem: { create: jest.fn(), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst, create }, registrationItem: { create: jest.fn(), aggregate: jest.fn() } })
     )
     const res = await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 } }),
@@ -193,7 +194,7 @@ describe("POST /api/events/[slug]/register", () => {
     const create = jest.fn()
     const findFirst = jest.fn().mockResolvedValue({ publicToken: "REG-VICTIM0001" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst, create }, registrationItem: { create: jest.fn(), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst, create }, registrationItem: { create: jest.fn(), aggregate: jest.fn() } })
     )
     const res = await POST(
       makeRequest({ firstName: "Mal", lastName: "Actor", email: "a@b.com", tickets: { "1": 1 } }),
@@ -210,7 +211,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     const create = jest.fn().mockResolvedValue({ id: 42, publicToken: "REG-X" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 } }),
@@ -271,7 +272,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     const createMock = jest.fn().mockResolvedValue({ id: 42 })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", phone: "0400111222", tickets: { "1": 1 } }),
@@ -286,7 +287,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     const createMock = jest.fn().mockResolvedValue({ id: 42 })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "A@B.com", tickets: { "1": 1 } }),
@@ -339,7 +340,7 @@ describe("POST /api/events/[slug]/register", () => {
       ],
     })
     const res = await POST(
-      makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 60, "2": 41 } }),
+      makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 60, "2": 41 }, attendeeNames: {} }),
       { params: Promise.resolve({ slug: "harvest" }) }
     )
     expect(res.status).toBe(400)
@@ -353,7 +354,7 @@ describe("POST /api/events/[slug]/register", () => {
     })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) },
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "tok" }) },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "tok" }) },
         registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() },
       })
     )
@@ -391,7 +392,7 @@ describe("POST /api/events/[slug]/register", () => {
       customQuestions: [{ id: "q1", label: "Diet", type: "text", required: false }],
     })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 7 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 7 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     const res = await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 }, customAnswers: { q1: "vegan" } }),
@@ -407,7 +408,7 @@ describe("POST /api/events/[slug]/register", () => {
     })
     const createMock = jest.fn().mockResolvedValue({ id: 7, publicToken: "tok" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     const res = await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 }, customAnswers: { q1: "vegan" } }),
@@ -426,7 +427,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     const createMock = jest.fn().mockResolvedValue({ id: 8, publicToken: "tok" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     const res = await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 } }),
@@ -456,7 +457,7 @@ describe("POST /api/events/[slug]/register", () => {
     const itemCreate = jest.fn()
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 99 }) },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 99 }) },
         registrationItem: {
           create: itemCreate,
           aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 10 } }), // last seat taken
@@ -477,7 +478,7 @@ describe("POST /api/events/[slug]/register", () => {
     const aggregate = jest.fn().mockResolvedValue({ _sum: { quantity: 9 } }) // 1 seat free
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 100 }) },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 100 }) },
         registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate },
         ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: 10 }) },
       })
@@ -502,7 +503,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(cappedEvent)
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 101 }) },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 101 }) },
         registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 9 } }) },
         ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: 10 }) },
       })
@@ -527,7 +528,7 @@ describe("POST /api/events/[slug]/register", () => {
     const itemCreate = jest.fn().mockResolvedValue({ id: 1 })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) },
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-UNLIMITED01" }) },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-UNLIMITED01" }) },
         registrationItem: { create: itemCreate, aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 9999 } }) },
       })
     )
@@ -542,7 +543,7 @@ describe("POST /api/events/[slug]/register", () => {
   it("runs the registration transaction at Serializable isolation", async () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 42 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 42 }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 } }),
@@ -570,7 +571,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.$transaction as jest.Mock)
       .mockRejectedValueOnce(conflict)
       .mockImplementationOnce(async (fn: (client: unknown) => Promise<unknown>) =>
-        fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 7, publicToken: "REG-CCCCCCCCCCCC" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+        fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 7, publicToken: "REG-CCCCCCCCCCCC" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
       )
     const res = await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 } }),
@@ -605,7 +606,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     const itemCreate = jest.fn().mockResolvedValue({ id: 1 })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-OK" }) }, registrationItem: { create: itemCreate, aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-OK" }) }, registrationItem: { create: itemCreate, aggregate: jest.fn() } })
     )
     const res = await POST(
       makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 2 }, attendeeNames: { "1": ["  Alice Garcia ", "Bob Garcia"] } }),
@@ -652,7 +653,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn) =>
       fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) },
         registrationItem: { aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 0 } }), create: jest.fn().mockResolvedValue({ id: 1 }) },
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock },
       })
     )
     const res = await POST(makeRequest({
@@ -684,7 +685,7 @@ describe("POST /api/events/[slug]/register", () => {
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn) =>
       fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) },
         registrationItem: { aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 0 } }), create: jest.fn().mockResolvedValue({ id: 1 }) },
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock },
       })
     )
     const res = await POST(makeRequest({
@@ -715,7 +716,7 @@ describe("POST /api/events/[slug]/register — bot protection", () => {
     jest.clearAllMocks()
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-OK" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-OK" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
   })
 
@@ -826,7 +827,7 @@ describe("POST /api/events/[slug]/register — per-attendee answers", () => {
     const regCreateMock = jest.fn().mockResolvedValue({ id: 5, publicToken: "REG-ATTEST01" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) },
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: regCreateMock },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: regCreateMock },
         registrationItem: { create: itemCreateMock, aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 0 } }) },
       })
     )
@@ -859,7 +860,7 @@ describe("POST /api/events/[slug]/register — per-attendee answers", () => {
     })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) },
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 5, publicToken: "REG-ALIGN01" }) },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 5, publicToken: "REG-ALIGN01" }) },
         registrationItem: { create: itemCreateMock, aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 0 } }) },
       })
     )
@@ -910,7 +911,7 @@ describe("POST /api/events/[slug]/register — per-ticket question applicability
   beforeEach(() => {
     jest.clearAllMocks()
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-OK" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-OK" }) }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
   })
 
@@ -940,7 +941,7 @@ describe("POST /api/events/[slug]/register — per-ticket question applicability
     })
     const createMock = jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-OK" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
-      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
+      fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) }, registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: createMock }, registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() } })
     )
     // Send answer for q0 but only Adult ticket selected — answer should be dropped
     await POST(makeRequest({ firstName: "A", lastName: "B", email: "a@b.com", tickets: { "1": 1 }, customAnswers: { q0: "7" } }), ctx("x"))
@@ -968,7 +969,7 @@ describe("POST /api/events/[slug]/register — confirmation email", () => {
   const okTransaction = (publicToken: string) =>
     (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (client: unknown) => Promise<unknown>) =>
       fn({ ticketType: { findUnique: jest.fn().mockResolvedValue({ capacity: null }) },
-        registration: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken }) },
+        registration: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 1, publicToken }) },
         registrationItem: { create: jest.fn().mockResolvedValue({ id: 1 }), aggregate: jest.fn() },
       })
     )

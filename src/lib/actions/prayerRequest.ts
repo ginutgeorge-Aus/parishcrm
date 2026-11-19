@@ -17,7 +17,7 @@ import { z } from "zod"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { logAuditTx } from "@/lib/audit"
-import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { decrypt, encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { assertNotDemo } from "@/lib/demoMode"
 import { PrayerRequestSource, PrayerRequestStatus } from "@/lib/generated/prisma/enums"
@@ -118,6 +118,8 @@ export type PrayerRequestView = {
   personName: string | null
   shareConsent: boolean
   shareConsentAt: Date | null
+  /** True when the text or a requester field could not be decrypted: the UI shows the row read-only. */
+  unreadable: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -152,18 +154,41 @@ function dec(v: string | null): string | null {
 }
 
 /**
+ * Decrypt a column, reporting failure explicitly so text that happens to equal the
+ * placeholder is not mistaken for a decryption failure. A failed value shows the placeholder.
+ * @param v stored value (null stays null and counts as readable)
+ */
+function decView(v: string | null): { text: string | null; failed: boolean } {
+  if (!v) return { text: null, failed: false }
+  try {
+    return { text: decrypt(v), failed: false }
+  } catch {
+    return { text: DECRYPTION_ERROR, failed: true }
+  }
+}
+
+/**
  * Decrypt and shape one prayer request row.
  * @param row selected row
  */
 function toView(row: ViewRow): PrayerRequestView {
+  const req = decView(row.request)
+  const name = decView(row.requesterName)
+  const email = decView(row.requesterEmail)
+  const phone = decView(row.requesterPhone)
+  const request = req.text ?? ""
+  const requesterName = name.text
+  const requesterEmail = email.text
+  const requesterPhone = phone.text
   return {
     id: row.id,
     source: row.source,
     status: row.status,
-    request: safeDecrypt(row.request),
-    requesterName: dec(row.requesterName),
-    requesterEmail: dec(row.requesterEmail),
-    requesterPhone: dec(row.requesterPhone),
+    request,
+    requesterName,
+    requesterEmail,
+    requesterPhone,
+    unreadable: req.failed || name.failed || email.failed || phone.failed,
     personId: row.personId,
     personName: row.person ? `${row.person.firstName} ${row.person.lastName}` : null,
     shareConsent: row.shareConsent,

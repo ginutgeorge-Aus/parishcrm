@@ -31,29 +31,50 @@ import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 // so the first unknown-email login doesn't also pay the hash cost.
 const DUMMY_PASSWORD_HASH = hash(randomBytes(32).toString("hex"), 12)
 
+/** The password lock or the OTP lock is active: the login form shows the 15-minute lockout message. */
 export class AccountLocked extends CredentialsSignin {
   code = "AccountLocked"
 }
 
+/** The password was correct and a fresh email code was sent: the login form moves to the code step. */
 export class OtpSent extends CredentialsSignin {
   code = "OtpSent"
 }
 
+/**
+ * A code was issued less than 30 seconds ago, so no new one is sent. Judged from the stored `otpExpiresAt`
+ * (a recent issuance attempt), not from confirmed email delivery: if sending and the rollback both failed,
+ * the expiry stays set and an immediate retry can still get this error.
+ */
 class OtpCooldown extends CredentialsSignin {
   code = "OtpCooldown"
 }
 
-// The password was correct but the verification code could not be emailed. Kept
-// distinct from OtpSent so the UI shows a delivery error and lets the user retry
-// immediately, instead of prompting for a code that never arrived.
+/**
+ * The password was correct but the verification code could not be emailed. Kept distinct from
+ * OtpSent so the UI shows a delivery error and lets the user retry immediately, instead of prompting
+ * for a code that never arrived.
+ */
 export class OtpDeliveryFailed extends CredentialsSignin {
   code = "OtpDeliveryFailed"
 }
 
-// Password was correct and the user has an authenticator enrolled — the UI
-// should ask for the app code (or a backup code). No email is sent.
+/**
+ * The password was correct and the user has an authenticator enrolled: the UI should ask for the app
+ * code (or a backup code). No email is sent.
+ */
 export class TotpRequired extends CredentialsSignin {
   code = "TotpRequired"
+}
+
+/**
+ * Same as TotpRequired, but the user still holds unused backup codes, so the server will refuse the
+ * email-code fallback (AUD-1-18). The login form uses the distinct code to hide that button instead
+ * of leaving a dead end. Only reachable after the password was verified; revealing the backup-code
+ * state to the password holder is accepted by design (#776).
+ */
+class TotpRequiredWithBackup extends TotpRequired {
+  code = "TotpRequiredBackup"
 }
 
 /**
@@ -69,6 +90,13 @@ function clientIpFrom(request?: Request): { ip: string | undefined; key: string 
 
 type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
 
+/**
+ * Counts one wrong second-factor code against the user, locks the account for 15 minutes at 5
+ * failures, and audit-logs the failed login.
+ * @param userId the account that failed
+ * @param reason short reason code for the audit log
+ * @param ip client IP for the audit log, if known
+ */
 async function recordOtpFailure(userId: number, reason: string, ip: string | undefined): Promise<void> {
   const { failedOtpAttempts: newOtpAttempts } = await prisma.user.update({
     where: { id: userId },
@@ -89,6 +117,13 @@ async function recordOtpFailure(userId: number, reason: string, ip: string | und
   void logAudit(userId, "USER_LOGIN_FAILED", "User", userId, { reason }, ip)
 }
 
+/**
+ * Finishes a login after a fresh second factor (email OTP or authenticator) passed: clears the OTP
+ * counters, mints a pending device-trust grant when asked, and builds the session user.
+ * @param user the verified user row
+ * @param remember the submitted "remember me" flag (any type; only "true" counts)
+ * @param ip client IP for log context, if known
+ */
 async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: string | undefined) {
   // Only fresh second-factor verification (email OTP or authenticator) can grant device trust.
   // A pending row cannot bypass OTP; trustDevice exchanges it once using this session's signed ID.
@@ -138,20 +173,20 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
 async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
   const user = await findUserByEmailInsensitive(email)
   if (!user) {
-    // burn the same bcrypt cost as the real compare below so this
+    // Burn the same bcrypt cost as the real compare below so this
     // fast path can't be timed apart from a valid-email/wrong-password path.
     await compare(password, await DUMMY_PASSWORD_HASH)
     logger.warn("credential login rejected", { reason: "no_user", ipPresent: !!ip })
     return null
   }
-  // reject a soft-deleted user (email is also tombstoned on archive).
+  // Reject a soft-deleted user (email is also tombstoned on archive).
   if (user.archivedAt) return null
 
-  // (accepted, LOW): the lockout is checked before verifying the password,
+  // Accepted risk (LOW): the lockout is checked before verifying the password,
   // so an unauthenticated caller can distinguish a real+locked account from an
   // unknown/unlocked one. This is inherent to surfacing "account locked" to the
   // legitimate user (the login UI shows it) and to the lockout-first ordering
-  // required by// (a locked account must always surface
+  // required by the OTP step (a locked account must always surface
   // AccountLocked, even after its OTP expires). Bounded info leak, no credential
   // compromise; the per-account 5-attempt lock and per-IP throttle backstop it.
   if (user.lockedUntil && user.lockedUntil > new Date()) {
@@ -167,7 +202,7 @@ async function verifyPassword(email: string, password: string, ip: string | unde
       select: { failedLoginAttempts: true },
     })
     if (newAttempts >= 5) {
-      // Match null OR an already-expired lock — (same class of bug as
+      // Match null OR an already-expired lock (same class of bug as
       // the OTP lock above): `lockedUntil: null` alone never re-locks after expiry.
       await prisma.user.updateMany({
         where: { id: user.id, OR: [{ lockedUntil: null }, { lockedUntil: { lte: new Date() } }] },
@@ -210,7 +245,7 @@ async function verifyPassword(email: string, password: string, ip: string | unde
 async function loginIpAllowed(client: { ip: string | undefined; key: string }, bucket = "login:ip", limit = 10): Promise<boolean> {
   if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true") return true
   if (await dbRateLimit(`${bucket}:${client.key}`, limit, 60_000)) return true
-  // reason-coded so a valid-cred rejection (e2e flake, prod incident) is
+  // Reason-coded so a valid-cred rejection (e2e flake, prod incident) is
   // diagnosable from container logs. No PII beyond the ip already logged.
   logger.warn("credential login rejected", {
     reason: "ip_rate_limited",
@@ -219,10 +254,14 @@ async function loginIpAllowed(client: { ip: string | undefined; key: string }, b
   return false
 }
 
-// Usernameless passkey login (its own Credentials provider, id "passkey"): the
-// authenticator proves possession of the private key AND (userVerification
-// "required") a local biometric/PIN, so it stands in for both the password and
-// the second factor. The user is resolved from the credential.
+/**
+ * Usernameless passkey login (its own Credentials provider, id "passkey"): the authenticator proves
+ * possession of the private key AND (userVerification "required") a local biometric/PIN, so it
+ * stands in for both the password and the second factor. The user is resolved from the credential.
+ * @param credentials the submitted passkey assertion fields
+ * @param request the incoming request, used to derive the client IP for throttling and audit
+ * @returns the session user, or null when verification or the throttle fails
+ */
 export async function authorizePasskey(
   credentials: Partial<Record<"challengeId" | "assertion" | "remember", unknown>>,
   request?: Request,
@@ -337,17 +376,17 @@ export async function authorizeCredentials(
   // --max-replicas is ever raised, unlike the in-memory rateLimit(). Mirrors
   // the public register route's per-IP cap (10/min) recommended by the audit.
   // No IP (e.g. a direct internal call) skips the check rather than blocking.
-  // the e2e suite drives login from a single runner IP, serially,
+  // The e2e suite drives login from a single runner IP, serially,
   // dozens of times — it trips its own 10/60s throttle and every later spec's
-  // loginAs is then rejected `ip_rate_limited` (the long-mistaken "auth flake",
-  // //). Skip the throttle ONLY under E2E_ALLOW_TEST_OVERRIDES.
+  // loginAs is then rejected `ip_rate_limited` (the long-mistaken "auth flake").
+  // Skip the throttle ONLY under E2E_ALLOW_TEST_OVERRIDES.
   // That flag is the sole e2e-vs-real-prod signal — the suite runs a genuine
   // production build — so envCheck can't reject the flag itself; it merely uses
   // it as the exemption key for DISABLE_OTP + E2E_MOCK_EMAIL. The flag already
   // unlocks disabling OTP (strictly worse than dropping a per-IP rate limit),
   // so gating the throttle on it adds no new prod exposure; the guarantee that
   // it is never set on a real deployment is operational, not enforced. Systemic
-  // hardening of the flag against prod misuse is tracked in.
+  // hardening of the flag against prod misuse is a known follow-up.
   // Keyed on the resolved bucket key (IPv4 or IPv6 /64), so a request with no
   // valid IP falls back to a shared "unknown" bucket rather than skipping the
   // throttle — matches the sibling limiters (publicFeedback.ts, membership.ts).
@@ -415,17 +454,20 @@ export async function authorizeCredentials(
 
     // Atomically verify-and-consume: two concurrent requests presenting the
     // same still-valid OTP could otherwise both pass the checks above before
-    // either clears it, minting two sessions from a single one-time code
-    //. Conditioning the update on the exact otpCode/otpExpiresAt just
+    // either clears it, minting two sessions from a single one-time code.
+    // Conditioning the update on the exact otpCode/otpExpiresAt just
     // read means only the request that "wins" the race affects a row — a
     // concurrent request that already cleared otpCode makes this a no-op.
+    // Only the OTP fields are reset here: verifyPassword above already
+    // attempted to clear failedLoginAttempts (compare-and-swap, which may
+    // match no row if a concurrent wrong password bumped it) and refused an
+    // active password lock. Consuming the OTP must therefore leave the
+    // password counter and lock alone, so a concurrent increment survives.
     const { count } = await prisma.user.updateMany({
       where: { id: user.id, otpCode: user.otpCode, otpExpiresAt: { gt: new Date() } },
       data: {
         otpCode: null,
         otpExpiresAt: null,
-        failedLoginAttempts: 0,
-        lockedUntil: null,
         failedOtpAttempts: 0,
         otpLockedUntil: null,
       },
@@ -515,10 +557,15 @@ export async function authorizeCredentials(
   // ("Send email code instead") is honoured only when the user has no unused backup codes left:
   // otherwise a taken-over mailbox would skip the authenticator (audit AUD-1-18). Backup codes are
   // the recovery route; an admin can also reset the authenticator.
+  // Accepted by design (PO, #776): TotpRequiredBackup tells a caller who already holds the correct
+  // password whether unused backup codes remain. The login form needs it to hide a dead-end button,
+  // and the password is the real secret here. The findFirst runs on every authenticator password
+  // step; it is one indexed lookup, cheaper than a bcrypt compare.
   if (user.totpEnabledAt) {
     const wantsEmail = credentials.emailFallback === "true"
-    const hasBackupCodes = wantsEmail && (await prisma.backupCode.count({ where: { userId: user.id, usedAt: null } })) > 0
-    if (!wantsEmail || hasBackupCodes) throw new TotpRequired()
+    const hasBackupCodes = (await prisma.backupCode.findFirst({ where: { userId: user.id, usedAt: null }, select: { id: true } })) !== null
+    if (hasBackupCodes) throw new TotpRequiredWithBackup()
+    if (!wantsEmail) throw new TotpRequired()
   }
 
   // Enforce 30-second resend cooldown: otpExpiresAt > now + 9.5 min means OTP was sent < 30s ago
@@ -542,8 +589,8 @@ export async function authorizeCredentials(
     // wrote, so we never clear a newer code from a concurrent attempt). Leaving
     // it set would show the OTP prompt for a code that never arrived and block
     // an immediate retry behind the resend cooldown.
-    // A failed rollback must not mask the delivery failure with a raw DB error
-    //. Worst case the stale code survives: the undelivered hash can't
+    // A failed rollback must not mask the delivery failure with a raw DB error.
+    // Worst case the stale code survives: the undelivered hash can't
     // be guessed, and the resend cooldown it trips lapses within 30s.
     await prisma.user
       .updateMany({
@@ -558,14 +605,15 @@ export async function authorizeCredentials(
   throw new OtpSent()
 }
 
-// Cached read of the configurable idle-timeout setting. The per-request
-// jwtCallback consults this on every protected request, so a 60s in-process TTL
-// keeps it from hitting the DB each time — the setting changes a few times a
-// year. Falls back to 60 minutes on any miss/error.
-// Concurrent requests can race to refresh the cache (each does its own DB read
-// and last-write-wins); the values are identical and the setting is read-only
-// here, so the worst case is a few redundant reads on expiry — acceptable.
 let idleMsCache: { value: number; expires: number } | null = null
+/**
+ * Cached read of the configurable idle-timeout setting. The per-request jwtCallback consults this on
+ * every protected request, so a 60s in-process TTL keeps it from hitting the DB each time (the
+ * setting changes a few times a year). Falls back to 60 minutes on any miss/error. Concurrent
+ * requests can race to refresh the cache (last write wins); the values are identical, so the worst
+ * case is a few redundant reads on expiry.
+ * @returns the idle window in milliseconds
+ */
 async function getIdleMs(): Promise<number> {
   const now = Date.now()
   if (idleMsCache && now < idleMsCache.expires) return idleMsCache.value
@@ -585,12 +633,16 @@ async function getIdleMs(): Promise<number> {
   return idleMsCache.value
 }
 
-// At sign-in, stamp role/id + issue/activity timestamps from the freshly-
-// authorized user, and drop the email claim (keep PII out of the long-
-// lived token). On every later request, re-query the user and invalidate the
-// session (return null) if the account has since been deleted, was logged
-// out / force-invalidated, or has been idle past the configured window. A login
-// lock (`lockedUntil`) is NOT a revocation signal: anonymous bad guesses set it. Otherwise refresh role + activity timestamp.
+/**
+ * NextAuth `jwt` callback. At sign-in, stamps role/id + issue/activity timestamps from the freshly
+ * authorized user and drops the email claim (keeps PII out of the long-lived token). On every later
+ * request, re-queries the user and invalidates the session (returns null) if the account has since
+ * been deleted, was logged out / force-invalidated, or has been idle past the configured window.
+ * A login lock (`lockedUntil`) is NOT a revocation signal: anonymous bad guesses set it. Otherwise
+ * refreshes role + activity timestamp.
+ * @param params the current token and, at sign-in only, the authorized user
+ * @returns the updated token, or null to end the session
+ */
 export async function jwtCallback({
   token,
   user,
@@ -621,9 +673,9 @@ export async function jwtCallback({
       select: { role: true, sessionsValidFrom: true, archivedAt: true },
     })
     if (!dbUser) return null
-    // kill a live session the instant its user is soft-deleted.
+    // Kill a live session the instant its user is soft-deleted.
     if (dbUser.archivedAt) return null
-    // a logout / forced invalidation sets sessionsValidFrom; any token
+    // A logout / forced invalidation sets sessionsValidFrom; any token
     // issued before that instant is dead even though the JWT has not expired.
     // A token minted before this change carries no loginAt — treat that as
     // epoch 0 (always before sessionsValidFrom), so logout still kills it.
@@ -631,7 +683,7 @@ export async function jwtCallback({
     if (dbUser.sessionsValidFrom && (loginAt ?? 0) < dbUser.sessionsValidFrom.getTime()) {
       return null
     }
-    // /: remember-aware session windows.
+    // Remember-aware session windows.
     // Non-remembered: 4h hard cap from loginAt + DB-configurable idle (default 60min).
     // Remembered: 7-day sliding idle from lastActivity, no separate hard cap.
     // A token minted before this change has no lastActivity — grandfather it in
@@ -653,7 +705,7 @@ export async function jwtCallback({
     }
     token.lastActivity = now
     token.role = dbUser.role
-    // Drop a stale email claim from any token minted before.
+    // Drop a stale email claim from any token minted before the claim was removed.
     if (token.email) delete token.email
   }
   return token
@@ -687,6 +739,11 @@ const nextAuth = NextAuth({
   ],
   callbacks: {
     jwt: jwtCallback,
+    /**
+     * Copies the role, id, pending device-trust grant and remember flag from the JWT onto the session.
+     * @param params the session being built and the decoded token
+     * @returns the session with the auth fields set
+     */
     async session({ session, token }) {
       session.user.role = token.role as UserRole
       session.user.id = token.id as string
@@ -697,7 +754,7 @@ const nextAuth = NextAuth({
   },
   // 7-day cookie TTL ceiling (was 4h). The REAL per-session lifetime is enforced
   // in jwtCallback by the `remember` claim: non-remembered tokens still die at
-  // 4h hard cap + 60min idle; remembered tokens get 7-day sliding idle.'s
+  // 4h hard cap + 60min idle; remembered tokens get 7-day sliding idle. The
   // hard cap now lives in jwtCallback (non-remember branch), not in maxAge.
   session: { strategy: "jwt", maxAge: 604800 },
 })
@@ -709,5 +766,6 @@ export const { auth, handlers, signOut } = nextAuth
  * page guards and any other server component in one request decode the JWT
  * (and run the jwt callback's user re-query) once. Same semantics as `auth()`.
  * Server components only; route handlers and server actions keep calling `auth()`.
+ * @returns the current session, or null when signed out
  */
 export const getSession = cache(() => nextAuth.auth())

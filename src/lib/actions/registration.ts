@@ -1,5 +1,6 @@
 "use server"
 
+import { LATE_CLAIMABLE_WHERE } from "@/lib/checkoutSweep"
 import { z } from "zod"
 import { auth } from "@/auth"
 import { paymentMethodOf } from "@/lib/paymentMethod"
@@ -162,10 +163,20 @@ export async function resetEventRegistrations(eventId: number): Promise<ActionRe
   // deleteEvent's OPEN-checkout guard. Fundraiser checkouts are excluded: the
   // reset keeps their staging rows, so they cannot be stranded by it.
   const openCheckouts = await prisma.checkoutSession.count({
-    where: { eventId, status: "OPEN", fundraiserEntryId: null },
+    where: { eventId, fundraiserEntryId: null, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
   })
   if (openCheckouts > 0) {
     return { error: "A payment is in progress — wait for it to finish before resetting." }
+  }
+
+  // Same for records of money taken: a charged-but-unbooked or completed
+  // checkout, or a cancelled registration that still carries its Stripe ref.
+  const paymentRecords =
+    (await prisma.checkoutSession.count({
+      where: { eventId, fundraiserEntryId: null, status: { in: ["COMPLETED", "UNFULFILLED"] } },
+    })) + (await prisma.registration.count({ where: { eventId, paymentRef: { not: null } } }))
+  if (paymentRecords > 0) {
+    return { error: "This event has card payment records, so its registrations cannot be reset." }
   }
 
   // Fundraiser staging rows (fundraiserEntryId set) are not registrations: keep them.
@@ -174,7 +185,7 @@ export async function resetEventRegistrations(eventId: number): Promise<ActionRe
   const [regs, waitlist, checkouts] = await prisma.$transaction([
     prisma.registration.deleteMany({ where: { eventId } }),
     prisma.waitlist.deleteMany({ where: { eventId } }),
-    prisma.checkoutSession.deleteMany({ where: { eventId, fundraiserEntryId: null } }),
+    prisma.checkoutSession.deleteMany({ where: { eventId, fundraiserEntryId: null, status: "EXPIRED" } }),
   ])
 
   await logAudit(actorId(session), "EVENT_REGISTRATIONS_RESET", "Event", eventId, {

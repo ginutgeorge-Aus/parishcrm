@@ -39,6 +39,8 @@ export function LoginForm({
   const [step, setStep] = useState<"password" | "otp" | "totp">("password")
   const [totpCode, setTotpCode] = useState("")
   const [useBackup, setUseBackup] = useState(false)
+  // True when the account still has unused backup codes: the server refuses the email-code fallback then.
+  const [emailFallbackBlocked, setEmailFallbackBlocked] = useState(false)
   const [error, setError] = useState("")
   const [demoError, setDemoError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -57,6 +59,8 @@ export function LoginForm({
   const totpRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const firstRender = useRef(true)
+  // Bumped when the user leaves the OTP/authenticator step, so a late resend or email-fallback reply is ignored.
+  const stepAttemptRef = useRef(0)
   // Server snapshot is false: the server render can't know, and a mismatch would break hydration.
   const passkeySupported = useSyncExternalStore(noopSubscribe, browserSupportsWebAuthn, () => false)
 
@@ -105,7 +109,8 @@ export function LoginForm({
     try {
       const result = await signIn("credentials", { email, password, mode: "password", remember: remember ? "true" : "false", redirect: false })
 
-      if (result?.code === "TotpRequired") {
+      if (result?.code === "TotpRequired" || result?.code === "TotpRequiredBackup") {
+        setEmailFallbackBlocked(result.code === "TotpRequiredBackup")
         setStep("totp")
       } else if (result?.code === "OtpSent") {
         setStep("otp")
@@ -188,14 +193,20 @@ export function LoginForm({
     }
   }
 
+  /**
+   * OTP-step "resend code": re-runs the password credential with emailFallback so the server emails a
+   * fresh code, and maps each server reply (sent, cooldown, locked, email codes refused) to the UI.
+   */
   async function handleResend() {
     setResendMsg("")
     // Clear any stale verify error so "New code sent." doesn't render alongside
     // "Invalid or expired code." — the two together read as contradictory.
     setError("")
     setResendLoading(true)
+    const attempt = stepAttemptRef.current
     try {
       const result = await signIn("credentials", { email, password, mode: "password", emailFallback: "true", remember: remember ? "true" : "false", redirect: false })
+      if (attempt !== stepAttemptRef.current) return
       if (result?.code === "OtpSent") {
         setResendMsg("New code sent.")
         setOtp("")
@@ -207,11 +218,18 @@ export function LoginForm({
         // "try again" that invites retries against a locked account.
         setResendMsg("Account locked after too many failed attempts. Try again in 15 minutes.")
         lockNow()
+      } else if (result?.code === "TotpRequiredBackup") {
+        // The account has an authenticator and unused backup codes, so the server refuses email
+        // codes (AUD-1-18). Move to the authenticator step instead of a misleading "failed to resend".
+        setOtp("")
+        setEmailFallbackBlocked(true)
+        setStep("totp")
       } else {
         setResendMsg("Failed to resend. Try again.")
       }
     } catch {
-      // Transport-level rejection — same class as handlePasswordSubmit.
+      // Transport-level rejection — same class as handlePasswordSubmit. Ignore it if the user left the step.
+      if (attempt !== stepAttemptRef.current) return
       setResendMsg("Failed to resend. Try again.")
     } finally {
       setResendLoading(false)
@@ -276,14 +294,20 @@ export function LoginForm({
     }
   }
 
+  /**
+   * Authenticator-step "Send email code instead": asks the server for an emailed code and moves to the
+   * OTP step, or explains the refusal when unused backup codes keep email codes off.
+   */
   async function handleEmailFallback() {
     setError("")
     setResendMsg("")
     setResendLoading(true)
+    const attempt = stepAttemptRef.current
     try {
       const result = await signIn("credentials", {
         email, password, mode: "password", emailFallback: "true", remember: remember ? "true" : "false", redirect: false,
       })
+      if (attempt !== stepAttemptRef.current) return
       if (result?.code === "OtpSent" || result?.code === "OtpCooldown") {
         if (result.code === "OtpCooldown") setResendMsg("A code was already sent — check your inbox.")
         setTotpCode("")
@@ -292,13 +316,15 @@ export function LoginForm({
       } else if (result?.code === "AccountLocked") {
         setError("Account locked after too many failed attempts. Try again in 15 minutes.")
         lockNow()
-      } else if (result?.code === "TotpRequired") {
-        // Server refuses the email code while unused backup codes exist (audit AUD-1-18).
-        setError("Email codes are turned off for accounts with an authenticator app. Use your app, or a backup code. If you have lost both, ask an administrator to reset your authenticator.")
+      } else if (result?.code === "TotpRequiredBackup") {
+        // Server refuses the email code while unused backup codes exist (audit AUD-1-18). With
+        // emailFallback set, the server never answers plain TotpRequired, so only this code is handled.
+        setEmailFallbackBlocked(true)
       } else {
         setError("We couldn't send your verification code. Please try again in a moment.")
       }
     } catch {
+      if (attempt !== stepAttemptRef.current) return
       setError("Something went wrong. Please try again.")
     } finally {
       setResendLoading(false)
@@ -427,7 +453,7 @@ export function LoginForm({
             <button
               type="button"
               aria-label="Back to password step"
-              onClick={() => { setStep("password"); setTotpCode(""); setUseBackup(false); setError("") }}
+              onClick={() => { stepAttemptRef.current += 1; setStep("password"); setTotpCode(""); setUseBackup(false); setError("") }}
               className="inline-flex items-center min-h-11 min-w-[44px] gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <span aria-hidden="true">←</span> Back
@@ -468,21 +494,27 @@ export function LoginForm({
             >
               {useBackup ? "Use authenticator app" : "Use a backup code"}
             </button>
-            <button
-              type="button"
-              onClick={handleEmailFallback}
-              disabled={resendLoading || isLocked}
-              className="inline-flex items-center justify-center min-h-11 w-full text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              {resendLoading ? "Sending…" : "Send email code instead"}
-            </button>
+            {emailFallbackBlocked ? (
+              <p className="text-center text-xs text-muted-foreground">
+                Email codes are off while you have unused backup codes. Lost your app? Use a backup code, or ask an administrator to reset your authenticator.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={handleEmailFallback}
+                disabled={resendLoading || isLocked}
+                className="inline-flex items-center justify-center min-h-11 w-full text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                {resendLoading ? "Sending…" : "Send email code instead"}
+              </button>
+            )}
           </form>
         ) : (
           <form onSubmit={handleOtpSubmit} className="space-y-4">
             <button
               type="button"
               aria-label="Back to password step"
-              onClick={() => { setStep("password"); setOtp(""); setError("") }}
+              onClick={() => { stepAttemptRef.current += 1; setStep("password"); setOtp(""); setError("") }}
               className="inline-flex items-center min-h-11 min-w-[44px] gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <span aria-hidden="true">←</span> Back

@@ -55,6 +55,14 @@ describe("runErrorDigest", () => {
     expect(deleteMany).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps the filed/skipped counts on the error when a later createIssue fails", async () => {
+    const row = (fingerprint: string) => ({ fingerprint, _count: { _all: 1 }, _min: { createdAt: new Date() }, _max: { createdAt: new Date() } })
+    groupBy.mockResolvedValue([row("open1"), row("a1"), row("b2")])
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([{ body: "<!-- fingerprint:open1 -->" }])
+    ;(createIssue as jest.Mock).mockResolvedValueOnce({ number: 1 }).mockRejectedValueOnce(new Error("500"))
+    await expect(runErrorDigest(new Date())).rejects.toMatchObject({ stage: "create", filed: 1, skipped: 1 })
+  })
+
   it("still purges routeViewDaily when the errorLog purge fails", async () => {
     ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
     ;(createIssue as jest.Mock).mockResolvedValue({ number: 99 })

@@ -7,7 +7,7 @@ if (!process.env.DATABASE_URL) {
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { encrypt, keyIdOf } from "../src/lib/cryptoCore"
-import { hashToken, isHashedToken } from "../src/lib/tokenHash"
+import { canonicalStoredToken } from "../src/lib/tokenHash"
 import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpers"
 
 // One-time backfill for audit 2026-11 phase 1 (AUD-1-17): these free-text columns are now
@@ -25,7 +25,7 @@ const { apply: APPLY, confirmed: CONFIRMED, batchSize: BATCH } = parseScriptArgs
 
 type Delegate = {
   findMany(args: unknown): Promise<Array<Record<string, unknown>>>
-  updateMany(args: unknown): Promise<unknown>
+  updateMany(args: unknown): Promise<{ count: number }>
 }
 
 /**
@@ -47,9 +47,10 @@ async function backfill(label: string, delegate: Delegate, field: string): Promi
     for (const row of rows) {
       const v = row[field]
       if (typeof v === "string" && v.length > 0 && keyIdOf(v) === null) {
-        changed++
         // Guarded on the value we read: a concurrent edit matches 0 rows and is never overwritten.
-        if (APPLY) await delegate.updateMany({ where: { id: row.id, [field]: v }, data: { [field]: encrypt(v) } })
+        // On --apply, count only rows actually written; a dry run counts candidates.
+        if (APPLY) changed += (await delegate.updateMany({ where: { id: row.id, [field]: v }, data: { [field]: encrypt(v) } })).count
+        else changed++
       }
     }
     cursor = rows[rows.length - 1].id as number
@@ -58,21 +59,27 @@ async function backfill(label: string, delegate: Delegate, field: string): Promi
   return changed
 }
 
-/** Replace raw share-link tokens with their SHA-256 digest. Digests are skipped, so re-runs are no-ops. */
+/**
+ * Replace raw share-link tokens with their SHA-256 digest, and lowercase any uppercased digest so DB
+ * lookups (which compare verbatim) can match it. Canonical digests are skipped, so re-runs are no-ops.
+ */
 async function hashTokens(): Promise<void> {
   const events = await prisma.event.findMany({ where: { volunteerToken: { not: null } }, select: { id: true, volunteerToken: true } })
   let n = 0
   for (const e of events) {
-    if (e.volunteerToken && !isHashedToken(e.volunteerToken)) {
-      n++
-      if (APPLY) await prisma.event.update({ where: { id: e.id }, data: { volunteerToken: hashToken(e.volunteerToken) } })
+    const next = e.volunteerToken ? canonicalStoredToken(e.volunteerToken) : null
+    if (next) {
+      // Guarded on the value read: a concurrent regenerate matches 0 rows and is never overwritten.
+      if (APPLY) n += (await prisma.event.updateMany({ where: { id: e.id, volunteerToken: e.volunteerToken }, data: { volunteerToken: next } })).count
+      else n++
     }
   }
   console.log(`event.volunteerToken: ${n} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
 
   const row = await prisma.appSetting.findUnique({ where: { key: "venueUsage.calendarToken" } })
-  const venue = row?.value && !isHashedToken(row.value) ? 1 : 0
-  if (venue && APPLY) await prisma.appSetting.update({ where: { key: "venueUsage.calendarToken" }, data: { value: hashToken(row!.value) } })
+  const nextVenue = row?.value ? canonicalStoredToken(row.value) : null
+  let venue = nextVenue ? 1 : 0
+  if (nextVenue && APPLY) venue = (await prisma.appSetting.updateMany({ where: { key: "venueUsage.calendarToken", value: row!.value }, data: { value: nextVenue } })).count
   console.log(`venueUsage.calendarToken: ${venue} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
 }
 

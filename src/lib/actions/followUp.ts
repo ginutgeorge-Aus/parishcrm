@@ -23,6 +23,7 @@ import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { FollowUpStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
+  dueByTodayWhere,
   FOLLOW_UP_LIST_MAX,
   FOLLOW_UPS_PATH,
   followUpViewerFromSession,
@@ -389,7 +390,7 @@ const ListFilterSchema = z.object({
  */
 export async function listFollowUpTasks(
   rawFilter: FollowUpListFilter = {},
-): Promise<{ error: string } | { tasks: FollowUpTaskView[]; truncated?: boolean }> {
+): Promise<{ error: string } | { tasks: FollowUpTaskView[]; truncated: boolean }> {
   const ctx = await currentViewer()
   if (!ctx) return { error: UNAUTHORIZED }
   const parsedFilter = ListFilterSchema.safeParse(rawFilter)
@@ -397,10 +398,10 @@ export async function listFollowUpTasks(
   const filter = parsedFilter.data
   const statuses = (filter.statuses ?? []).filter((s) => STATUSES.has(s)) as FollowUpStatus[]
   // Asked for statuses but none valid: match nothing, never widen to "all".
-  if (filter.statuses && filter.statuses.length > 0 && statuses.length === 0) return { tasks: [] }
-  if (filter.personId !== undefined && !isValidPgId(filter.personId)) return { tasks: [] }
-  if (filter.familyId !== undefined && !isValidPgId(filter.familyId)) return { tasks: [] }
-  if (typeof filter.assigneeId === "number" && !isValidPgId(filter.assigneeId)) return { tasks: [] }
+  if (filter.statuses && filter.statuses.length > 0 && statuses.length === 0) return { tasks: [], truncated: false }
+  if (filter.personId !== undefined && !isValidPgId(filter.personId)) return { tasks: [], truncated: false }
+  if (filter.familyId !== undefined && !isValidPgId(filter.familyId)) return { tasks: [], truncated: false }
+  if (typeof filter.assigneeId === "number" && !isValidPgId(filter.assigneeId)) return { tasks: [], truncated: false }
   const where: Prisma.FollowUpTaskWhereInput = {
     ...liveFollowUpTarget(),
     ...(statuses.length > 0 ? { status: { in: statuses } } : {}),
@@ -408,7 +409,7 @@ export async function listFollowUpTasks(
     ...(filter.familyId !== undefined ? { familyId: filter.familyId } : {}),
     ...(filter.assigneeId !== undefined ? { assigneeId: filter.assigneeId } : {}),
     ...(filter.mine ? { assigneeId: ctx.viewer.id } : {}),
-    ...(filter.due ? { dueDate: { lte: sydneyToday() } } : {}),
+    ...(filter.due ? dueByTodayWhere(sydneyToday()) : {}),
     // Last, so the visibility scope always wins over a caller-supplied filter.
     ...ctx.scope,
   }

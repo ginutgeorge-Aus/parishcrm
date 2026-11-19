@@ -1,5 +1,6 @@
 "use server"
 
+import { LATE_CLAIMABLE_WHERE } from "@/lib/checkoutSweep"
 import { auth } from "@/auth"
 import { logger } from "@/lib/logger"
 import { actorId } from "@/lib/actor"
@@ -279,7 +280,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
  * non-CANCELLED registrations cover PENDING + PAID.
  * @param tx the deleteEvent transaction client
  * @param id Event.id
- * @throws Error("GUARDED_DELETE_BLOCKED") or Error("FUNDRAISER_DELETE_BLOCKED")
+ * @throws Error("GUARDED_DELETE_BLOCKED"), Error("LATE_CHECKOUT_DELETE_BLOCKED"), Error("PAYMENT_RECORDS_DELETE_BLOCKED") or Error("FUNDRAISER_DELETE_BLOCKED")
  */
 async function assertNoActiveRegistrationsOrCheckouts(tx: Prisma.TransactionClient, id: number): Promise<void> {
   const activeRegistrations = await tx.registration.count({
@@ -291,6 +292,22 @@ async function assertNoActiveRegistrationsOrCheckouts(tx: Prisma.TransactionClie
   if (activeRegistrations > 0 || openCheckouts > 0) {
     throw new Error("GUARDED_DELETE_BLOCKED")
   }
+  // Blocked only by an EXPIRED checkout that can still be claimed late: no
+  // registration exists to cancel, the block lifts once the sweep scrubs it.
+  const lateClaimable = await tx.checkoutSession.count({
+    where: { eventId: id, ...LATE_CLAIMABLE_WHERE },
+  })
+  if (lateClaimable > 0) throw new Error("LATE_CHECKOUT_DELETE_BLOCKED")
+  // Terminal states that still stand for taken money: a charged-but-unbooked
+  // checkout (UNFULFILLED), a completed one, or a cancelled registration that
+  // still carries its Stripe reference (refund or chargeback). Deleting would
+  // remove the only CRM record of the payment.
+  const paymentRecords =
+    (await tx.checkoutSession.count({
+      where: { eventId: id, status: { in: ["COMPLETED", "UNFULFILLED"] } },
+    })) +
+    (await tx.registration.count({ where: { eventId: id, paymentRef: { not: null } } }))
+  if (paymentRecords > 0) throw new Error("PAYMENT_RECORDS_DELETE_BLOCKED")
   const fundraiserEntries = await tx.fundraiserEntry.count({
     where: { fundraiser: { eventId: id } },
   })
@@ -309,6 +326,16 @@ function deleteEventFailureResult(e: unknown): ActionResult {
   if (msg === "GUARDED_DELETE_BLOCKED") {
     return {
       error: "This event has registrations or a payment in progress — cancel them individually before deleting.",
+    }
+  }
+  if (msg === "LATE_CHECKOUT_DELETE_BLOCKED") {
+    return {
+      error: "An abandoned checkout for this event may still be confirmed by Stripe (up to 72 hours). There is nothing to cancel — try again after the abandoned-checkout sweep clears it.",
+    }
+  }
+  if (msg === "PAYMENT_RECORDS_DELETE_BLOCKED") {
+    return {
+      error: "This event has card payment records, so it cannot be deleted. Keep it, or unpublish it to hide it.",
     }
   }
   if (msg === "FUNDRAISER_DELETE_BLOCKED") {
@@ -349,6 +376,9 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
       // registrations/ticket types cascade (schema); a future FK or transient
       // error must surface as a friendly message, not a 500.
       // redirect() below must stay OUTSIDE this txn (it throws NEXT_REDIRECT).
+      // CheckoutSession.event is onDelete: Restrict. Only EXPIRED rows (abandoned
+      // checkouts, no money taken) may go; the guard above rejected the rest.
+      await tx.checkoutSession.deleteMany({ where: { eventId: id, status: "EXPIRED" } })
       await tx.event.delete({ where: { id } })
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     break

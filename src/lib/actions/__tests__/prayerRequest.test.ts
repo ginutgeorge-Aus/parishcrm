@@ -15,6 +15,10 @@ jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
+  decrypt: jest.fn((v: string) => {
+    if (v === "BROKEN") throw new Error("bad ciphertext")
+    return v.replace(/^enc:/, "")
+  }),
   safeDecrypt: jest.fn((v: string) => (v === "BROKEN" ? "[decryption error]" : v.replace(/^enc:/, ""))),
 }))
 
@@ -354,6 +358,18 @@ describe("private reads", () => {
       expect.objectContaining({ where: { status: { in: [PrayerRequestStatus.ACTIVE] } }, take: 500 }),
     )
     expect(r).toEqual({ requests: [expect.objectContaining({ request: "Healing", requesterName: "Sam Demo", personName: "Sam Demo" })] })
+  })
+
+  it("flags a row with an undecryptable field as unreadable", async () => {
+    p.prayerRequest.findMany.mockResolvedValue([viewRow, { ...viewRow, id: 8, requesterName: "BROKEN" }])
+    const r = (await listPrayerRequests()) as { requests: { unreadable: boolean }[] }
+    expect(r.requests.map((x) => x.unreadable)).toEqual([false, true])
+  })
+
+  it("keeps a successfully decrypted value equal to the placeholder readable", async () => {
+    p.prayerRequest.findMany.mockResolvedValue([{ ...viewRow, request: "enc:[decryption error]" }])
+    const r = (await listPrayerRequests()) as { requests: { unreadable: boolean; request: string }[] }
+    expect(r.requests).toEqual([expect.objectContaining({ request: "[decryption error]", unreadable: false })])
   })
 
   it("gets one by id", async () => {

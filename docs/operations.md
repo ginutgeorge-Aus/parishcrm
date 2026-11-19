@@ -175,3 +175,7 @@ Lightweight recurring security routine. Match effort to risk + low change rate â
 | Secret/key audit | Quarterly | + suspected leak | manual review of `ENCRYPTION_KEY`, `AUTH_SECRET`, mail creds |
 
 Tracked in GitHub under label `security-cadence`. Reminders fire via scheduled cron.
+
+## Legacy bank-import audit rows
+
+Audit rows with action `IMPORT_BANK_STATEMENT_REJECTED` written before this change may contain bank payee text (a donor name or reference) in their `reason` metadata. Newer rows hold only a static reason code and a row position. The audit log is append-only (trigger `audit_log_no_mutate`), so the app cannot edit these rows. Whether to purge them is an operator decision.
