@@ -93,8 +93,11 @@ jest.mock("@/lib/prisma", () => {
     new Proxy(
       {},
       {
-        get: (_t, key: string) => {
-          if (key === "$transaction" && !isTx) {
+        get: (_t, key: string | symbol) => {
+          if (typeof key !== "string") return undefined
+          // Like Prisma's TransactionClient, `tx` has no `$transaction`: calling it throws.
+          if (key === "$transaction" && isTx) return undefined
+          if (key === "$transaction") {
             return jest.fn(async (arg: unknown) => {
               dbCalls.push("$transaction")
               return typeof arg === "function" ? (arg as (tx: unknown) => unknown)(makeClient(true)) : Array.isArray(arg) ? Promise.all(arg) : undefined
@@ -333,7 +336,7 @@ function isRefusalShape(r: unknown): boolean {
  * @param e the thrown value
  */
 function isRefusalThrow(e: unknown): boolean {
-  return e instanceof Error && /^(REDIRECT:|NOT_FOUND$)/.test(e.message)
+  return e instanceof Error && REFUSAL_THROW.test(e.message)
 }
 
 /** An empty FormData, passed as the second argument of every action. */
