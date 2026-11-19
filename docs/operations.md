@@ -179,3 +179,24 @@ Tracked in GitHub under label `security-cadence`. Reminders fire via scheduled c
 ## Legacy bank-import audit rows
 
 Audit rows with action `IMPORT_BANK_STATEMENT_REJECTED` written before this change may contain bank payee text (a donor name or reference) in their `reason` metadata. Newer rows hold only a static reason code and a row position. The audit log is append-only (trigger `audit_log_no_mutate`), so the app cannot edit these rows. Whether to purge them is an operator decision.
+
+## Volume seed + decrypt benchmark (OSS-38)
+
+Measures the capped decrypt-in-memory paths (legacy suburb scan, transaction search, people export, people list) at 10k people / 100k transactions. Local DB only; all data synthetic. Needs a throwaway `ENCRYPTION_KEY` (`openssl rand -base64 32`) so PII columns are really encrypted.
+
+```bash
+SEED_SCALE=large npx tsx scripts/perf/seed-volume.ts   # ~11 min on prisma dev (PGlite); omit SEED_SCALE for the 2k-person default
+npx tsx scripts/perf/bench-decrypt.ts                  # BENCH_RUNS=5 default, prints median ms per path
+```
+
+Reference run (prisma dev/PGlite, so DB time is pessimistic; decrypt time is the useful part):
+
+| Path | Rows | Fetch ms | Decrypt ms |
+|---|---|---|---|
+| Families suburb, legacy scan (cap 2000) | 625 | 61 | 105 |
+| Families suburb, hash lookup | 313 | 31 | 50 |
+| Transactions search (cap 5000) | 5000 | 316 | 685 |
+| People export (cap 10000) | 10000 | 2992 | 4155 |
+| People list page (cap 500) | 500 | 160 | 139 |
+
+Decrypt costs about 0.14 ms per value, so the export path (3 columns x 10k rows) is the one that grows fastest with the congregation.
