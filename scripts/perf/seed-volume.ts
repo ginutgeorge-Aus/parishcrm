@@ -41,8 +41,9 @@ if (!(SCALE_NAME in SCALES)) throw new Error(`SEED_SCALE must be one of: ${Objec
 const TARGETS = SCALES[SCALE_NAME]
 
 const SUBURBS = ["Parramatta", "Blacktown", "Penrith", "Strathfield", "Auburn", "Granville", "Westmead", "Harris Park"] as const
-/** Every 4th family has no suburbHash, imitating pre-backfill legacy rows the filter must decrypt-scan. */
-const isLegacySuburb = (i: number) => i % 4 === 3
+/** Every 5th family has no suburbHash, imitating pre-backfill legacy rows the filter must decrypt-scan.
+ *  5 is coprime with SUBURBS.length (8), so legacy rows cover every suburb. */
+const isLegacySuburb = (i: number) => i % 5 === 4
 
 const CHUNK = 5_000
 
@@ -113,7 +114,10 @@ async function main() {
   console.log("Seeding people…")
   const ROLES = ["HEAD", "SPOUSE", "CHILD", "CHILD"] as const
   const people = families.flatMap((fam, fi) =>
-    Array.from({ length: TARGETS.peoplePerFamily }, (_, k) => ({
+    Array.from({ length: TARGETS.peoplePerFamily }, (_, k) => {
+      const email = `p${fi + 1}-${k + 1}@example.test`
+      const mobile = `04${String(10_000_000 + fi * 4 + k).padStart(8, "0")}`
+      return {
       familyId: fam.id,
       firstName: `P${fi + 1}-${k + 1}`,
       lastName: `Fam${fi + 1}`,
@@ -121,12 +125,13 @@ async function main() {
       classification: "MEMBER" as const,
       gender: (k % 2 === 0 ? "MALE" : "FEMALE") as "MALE" | "FEMALE",
       membershipDate: dateForIndex(fi),
-      email: encrypt(`p${fi + 1}-${k + 1}@example.test`),
-      emailHash: hmacEmail(`p${fi + 1}-${k + 1}@example.test`),
-      mobile: encrypt(`04${String(10_000_000 + fi * 4 + k).padStart(8, "0")}`),
-      mobileHash: hmacMobile(`04${String(10_000_000 + fi * 4 + k).padStart(8, "0")}`),
+      email: encrypt(email),
+      emailHash: hmacEmail(email),
+      mobile: encrypt(mobile),
+      mobileHash: hmacMobile(mobile),
       dateOfBirth: encrypt(new Date(EPOCH - spread(fi * 4 + k, 60 * 365) * DAY).toISOString().slice(0, 10)),
-    })),
+      }
+    }),
   )
   await createInChunks(people.length, (i) => people[i], (rows) => prisma.person.createMany({ data: rows }))
 

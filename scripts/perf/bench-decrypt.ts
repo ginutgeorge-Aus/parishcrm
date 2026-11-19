@@ -1,7 +1,7 @@
 import "dotenv/config"
 import { PrismaClient } from "../../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { hmacSuburb, normaliseSuburb, safeDecrypt } from "../../src/lib/cryptoCore"
+import { DECRYPTION_ERROR_PLACEHOLDER, hmacSuburb, keyIdOf, normaliseSuburb, safeDecrypt } from "../../src/lib/cryptoCore"
 
 // OSS-38 — time the decrypt-in-memory paths against the volume seed.
 //
@@ -10,7 +10,8 @@ import { hmacSuburb, normaliseSuburb, safeDecrypt } from "../../src/lib/cryptoCo
 //
 // Mirrors the DB fetch + decrypt/filter work of each route directly (no server, no auth):
 // the routes import `server-only` modules that cannot load under tsx. Local DB only.
-// The caps below are copies of the app constants (not exported) — keep in sync:
+// The caps below are copies of the app constants (some are exported, but those modules import
+// `server-only` and cannot load under tsx) — keep in sync:
 //   LEGACY_SUBURB_SCAN_CAP  src/lib/familySuburbFilter.ts
 //   SEARCH_SCAN_CAP         src/lib/reports/transactionsQuery.ts
 //   EXPORT_CAP              src/app/api/people/export/route.ts
@@ -20,6 +21,7 @@ const SEARCH_SCAN_CAP = 5000
 const EXPORT_CAP = 10_000
 const PEOPLE_CAP = 500
 const RUNS = Number(process.env.BENCH_RUNS ?? 5)
+if (!Number.isInteger(RUNS) || RUNS < 1) throw new Error("BENCH_RUNS must be a positive integer")
 
 const host = new URL(process.env.DATABASE_URL ?? "postgres://x@invalid/").hostname
 if (host !== "localhost" && host !== "127.0.0.1") {
@@ -58,7 +60,9 @@ const benches: Array<() => Promise<Result>> = [
       () => prisma.family.findMany({ where: { suburbHash: hmacSuburb("Parramatta") }, orderBy: { name: "asc" }, take: 501, select: { name: true, suburb: true } }),
       (rows) => rows.map((f) => (f.suburb ? safeDecrypt(f.suburb) : null)),
     ),
-  // transactions search: newest SEARCH_SCAN_CAP rows, decrypt description, substring filter
+  // transactions search: newest SEARCH_SCAN_CAP rows, decrypt description, substring filter.
+  // Simplified: selects only id+description, so fetchMs UNDERSTATES the real query (6 relation
+  // includes plus count/aggregate queries in transactionsQuery.ts). decryptMs is representative.
   () =>
     timed(
       "transactions search",
@@ -93,7 +97,20 @@ const benches: Array<() => Promise<Result>> = [
     ),
 ]
 
+/** Fails fast if seeded PII is plaintext or does not decrypt under the current ENCRYPTION_KEY. */
+async function assertSeedDecrypts(): Promise<void> {
+  const [p, t] = await Promise.all([
+    prisma.person.findFirst({ where: { email: { not: null } }, select: { email: true } }),
+    prisma.transaction.findFirst({ select: { description: true } }),
+  ])
+  for (const [label, v] of [["person.email", p?.email], ["transaction.description", t?.description]] as const) {
+    if (!v || keyIdOf(v) === null) throw new Error(`${label} is missing or plaintext. Seed with scripts/perf/seed-volume.ts first.`)
+    if (safeDecrypt(v) === DECRYPTION_ERROR_PLACEHOLDER) throw new Error(`${label} does not decrypt: ENCRYPTION_KEY differs from the one used to seed.`)
+  }
+}
+
 async function main() {
+  await assertSeedDecrypts()
   const [fam, ppl, txn] = await Promise.all([prisma.family.count(), prisma.person.count(), prisma.transaction.count()])
   console.log(`Volume: ${fam} families, ${ppl} people, ${txn} transactions; ${RUNS} runs each (median ms)`)
   const table: Record<string, { rows: number; fetchMs: number; decryptMs: number; totalMs: number }> = {}

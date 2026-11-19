@@ -185,6 +185,7 @@ Audit rows with action `IMPORT_BANK_STATEMENT_REJECTED` written before this chan
 Measures the capped decrypt-in-memory paths (legacy suburb scan, transaction search, people export, people list) at 10k people / 100k transactions. Local DB only; all data synthetic. Needs a throwaway `ENCRYPTION_KEY` (`openssl rand -base64 32`) so PII columns are really encrypted.
 
 ```bash
+export DATABASE_URL=<local db url> ENCRYPTION_KEY="$(openssl rand -base64 32)"   # same key for BOTH commands; scripts do not read .env.local
 SEED_SCALE=large npx tsx scripts/perf/seed-volume.ts   # ~11 min on prisma dev (PGlite); omit SEED_SCALE for the 2k-person default
 npx tsx scripts/perf/bench-decrypt.ts                  # BENCH_RUNS=5 default, prints median ms per path
 ```
@@ -199,4 +200,4 @@ Reference run (prisma dev/PGlite, so DB time is pessimistic; decrypt time is the
 | People export (cap 10000) | 10000 | 2992 | 4155 |
 | People list page (cap 500) | 500 | 160 | 139 |
 
-Decrypt costs about 0.14 ms per value, so the export path (3 columns x 10k rows) is the one that grows fastest with the congregation.
+The transactions-search fetch is understated (the bench selects only id + description; the real query joins six relations). Decrypt costs very roughly 0.1 ms per value (includes per-call keyring parsing), so the export path (3 columns x 10k rows) is the one that grows fastest with the congregation.
