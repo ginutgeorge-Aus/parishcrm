@@ -186,6 +186,7 @@ describe("AUD-2-03 — name fields", () => {
     ["bare domain in attendee name", { attendeeNames: { "1": ["Jane Doe", "free-gift.xyz"] } }],
     ["unlisted-TLD domain", { firstName: "evil.co" }],
     ["short host with path", { firstName: "t.ly/x" }],
+    ["too many attendee names across ticket types", { attendeeNames: { "1": Array(60).fill("Jane Doe"), "2": Array(41).fill("Jane Doe") } }],
     ["first name over 60 chars", { firstName: "a".repeat(61) }],
     ["last name over 60 chars", { lastName: "a".repeat(61) }],
   ])("rejects %s with 400 and writes nothing", async (_n, override) => {
