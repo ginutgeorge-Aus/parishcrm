@@ -7,7 +7,9 @@
  * access; comments and strings ignored), and for every role that the REAL
  * roleGuard helpers refuse, asserts the action performs no Prisma write. Writes
  * are model write methods, `$executeRaw*`, and `$queryRaw*` whose SQL writes or locks;
- * `$transaction` itself is not a write, only what runs inside it. Covers OFFICE_ADMIN being refused on admin-only / PASTOR+ADMIN
+ * `$transaction` itself is not a write, only what runs inside it (the callback gets a distinct `tx`
+ * object without `$transaction`, like Prisma's). A guard refusal must also make no Prisma call at
+ * all, read or write, so a refusal cannot be a downstream failure on a mocked read. Covers OFFICE_ADMIN being refused on admin-only / PASTOR+ADMIN
  * actions (the audit's nearest-miss role). roleGuard is never mocked.
  */
 import fs from "node:fs"
@@ -46,6 +48,8 @@ function rawQueryWrites(args: unknown[]): boolean {
   return RAW_WRITE_SQL.test(sql)
 }
 const writes: string[] = []
+/** Every Prisma call (read or write): a guard refusal happens before any of them. */
+const dbCalls: string[] = []
 let currentRole: Role | undefined
 
 jest.mock("server-only", () => ({}))
@@ -71,36 +75,45 @@ jest.mock("@/lib/prisma", () => {
       {
         get: (_t, method: string) =>
           jest.fn(async () => {
+            dbCalls.push(`${name}.${method}`)
             if (WRITE_METHODS.has(method)) writes.push(`${name}.${method}`)
             return method.startsWith("find") ? (method === "findMany" ? [] : null) : method === "count" ? 0 : undefined
           }),
       },
     )
-  // Interactive transactions run their callback against the same proxy, so a write made through
-  // `tx` inside the callback is recorded (the $transaction call itself is not a write; its
-  // contents are). Array-form transactions already recorded their writes when the items were built.
-  const client: unknown = new Proxy(
-    {},
-    {
-      get: (_t, key: string) => {
-        if (key === "$transaction") {
-          return jest.fn(async (arg: unknown) =>
-            typeof arg === "function" ? (arg as (tx: unknown) => unknown)(client) : Array.isArray(arg) ? Promise.all(arg) : undefined,
-          )
-        }
-        if (key.startsWith("$")) {
-          return jest.fn(async (...args: unknown[]) => {
-            if (WRITE_METHODS.has(key)) writes.push(key)
-            else if ((key === "$queryRaw" || key === "$queryRawUnsafe") && rawQueryWrites(args)) writes.push(`${key}(write)`)
-            return []
-          })
-        }
-        if (key === "then") return undefined
-        return model(key)
+  /**
+   * Build a mocked Prisma client. The root client supports `$transaction`; an interactive
+   * transaction's `tx` is a separate object WITHOUT `$transaction` (like Prisma's real
+   * `TransactionClient`), so a nested `$transaction` or a use of the root client in place of `tx`
+   * is visible. Writes made through either are recorded; the $transaction call itself is not a write.
+   * Array-form transactions already recorded their writes when the items were built.
+   * @param isTx true for the object handed to an interactive transaction callback
+   */
+  const makeClient = (isTx: boolean): unknown =>
+    new Proxy(
+      {},
+      {
+        get: (_t, key: string) => {
+          if (key === "$transaction" && !isTx) {
+            return jest.fn(async (arg: unknown) => {
+              dbCalls.push("$transaction")
+              return typeof arg === "function" ? (arg as (tx: unknown) => unknown)(makeClient(true)) : Array.isArray(arg) ? Promise.all(arg) : undefined
+            })
+          }
+          if (key.startsWith("$")) {
+            return jest.fn(async (...args: unknown[]) => {
+              dbCalls.push(key)
+              if (WRITE_METHODS.has(key)) writes.push(key)
+              else if ((key === "$queryRaw" || key === "$queryRawUnsafe") && rawQueryWrites(args)) writes.push(`${key}(write)`)
+              return []
+            })
+          }
+          if (key === "then") return undefined
+          return model(key)
+        },
       },
-    },
-  )
-  return { prisma: client, __esModule: true }
+    )
+  return { prisma: makeClient(false), __esModule: true }
 })
 // External side effects must never run for real.
 jest.mock("@/lib/notifications", () => new Proxy({}, { get: () => jest.fn(async () => undefined) }))
@@ -129,7 +142,131 @@ function bodyOf(src: string, start: number): string {
  * @param src source text
  */
 function stripCommentsAndStrings(src: string): string {
-  return src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g, (m) => " ".repeat(m.length))
+  const out = src.split("")
+  const n = src.length
+  /** Blank [from, to) with spaces, keeping newlines so offsets and line shape survive. */
+  const blank = (from: number, to: number): void => {
+    for (let k = from; k < Math.min(to, n); k++) if (out[k] !== "\n") out[k] = " "
+  }
+  const ident = /[A-Za-z0-9_$]/
+  // Keywords after which a `/` starts a regex literal rather than a division.
+  const REGEX_AFTER = new Set(["return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "else", "do", "yield", "await"])
+
+  /**
+   * Scan template text from just after the opening backtick, blanking it. `${ ... }` holes are scanned
+   * as code (recursively, so nested templates work). Returns the index after the closing backtick.
+   * @param start index just after the opening backtick
+   */
+  const scanTemplate = (start: number): number => {
+    let i = start
+    while (i < n) {
+      const c = src[i]
+      if (c === "\\") {
+        blank(i, i + 2)
+        i += 2
+      } else if (c === "`") {
+        blank(i, i + 1)
+        return i + 1
+      } else if (c === "$" && src[i + 1] === "{") {
+        blank(i, i + 2)
+        const close = scanCode(i + 2, true)
+        blank(close, close + 1)
+        i = close + 1
+      } else {
+        blank(i, i + 1)
+        i++
+      }
+    }
+    return n
+  }
+
+  /**
+   * Scan code from `start`, blanking comments, strings, templates and regex literals. When `inHole`
+   * is true, stops at the `}` that closes the enclosing template hole and returns its index.
+   * @param start first index to scan
+   * @param inHole true when scanning a `${ }` template hole
+   */
+  const scanCode = (start: number, inHole: boolean): number => {
+    let i = start
+    let depth = 0
+    let prev = ""
+    let word = ""
+    while (i < n) {
+      const c = src[i]
+      const next = src[i + 1]
+      if (c === "/" && next === "/") {
+        const e = src.indexOf("\n", i)
+        const end = e === -1 ? n : e
+        blank(i, end)
+        i = end
+      } else if (c === "/" && next === "*") {
+        const e = src.indexOf("*/", i + 2)
+        const end = e === -1 ? n : e + 2
+        blank(i, end)
+        i = end
+      } else if (c === '"' || c === "'") {
+        let j = i + 1
+        while (j < n && src[j] !== c && src[j] !== "\n") j += src[j] === "\\" ? 2 : 1
+        blank(i, j + 1)
+        i = j + 1
+        prev = '"'
+        word = ""
+      } else if (c === "`") {
+        blank(i, i + 1)
+        i = scanTemplate(i + 1)
+        prev = '"'
+        word = ""
+      } else if (c === "/" && (prev === "" || !(ident.test(prev) || prev === ")" || prev === "]" || prev === '"' || prev === "}") || REGEX_AFTER.has(word))) {
+        let j = i + 1
+        let inClass = false
+        while (j < n && src[j] !== "\n" && (inClass || src[j] !== "/")) {
+          if (src[j] === "\\") j++
+          else if (src[j] === "[") inClass = true
+          else if (src[j] === "]") inClass = false
+          j++
+        }
+        blank(i, j + 1)
+        i = j + 1
+        prev = '"'
+        word = ""
+      } else {
+        if (c === "{") depth++
+        else if (c === "}") {
+          if (inHole && depth === 0) return i
+          depth--
+        }
+        if (!/\s/.test(c)) {
+          word = ident.test(c) ? (ident.test(prev) ? word + c : c) : ""
+          prev = c
+        }
+        i++
+      }
+    }
+    return n
+  }
+
+  scanCode(0, false)
+  return out.join("")
+}
+
+/**
+ * True when `code` contains a call `helper(...)` whose balanced closing paren is followed by
+ * `=== false` / `== false`, at any paren nesting depth.
+ * @param code comment/string-stripped source
+ * @param helper the roleGuard helper name
+ */
+function hasCallComparedToFalse(code: string, helper: string): boolean {
+  for (const m of code.matchAll(new RegExp(`\\b${helper}\\(`, "g"))) {
+    let depth = 1
+    let i = m.index! + m[0].length
+    while (i < code.length && depth > 0) {
+      if (code[i] === "(") depth++
+      else if (code[i] === ")") depth--
+      i++
+    }
+    if (depth === 0 && /^\s*===?\s*false\b/.test(code.slice(i))) return true
+  }
+  return false
 }
 
 /**
@@ -141,9 +278,7 @@ function leadingGuards(body: string): string[] {
   const code = stripCommentsAndStrings(body)
   const firstDb = code.search(/\bprisma\b|\btx\./)
   const head = firstDb === -1 ? code : code.slice(0, firstDb)
-  return HELPERS.filter((h) =>
-    new RegExp(`(?<!!)!\\s*${h}\\(|\\bfalse\\s*===?\\s*${h}\\(|\\b${h}\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)\\s*===?\\s*false`).test(head),
-  )
+  return HELPERS.filter((h) => new RegExp(`(?<!!)!\\s*${h}\\(|\\bfalse\\s*===?\\s*${h}\\(`).test(head) || hasCallComparedToFalse(head, h))
 }
 
 function discover(): Entry[] {
@@ -211,253 +346,31 @@ const ENTRIES = discover()
 /** Error messages thrown by the redirect/notFound mocks: the only throws that count as a refusal. */
 const REFUSAL_THROW = /^(REDIRECT:\/(login|unauthorized|forbidden)\b|NOT_FOUND$)/
 
-/**
- * Pinned guarded-export set, one `file.fn:guard[,guard]` per line. Discovery only
- * sees exports whose guard is still a leading negated helper, so a removed or
- * rewritten guard silently drops the export from the matrix. Comparing against
- * this list in both directions makes that fail loudly; add new guarded exports here.
- */
-const EXPECTED_GUARDED = `
-account.createAccount:isAdmin
-account.updateAccount:isAdmin
-account.deleteAccount:isAdmin
-accountGroup.createAccountGroup:isAdmin
-accountGroup.updateAccountGroup:isAdmin
-accountGroup.deleteAccountGroup:isAdmin
-accountingSettings.upsertOpeningBalance:isAdmin
-accountingSettings.setAccountingLockDate:isAdmin
-anniversary.sendAnniversaryEmail:canEdit
-anniversary.sendAnniversaryEmailsBulk:canEdit
-attendance.getHeadcount:canEditAttendance
-attendance.saveHeadcount:canEditAttendance
-attendance.deleteHeadcount:canEditAttendance
-bankImport.rememberBankImportAccount:canAccessAccounting
-birthday.sendBirthdayEmail:canEdit
-birthday.sendBirthdayEmailsBulk:canEdit
-branding.uploadBranding:isAdmin
-branding.resetBranding:isAdmin
-budget.upsertBudgets:isAdmin
-budget.saveBudgetVarianceNote:canAccessAccounting
-budget.getPrevYearBudgets:isAdmin
-checkpoint.markWorking:isAdmin
-checkpoint.markBroken:isAdmin
-clearance.upsertClearance:canManageClearances
-clearance.verifyClearance:canManageClearances
-clearance.unverifyClearance:canManageClearances
-clearance.deleteClearance:canManageClearances
-clearance.verifyClearancesBulk:canManageClearances
-customer.createCustomer:canAccessAccounting
-customer.updateCustomer:canAccessAccounting
-customer.setCustomerActive:canAccessAccounting
-customer.createCustomerInline:canAccessAccounting
-customer.listCustomers:canViewAccounting
-customer.getCustomerForEdit:canAccessAccounting
-dgrReceipt.createDgrReceipt:canAccessAccounting
-dgrReceipt.updateDgrReceipt:canAccessAccounting
-dgrReceipt.deleteDgrReceipt:canAccessAccounting
-dgrReceipt.sendDgrReceipt:canAccessAccounting
-dgrReceipt.getDonorEmail:canAccessAccounting
-dgrReceipt.listDgrReceipts:canViewAccounting
-emailTemplates.updateEmailTemplate:isAdmin
-emailTemplates.resetEmailTemplate:isAdmin
-emailTemplates.previewEmailTemplate:isAdmin
-emailTemplates.sendTestEmail:isAdmin
-event.createEvent:canEdit
-event.updateEvent:canEdit
-event.deleteEvent:isAdmin
-event.publishEvent:canEdit
-event.setRegistrationClosed:canEdit
-event.resyncEventsToWebsite:isAdmin
-eventAccess.setVolunteerView:canEdit
-eventAccess.regenerateVolunteerToken:canEdit
-eventAccess.addEventManager:canEdit
-eventAccess.removeEventManager:canEdit
-eventAccess.listAssignableOrganisers:canEdit
-eventManaged.updateManagedEvent:canEditOrOrganise
-family.createFamily:canEdit
-family.updateFamily:canEdit
-family.deleteFamily:isAdmin
-family.archiveFamily:isAdmin
-family.unarchiveFamily:isAdmin
-family.previewMerge:isAdmin
-family.mergeFamilies:isAdmin
-familyUpdate.sendFamilyUpdateInvite:canEdit
-familyUpdate.approveFamilyUpdate:canEdit
-familyUpdate.rejectFamilyUpdate:canEdit
-features.saveFeatures:isAdmin
-features.finishFeatureOnboarding:isAdmin
-followUp.createFollowUpTask:canManageFollowUps
-followUp.updateFollowUpTask:canManageFollowUps
-followUp.deleteFollowUpTask:canManageFollowUps
-fund.createFund:isAdmin
-fund.updateFund:isAdmin
-fund.deleteFund:isAdmin
-fund.validateFund:canAccessAccounting
-fund.getActiveFunds:canViewAccounting
-fundraiser.getReminderPlan:canManageFundraiser
-givingStatement.listGivingStatements:canViewAccounting
-givingStatement.sendGivingStatements:canAccessAccounting
-givingStatement.listStatementSendLog:canViewAccounting
-groupMessage.sendGroupMessage:canEditOrOrganise
-invoice.createInvoice:canAccessAccounting
-invoice.updateInvoice:canAccessAccounting
-invoice.deleteDraftInvoice:canAccessAccounting
-invoice.getInvoice:canViewAccounting
-invoice.listInvoices:canViewAccounting
-invoice.getInvoiceSummary:canViewAccounting
-invoice.getRecipientContact:canAccessAccounting
-invoicePayment.markInvoicePaid:canAccessAccounting
-invoicePayment.unmarkInvoicePaid:canAccessAccounting
-invoicePayment.listPaymentCandidates:canAccessAccounting
-invoiceSend.resendInvoice:canAccessAccounting
-invoiceSettings.updateInvoiceSettings:isAdmin
-invoiceVoid.voidInvoice:canAccessAccounting
-membership.findMembershipMatches:canEdit
-membership.approveMembershipApplication:canEdit
-membership.rejectMembershipApplication:canEdit
-paymentAccount.createPaymentAccount:isAdmin
-paymentAccount.renamePaymentAccount:isAdmin
-paymentAccount.setDefaultAccount:isAdmin
-paymentAccount.setAccountActive:isAdmin
-person.createPerson:canEdit
-person.updatePerson:canEdit
-person.deletePerson:isAdmin
-pettyCashExpense.createExpense:canAccessAccounting
-pettyCashExpense.updateExpense:canAccessAccounting
-pettyCashExpense.deleteExpense:isAdmin
-pettyCashImport.previewImport:isAdmin
-pettyCashImport.commitImport:isAdmin
-pettyCashReceipt.createReceipt:canAccessAccounting
-pettyCashReceipt.updateReceipt:canAccessAccounting
-pettyCashReceipt.deleteReceipt:isAdmin
-pettyCashSession.createSession:canAccessAccounting
-pettyCashSession.updateSessionCustodian:canAccessAccounting
-pettyCashSession.ensureWeeklySession:canAccessAccounting
-pettyCashSession.closeSession:canAccessAccounting
-pettyCashSession.deleteSession:isAdmin
-pettyCashTransfer.createTransfer:canAccessAccounting
-pettyCashTransfer.deleteTransfer:isAdmin
-prayerRequest.createPrayerRequest:canManagePrayerRequests
-prayerRequest.updatePrayerRequest:canManagePrayerRequests
-prayerRequest.withdrawPrayerShareConsent:canManagePrayerRequests
-prayerRequest.setPrayerRequestStatus:canManagePrayerRequests
-prayerRequest.listPrayerRequests:canManagePrayerRequests
-prayerRequest.getPrayerRequest:canManagePrayerRequests
-prayerRequest.listShareablePrayerRequests:canViewSharedPrayerRequests
-receipt.sendSingleReceipt:canAccessAccounting
-receipt.sendBatchReceipts:canAccessAccounting
-receipt.fetchTransactionsForReceipt:canAccessAccounting
-receiptSettings.updateReceiptSettings:isAdmin
-receiptSettings.resetReceiptSettings:isAdmin
-reconciliation.saveStatementBalance:canAccessAccounting
-registration.markPaid:canEdit
-registration.cancelRegistration:canEdit
-registration.toggleAttendeeCheckIn:canEditOrOrganise
-registration.resetEventRegistrations:isAdmin
-registration.getRegistrationDetail:canEditOrOrganise,canViewPeople
-registration.sendPaymentReminders:canEditOrOrganise
-registration.lastRemindedAtByRegistration:canEditOrOrganise
-rosterFeed.rotateRosterFeedToken:canManageRoster
-sacrament.createSacramentRecord:canEditSacraments
-sacrament.updateSacramentRecord:canEditSacraments
-sacrament.deleteSacramentRecord:canEditSacraments
-sacrament.searchSacramentPeople:canEditSacraments
-sacrament.getSacramentRecord:canViewSacraments
-serviceType.createServiceType:isAdmin
-serviceType.toggleServiceTypeActive:isAdmin
-serviceType.deleteServiceType:isAdmin
-settings.upsertSetting:isAdmin
-settings.updateChurchInfo:isAdmin
-settings.updateBirthdayTemplate:isAdmin
-settings.sendTestBirthdayEmail:isAdmin
-settings.updateAnniversaryTemplate:isAdmin
-settings.sendTestAnniversaryEmail:isAdmin
-settings.updateAutoEmailFlags:isAdmin
-settings.updatePettyCashCustodian:isAdmin
-settings.updateLetterSettings:isAdmin
-settings.updateMembershipSettings:isAdmin
-sundaySchool.lockSundaySchoolYear:isAdmin
-sundaySchool.unlockSundaySchoolYear:isAdmin
-transaction.validateAccount:canAccessAccounting
-transaction.createTransaction:canAccessAccounting
-transaction.updateTransaction:canAccessAccounting
-transaction.deleteTransaction:isAdmin
-transactionAttachment.attachTransactionReceipt:canAccessAccounting
-transactionAttachment.removeTransactionReceipt:canAccessAccounting
-transactionReconcile.toggleReconciled:canAccessAccounting
-transactionReconcile.reconcileMany:canAccessAccounting
-user.createUser:canManageUsers
-user.updateUser:canManageUsers
-user.unlockUser:canManageUsers
-user.resetUserTotp:canManageUsers
-user.revokeUserPasskeys:canManageUsers
-user.deleteUser:canManageUsers
-user.resendWelcome:canManageUsers
-venueCalendar.resetVenueCalendarLink:isAdmin
-venueUsage.createVenueUsage:canEdit
-venueUsage.updateVenueUsage:canEdit
-venueUsage.deleteVenueUsage:canEdit
-venueUsage.addAllSundays:canEdit
-venueUsage.setVenueUsageStatus:canEdit
-venueUsage.updateVenueUsageSettings:isAdmin
-venueUsage.getVenueRequestPreview:canEdit
-venueUsage.sendVenueUsageRequest:canEdit
-waitlist.markWaitlistNotified:canEdit
-welcomeLetter.buildWelcomeLetterDraft:canEdit
-welcomeLetter.sendWelcomeLetter:canEdit
-`
-  .trim()
-  .split("\n")
-
-/**
- * Pinned ALLOWED roles per helper used by a guarded action. The refused set is
- * every other role, so widening or narrowing a helper in roleGuard.ts fails here
- * instead of silently regenerating the matrix expectation.
- */
-const EDITORS: Role[] = ["ADMIN", "PASTOR", "OFFICE_ADMIN"] as Role[]
-const PASTORAL: Role[] = ["ADMIN", "PASTOR"] as Role[]
-const PINNED_ALLOWED: Record<string, Role[]> = {
-  isAdmin: ["ADMIN"] as Role[],
-  canEdit: EDITORS,
-  canEditAttendance: EDITORS,
-  canManageClearances: EDITORS,
-  canManageRoster: EDITORS,
-  canManageFundraiser: EDITORS,
-  canViewSharedPrayerRequests: EDITORS,
-  canViewSacraments: EDITORS,
-  canAccessAccounting: PASTORAL,
-  canManageFollowUps: PASTORAL,
-  canManagePrayerRequests: PASTORAL,
-  canEditSacraments: PASTORAL,
-  canViewAccounting: ["ADMIN", "PASTOR", "AUDITOR", "OFFICE_ADMIN"] as Role[],
-  canEditOrOrganise: ["ADMIN", "PASTOR", "OFFICE_ADMIN", "EVENT_ORGANISER"] as Role[],
-  canViewPeople: ["ADMIN", "PASTOR", "VIEWER", "OFFICE_ADMIN"] as Role[],
-  canManageUsers: ["ADMIN", "OFFICE_ADMIN"] as Role[],
-}
-
 describe("role matrix: generated from src/lib/actions", () => {
-  it("discovers exactly the pinned guarded-export set (a removed/rewritten guard fails here)", () => {
-    // Sorted-set comparison: independent of directory/declaration order, and the diff names the delta.
-    const found = ENTRIES.map((e) => `${e.file}.${e.fn}:${e.guards.join(",")}`).sort()
-    expect(found).toEqual([...EXPECTED_GUARDED].sort())
-  })
-
-  it("every helper used by a guarded action has a pinned refused-role set that matches roleGuard", () => {
-    const used = new Set(ENTRIES.flatMap((e) => e.guards))
-    for (const h of used) {
-      expect(Object.keys(PINNED_ALLOWED)).toContain(h)
-    }
-    const fns = roleGuard as unknown as Record<string, (r: Role) => boolean>
-    for (const [h, allowed] of Object.entries(PINNED_ALLOWED)) {
-      expect(ALL_ROLES.filter((r) => fns[h](r))).toEqual(ALL_ROLES.filter((r) => allowed.includes(r)))
-    }
-  })
+  // The guarded-export set and the per-helper refused roles are pinned once, as snapshots, in the
+  // "pinned discovery" block below (no second hand-kept copy to drift).
 
   it("leadingGuards ignores comments/strings, rejects !!canX, and accepts canX(...) === false", () => {
     expect(leadingGuards('// if (!isAdmin(r)) return\nconst s = "!isAdmin("\nawait prisma.x.create()')).toEqual([])
     expect(leadingGuards("const ok = !!isAdmin(r)\nawait prisma.x.create()")).toEqual([])
     expect(leadingGuards("if (isAdmin(session?.user?.role) === false) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
     expect(leadingGuards("if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+  })
+
+  it("stripCommentsAndStrings handles regex literals, nested templates and deep call nesting", () => {
+    // A backtick inside a regex literal must not open a template that swallows the guard.
+    expect(leadingGuards("const r = /`/\nif (!isAdmin(x)) return\nawait prisma.x.create(`a`)")).toEqual(["isAdmin"])
+    // A quote inside a regex character class, then a real guard.
+    expect(leadingGuards("const r = /[\"']/g\nif (!isAdmin(x)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // A guard-looking token inside a nested template hole's string is ignored.
+    expect(leadingGuards("const s = `a ${`b ${1} !isAdmin(`} c`\nawait prisma.x.create()")).toEqual([])
+    // Code inside a template hole is still code.
+    expect(leadingGuards("const s = `a ${!isAdmin(r)}`\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // Division is not a regex.
+    expect(leadingGuards("const h = a / b\nif (!isAdmin(r)) return // x'\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // canX(...) === false with three or more paren levels.
+    expect(leadingGuards("if (isAdmin(f(g(h(1)), (2))) === false) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("if (isAdmin(f(g(1))) === true) return\nawait prisma.x.create()")).toEqual([])
   })
 
   it("rawQueryWrites treats SELECT as a read and writes, locks and unknown shapes as writes", () => {
@@ -476,8 +389,11 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(roleGuard.canEdit("OFFICE_ADMIN" as Role)).toBe(true)
   })
 
+  // A role is only certain to be refused when EVERY guard on the export refuses it: with several
+  // helpers the source may combine them with `&&` (e.g. getRegistrationDetail lets a role through
+  // if either passes), and a role that one helper refuses but another allows is not refused.
   const cases = ENTRIES.flatMap((e) =>
-    ALL_ROLES.filter((role) => e.guards.some((g) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role))).map(
+    ALL_ROLES.filter((role) => e.guards.every((g) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role))).map(
       (role) => [`${e.file}.${e.fn} [${e.guards.join(",")}]`, e, role] as const,
     ),
   )
@@ -490,6 +406,7 @@ describe("role matrix: generated from src/lib/actions", () => {
 
   beforeEach(() => {
     writes.length = 0
+    dbCalls.length = 0
   })
 
   it.each(cases.map(([label, entry, role]) => [`${label} / ${role}`, entry, role] as const))("%s refuses with no DB write", async (_label, entry, role) => {
@@ -503,6 +420,9 @@ describe("role matrix: generated from src/lib/actions", () => {
       thrown = e
     }
     expect(writes).toEqual([])
+    // The guard is the first thing the action does, so a real guard refusal makes no Prisma call at
+    // all, read or write. A read that ran means the refusal came from somewhere downstream.
+    expect(dbCalls).toEqual([])
     // A refusal is a returned error/empty shape or a thrown redirect/not-found error. Any other
     // throw is a crash, not a refusal, and any other result is a success payload.
     if (thrown === undefined) expect(isRefusalShape(result)).toBe(true)
