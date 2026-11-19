@@ -196,6 +196,34 @@ describe("AUD-2-03 — name fields", () => {
   })
 })
 
+describe("AUD-2-03 — aggregate attendee-name cap", () => {
+  const split = (a: number, c: number) => ({
+    tickets: { "1": a, "2": c },
+    attendeeNames: { "1": Array(a).fill("Jane Doe"), "2": Array(c).fill("Jane Doe") },
+  })
+
+  it("rejects 101 names across ticket types with the aggregate-cap error", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    const result = await createEventRegistration("fete", makeBody(split(60, 41)), "1.2.3.4")
+    expect(result).toMatchObject({ ok: false, status: 400, error: "Too many attendee names" })
+    expect(tx.registration.create).not.toHaveBeenCalled()
+  })
+
+  it("accepts exactly 100 names across ticket types", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    const result = await createEventRegistration("fete", makeBody(split(60, 40)), "1.2.3.4")
+    expect(result.ok).toBe(true)
+  })
+
+  it("omitted attendeeNames passes the cap and fails on the per-ticket name check instead", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    const { attendeeNames: _omit, ...body } = makeBody()
+    const result = await createEventRegistration("fete", body, "1.2.3.4")
+    expect(result).toMatchObject({ ok: false, status: 400 })
+    expect((result as { error: string }).error).toMatch(/Enter a name for each/)
+  })
+})
+
 describe("AUD-2-03 — PENDING seat hoarding", () => {
   it("rejects a third live PENDING registration for the same email and event", async () => {
     findUnique.mockResolvedValue(makeEvent())

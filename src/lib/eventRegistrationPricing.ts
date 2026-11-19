@@ -65,6 +65,8 @@ const DOMAIN_PATH = /[a-z0-9-]\.[a-z]{2,}\//i
 const DOMAIN_ABUSE_TLD = /[a-z0-9-]{2}\.(?:com|net|org|io|ly|info|biz|xyz|app|link|click|site|online|tk|gl)(?![a-z])/i
 const DOMAIN_LOWER = /[a-z0-9-]{2}\.[a-z]{2,}(?![a-z])/
 const NAME_MAX = 60
+/** Overall attendee-name cap per registration, across all ticket types (each type is also capped at 100). */
+const MAX_ATTENDEE_NAMES = 100
 /**
  * True when a name carries no link-like content (scheme, www, or bare domain).
  * Over-length input returns false without running the domain patterns.
@@ -119,7 +121,10 @@ const BodySchema = z.object({
   // Optional Cloudflare Turnstile response — only verified when
   // TURNSTILE_SECRET_KEY is configured; otherwise ignored (off by default).
   turnstileToken: z.string().max(2048).optional(),
-})
+}).refine(
+  (b) => Object.values(b.attendeeNames ?? {}).reduce((n, names) => n + names.length, 0) <= MAX_ATTENDEE_NAMES,
+  { message: "Too many attendee names", path: ["attendeeNames"] },
+)
 
 // The inferred type of the prisma.event.findUnique result with the include
 // used below — shared by validateAndPriceRegistration, persistRegistration,
