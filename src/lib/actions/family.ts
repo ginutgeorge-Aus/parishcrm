@@ -8,8 +8,8 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { toCents } from "@/lib/formatting"
-import { encryptFamilyFields } from "@/lib/familyFields"
-import { omitDecryptionPlaceholders } from "@/lib/cryptoCore"
+import { encryptFamilyFields, FAMILY_ENCRYPTED_KEYS } from "@/lib/familyFields"
+import { splitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, isP2003, isP2034, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
@@ -131,7 +131,8 @@ export async function updateFamily(
   // not-found shape so archived state isn't leaked to the caller.
   if (existing.archivedAt) return { error: "Not found" }
 
-  const parsed = FamilySchema.safeParse(Object.fromEntries(formData))
+  const { clean, omitted: omittedKeys } = splitDecryptionPlaceholders(Object.fromEntries(formData), FAMILY_ENCRYPTED_KEYS)
+  const parsed = FamilySchema.safeParse(clean)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const updateData: Partial<typeof parsed.data> = { ...parsed.data }
@@ -140,7 +141,7 @@ export async function updateFamily(
   if (!formData.has("monthlyDues") || !(await isFeatureOn("dues"))) delete updateData.monthlyDues
   // AUD-1-03: the edit form pre-fills from safeDecrypt; never write the
   // "[decryption error]" placeholder over an unreadable stored value.
-  omitDecryptionPlaceholders(updateData, ["address", "suburb", "state", "postcode", "homePhone", "notes"])
+  for (const key of omittedKeys) delete (updateData as Record<string, unknown>)[key]
   encryptFamilyFields(updateData)
 
   // Optimistic concurrency: see transaction.ts::updateTransaction.

@@ -6,6 +6,7 @@
 if (typeof window !== "undefined") {
   throw new TypeError("src/lib/crypto-core.ts must never be imported into client/browser code")
 }
+import { DECRYPTION_ERROR_PLACEHOLDER } from "./decryptionPlaceholder"
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto"
 
 const ALGORITHM = "aes-256-gcm"
@@ -164,7 +165,7 @@ export function decrypt(value: string): string {
 // ciphertext, wrong/rotated key). Mirrors the receipt/birthday send paths so a
 // single bad row degrades to a visible marker instead of 500-ing the whole
 // export. Use only on read paths that iterate many rows.
-export const DECRYPTION_ERROR_PLACEHOLDER = "[decryption error]"
+export { DECRYPTION_ERROR_PLACEHOLDER }
 
 export function safeDecrypt(value: string): string {
   try {
@@ -175,19 +176,31 @@ export function safeDecrypt(value: string): string {
 }
 
 /**
- * Delete from `data` every listed key whose value is the decryption-error
- * placeholder. Edit forms pre-fill from `safeDecrypt`, so an unreadable stored
- * value comes back on submit as the placeholder; encrypting and writing it
- * would destroy the (possibly recoverable) ciphertext. Deleting the key makes
- * Prisma leave the column untouched. Mutates `data` in place; call it BEFORE
- * the entity's encrypt step.
- * @param data update payload, mutated in place
+ * Split the decryption-error placeholder out of raw form input. Edit forms
+ * pre-fill from `safeDecrypt`, so an unreadable stored value comes back on
+ * submit as the placeholder; encrypting and writing it would destroy the
+ * (possibly recoverable) ciphertext. Run this BEFORE schema validation (the
+ * placeholder would fail email/date format checks) and, after parsing, delete
+ * the returned `omitted` keys from the update payload so Prisma leaves those
+ * columns untouched. Schema transforms turn an absent key into null, so the
+ * post-parse delete is required, not optional.
+ * @param raw raw form fields (e.g. `Object.fromEntries(formData)`)
  * @param keys fields that are read via safeDecrypt on the edit form
+ * @returns `clean` (raw without placeholder entries) and the `omitted` key names
  */
-export function omitDecryptionPlaceholders<T extends object>(data: T, keys: readonly (keyof T)[]): void {
+export function splitDecryptionPlaceholders(
+  raw: Record<string, unknown>,
+  keys: readonly string[]
+): { clean: Record<string, unknown>; omitted: string[] } {
+  const clean = { ...raw }
+  const omitted: string[] = []
   for (const key of keys) {
-    if (data[key] === DECRYPTION_ERROR_PLACEHOLDER) delete data[key]
+    if (clean[key] === DECRYPTION_ERROR_PLACEHOLDER) {
+      delete clean[key]
+      omitted.push(key)
+    }
   }
+  return { clean, omitted }
 }
 
 /**

@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
-import { omitDecryptionPlaceholders } from "@/lib/cryptoCore"
+import { splitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { parseOptimisticUpdatedAt, isP2003, isP2034 } from "@/lib/validation"
@@ -198,7 +198,10 @@ export async function updatePerson(
   // archived records, but a direct action call must be rejected too.
   if (existing.archivedAt) return { error: "Not found" }
 
-  const parsed = PersonSchema.safeParse(Object.fromEntries(formData))
+  // AUD-1-03: pull "[decryption error]" echoes out before validation (they fail
+  // the email/date checks); the keys are dropped from the write further down.
+  const { clean, omitted: omittedKeys } = splitDecryptionPlaceholders(Object.fromEntries(formData), PERSON_ENCRYPTED_KEYS)
+  const parsed = PersonSchema.safeParse(clean)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const ministryRoles = readMinistryRoles(formData)
   if (ministryRoles === null) return { error: "Invalid ministry role" }
@@ -211,7 +214,7 @@ export async function updatePerson(
   }
   // AUD-1-03: the edit form pre-fills from safeDecrypt; never write the
   // "[decryption error]" placeholder over an unreadable stored value.
-  omitDecryptionPlaceholders(updateData, PERSON_ENCRYPTED_KEYS)
+  for (const key of omittedKeys) delete (updateData as Record<string, unknown>)[key]
   encryptPersonFields(updateData)
 
   // Optimistic concurrency: the edit form submits the row's last-seen

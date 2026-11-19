@@ -400,6 +400,19 @@ describe("updatePerson — unreadable-value placeholder is never written back", 
     }
   )
 
+  // email/dateOfBirth fail schema format checks if the placeholder reaches
+  // validation, so it must be split out before parsing.
+  it("omits email and its blind index when email holds the placeholder", async () => {
+    const data = await save({ email: PLACEHOLDER })
+    expect(data).not.toHaveProperty("email")
+    expect(data).not.toHaveProperty("emailHash")
+  })
+
+  it("omits dateOfBirth when it holds the placeholder", async () => {
+    const data = await save({ dateOfBirth: PLACEHOLDER })
+    expect(data).not.toHaveProperty("dateOfBirth")
+  })
+
   it("omits mobile and its blind index when mobile holds the placeholder", async () => {
     const data = await save({ mobile: PLACEHOLDER })
     expect(data).not.toHaveProperty("mobile")
