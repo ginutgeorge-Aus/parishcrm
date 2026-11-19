@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { toCents } from "@/lib/formatting"
 import { encryptFamilyFields } from "@/lib/familyFields"
+import { omitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, isP2003, isP2034, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
@@ -112,7 +113,7 @@ export async function createFamily(
   redirect(`/families/${newId}`)
 }
 
-/** Update a family from the edit form, with an optimistic-concurrency check. Keeps stored dues while Subscription dues is off. */
+/** Update a family from the edit form, with an optimistic-concurrency check. Keeps stored dues while Subscription dues is off, and never overwrites an unreadable field with the "[decryption error]" placeholder (AUD-1-03). */
 export async function updateFamily(
   id: number,
   _prev: ActionResult,
@@ -137,6 +138,9 @@ export async function updateFamily(
   // The dues field is hidden while Subscription dues is off: keep the stored
   // value. Checked server-side too, so a stale form can't overwrite it.
   if (!formData.has("monthlyDues") || !(await isFeatureOn("dues"))) delete updateData.monthlyDues
+  // AUD-1-03: the edit form pre-fills from safeDecrypt; never write the
+  // "[decryption error]" placeholder over an unreadable stored value.
+  omitDecryptionPlaceholders(updateData, ["address", "suburb", "state", "postcode", "homePhone", "notes"])
   encryptFamilyFields(updateData)
 
   // Optimistic concurrency: see transaction.ts::updateTransaction.

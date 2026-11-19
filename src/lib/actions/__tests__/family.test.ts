@@ -229,6 +229,27 @@ describe("updateFamily", () => {
     expect(prisma.family.updateMany).not.toHaveBeenCalled()
   })
 
+  // AUD-1-03: the edit form pre-fills from safeDecrypt; an unreadable value
+  // arrives as "[decryption error]" and must not overwrite the ciphertext.
+  describe("unreadable-value placeholder", () => {
+    beforeEach(() => {
+      ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+      ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 3, archivedAt: null })
+      ;(prisma.family.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    })
+
+    it.each(["address", "suburb", "state", "postcode", "homePhone", "notes"])(
+      "omits %s from the update when it holds the placeholder",
+      async (field) => {
+        await expect(updateFamily(3, undefined, form({ ...VALID, [field]: "[decryption error]" }))).rejects.toThrow("NEXT_REDIRECT")
+        const data = (prisma.family.updateMany as jest.Mock).mock.calls[0][0].data
+        expect(data).not.toHaveProperty(field)
+        // the suburb blind index must stay in step with the untouched ciphertext
+        if (field === "suburb") expect(data).not.toHaveProperty("suburbHash")
+      }
+    )
+  })
+
   describe("optimistic concurrency", () => {
     beforeEach(() => {
       ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })

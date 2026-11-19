@@ -175,6 +175,22 @@ export function safeDecrypt(value: string): string {
 }
 
 /**
+ * Delete from `data` every listed key whose value is the decryption-error
+ * placeholder. Edit forms pre-fill from `safeDecrypt`, so an unreadable stored
+ * value comes back on submit as the placeholder; encrypting and writing it
+ * would destroy the (possibly recoverable) ciphertext. Deleting the key makes
+ * Prisma leave the column untouched. Mutates `data` in place; call it BEFORE
+ * the entity's encrypt step.
+ * @param data update payload, mutated in place
+ * @param keys fields that are read via safeDecrypt on the edit form
+ */
+export function omitDecryptionPlaceholders<T extends object>(data: T, keys: readonly (keyof T)[]): void {
+  for (const key of keys) {
+    if (data[key] === DECRYPTION_ERROR_PLACEHOLDER) delete data[key]
+  }
+}
+
+/**
  * Encrypt raw bytes for a BYTEA column: UTF-8 bytes of `encrypt(base64)` (the convention
  * shared by TransactionAttachment.data and PersonClearance.document; rotated via BLOB_FIELDS).
  */

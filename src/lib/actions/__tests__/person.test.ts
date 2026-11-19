@@ -375,3 +375,45 @@ describe("updatePerson — ministry roles", () => {
     expect(prisma.person.updateMany).not.toHaveBeenCalled()
   })
 })
+
+// AUD-1-03: the edit form pre-fills from safeDecrypt, which yields the
+// "[decryption error]" placeholder for an unreadable value. Saving the form
+// must leave the stored ciphertext untouched, never overwrite it.
+describe("updatePerson — unreadable-value placeholder is never written back", () => {
+  const PLACEHOLDER = "[decryption error]"
+  beforeEach(() => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5, archivedAt: null })
+    ;(prisma.person.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+  })
+
+  async function save(fields: Record<string, string>) {
+    await expect(updatePerson(3, 5, undefined, form({ ...VALID, ...fields }))).rejects.toThrow("NEXT_REDIRECT")
+    return (prisma.person.updateMany as jest.Mock).mock.calls[0][0].data
+  }
+
+  it.each(["notes", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "workPhone", "homePhone"])(
+    "omits %s from the update when it holds the placeholder",
+    async (field) => {
+      const data = await save({ [field]: PLACEHOLDER })
+      expect(data).not.toHaveProperty(field)
+    }
+  )
+
+  it("omits mobile and its blind index when mobile holds the placeholder", async () => {
+    const data = await save({ mobile: PLACEHOLDER })
+    expect(data).not.toHaveProperty("mobile")
+    expect(data).not.toHaveProperty("mobileHash")
+  })
+
+  it("still writes other fields alongside an omitted placeholder", async () => {
+    const data = await save({ notes: PLACEHOLDER, homePhone: "0299990000" })
+    expect(data.homePhone).toBe("enc:0299990000")
+  })
+
+  it("still encrypts and writes a normal note", async () => {
+    const data = await save({ notes: "hello", pastoralNotes: "care" })
+    expect(data.notes).toBe("enc:hello")
+    expect(data.pastoralNotes).toBe("enc:care")
+  })
+})
