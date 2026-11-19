@@ -94,7 +94,7 @@ cannot yet.
 | Role | Sunday School access |
 |---|---|
 | ADMIN, PASTOR, OFFICE_ADMIN | Everything: classes, teachers, enrolment, rolls, exams, rollover |
-| **Headmaster** | All classes: setup, enrolment, rolls, exams, rollover. Nothing outside Sunday School: no People, accounting or pastoral notes. Can reach their own account page and help |
+| **Headmaster** | All classes: setup, enrolment (children only, not adults), rolls, exams, rollover. Nothing outside Sunday School: no People, accounting or pastoral notes. Can reach their own account page and help |
 | **Teacher** | Only classes they are assigned to (`/my-classes`): see the children, take the roll, enter exam marks. Cannot change class setup. Sees child names and class only, no family contact details |
 | VIEWER | Read-only |
 

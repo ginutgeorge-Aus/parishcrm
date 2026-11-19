@@ -9,7 +9,7 @@ jest.mock("@/lib/prisma", () => {
     sundaySchoolTeacher: { create: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     sundaySchoolEnrolment: { findMany: jest.fn(), upsert: jest.fn(), updateMany: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     sundaySchoolYearLock: { upsert: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
-    person: { findFirst: jest.fn(), findMany: jest.fn() },
+    person: { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),
     $executeRaw: jest.fn(),
@@ -354,18 +354,19 @@ describe("addTeacher", () => {
 describe("enrolChildren", () => {
   describe("headmaster enrol scope (AUD-5-01)", () => {
     const where = () => (prisma.person.findMany as jest.Mock).mock.calls[0][0].where
-    it("HEADMASTER rejects an adult who is not enrolled this year", async () => {
+    it("HEADMASTER rejects an adult", async () => {
       as(UserRole.HEADMASTER)
       liveClass()
       ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
       expect(await enrolChildren(1, [7])).toEqual({ error: "Person not found" })
-      expect(where().OR).toEqual([{ role: "CHILD" }, { sundaySchoolEnrolments: { some: { year: 2026, class: { archivedAt: null } } } }])
+      expect(where().role).toBe("CHILD")
       expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
     })
-    it("HEADMASTER accepts a CHILD or an adult already enrolled this year", async () => {
+    it("HEADMASTER accepts children", async () => {
       as(UserRole.HEADMASTER)
       liveClass()
       ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }, { id: 3 }])
+      ;(prisma.person.count as jest.Mock).mockResolvedValue(2)
       ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
       expect(await enrolChildren(1, [2, 3])).toEqual({ success: "Enrolled 2" })
       expect(prisma.sundaySchoolEnrolment.upsert).toHaveBeenCalledTimes(2)
@@ -373,7 +374,8 @@ describe("enrolChildren", () => {
     it("HEADMASTER is refused when the person stops being eligible before commit", async () => {
       as(UserRole.HEADMASTER)
       liveClass()
-      ;(prisma.person.findMany as jest.Mock).mockResolvedValueOnce([{ id: 7 }]).mockResolvedValueOnce([])
+      ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 7 }])
+      ;(prisma.person.count as jest.Mock).mockResolvedValue(0)
       expect(await enrolChildren(1, [7])).toEqual({ error: "Person not found" })
       expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
       expect(prisma.sundaySchoolEnrolment.updateMany).not.toHaveBeenCalled()
@@ -385,6 +387,7 @@ describe("enrolChildren", () => {
       ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
       await enrolChildren(1, [7])
       expect(where()).toEqual({ id: { in: [7] }, archivedAt: null })
+      expect(prisma.person.count).not.toHaveBeenCalled()
     })
   })
   it("upserts by personId_year and reports moves", async () => {
