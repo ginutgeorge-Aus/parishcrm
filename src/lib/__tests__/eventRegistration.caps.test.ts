@@ -214,6 +214,14 @@ describe("AUD-2-03 — aggregate attendee-name cap", () => {
     const result = await createEventRegistration("fete", makeBody(split(60, 40)), "1.2.3.4")
     expect(result.ok).toBe(true)
   })
+
+  it("omitted attendeeNames passes the cap and fails on the per-ticket name check instead", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    const { attendeeNames: _omit, ...body } = makeBody()
+    const result = await createEventRegistration("fete", body, "1.2.3.4")
+    expect(result).toMatchObject({ ok: false, status: 400 })
+    expect((result as { error: string }).error).toMatch(/Enter a name for each/)
+  })
 })
 
 describe("AUD-2-03 — PENDING seat hoarding", () => {
