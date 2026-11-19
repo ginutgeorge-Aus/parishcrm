@@ -228,7 +228,7 @@ function personSeeds(p: MembershipPayload): PersonSeed[] {
 }
 
 // Build a Person create payload, encrypting the at-rest fields (email + blind
-// index, dateOfBirth, mobile, homePhone) exactly as person.ts does. profession /
+// index, dateOfBirth, mobile, homePhone) via the shared encryptPersonFields (src/lib/personFields.ts). profession /
 // maritalStatus are encrypted at rest (audit AUD-1-17); motherParish stays plaintext.
 function personCreateData(familyId: number, s: PersonSeed) {
   const data: Record<string, unknown> = {

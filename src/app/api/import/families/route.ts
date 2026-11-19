@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
       continue
     }
     seenInBatch.add(key)
-    const personData = {
+    const personData: Prisma.PersonCreateManyInput = {
       familyId,
       firstName: person.firstName,
       lastName: person.lastName,
