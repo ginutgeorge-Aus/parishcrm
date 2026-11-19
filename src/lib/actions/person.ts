@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
+import { splitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { parseOptimisticUpdatedAt, isP2003, isP2034 } from "@/lib/validation"
@@ -68,10 +69,20 @@ const PersonSchema = z.object({
 
 import type { ActionResult } from "./types"
 
-// Encrypt-on-write for the Person PII fields, in place. Encrypts whichever PII
-// keys are present and truthy — the pastoral-notes / emergency-contact keys are
-// `delete`d before this runs when the role can't see them, so they're simply
-// skipped. Shared by create + update so the field list can't drift.
+/** Encrypted Person fields the edit form pre-fills via safeDecrypt. */
+const PERSON_ENCRYPTED_KEYS = [
+  "email", "dateOfBirth", "mobile", "workPhone", "homePhone",
+  "notes", "pastoralNotes", "emergencyContactName", "emergencyContactPhone",
+] as const
+
+/**
+ * Encrypt-on-write for the Person PII fields, in place. Encrypts whichever PII
+ * keys are present and truthy — the pastoral-notes / emergency-contact keys are
+ * `delete`d before this runs when the role can't see them, so they're simply
+ * skipped. Blind indexes (emailHash/mobileHash) are only set when their source
+ * key is present. Shared by create + update so the field list can't drift.
+ * @param data Person create/update data; mutated in place
+ */
 function encryptPersonFields(data: {
   email?: string | null
   emailHash?: string | null
@@ -95,12 +106,14 @@ function encryptPersonFields(data: {
   // store the email blind index from the plaintext BEFORE encrypting, so
   // the person-export can match registrations on an indexed column. null clears
   // it when the email is removed.
-  data.emailHash = data.email ? hmacEmail(data.email) : null
+  // (skipped when the key is absent, e.g. an unreadable value was omitted, so
+  // the stored hash stays in step with the untouched ciphertext)
+  if (data.email !== undefined) data.emailHash = data.email ? hmacEmail(data.email) : null
   if (data.email) data.email = encrypt(data.email)
   if (data.dateOfBirth) data.dateOfBirth = encrypt(data.dateOfBirth)
   // same before-encrypt blind-index pattern as email, for the
   // membership-application family-match lookup.
-  data.mobileHash = data.mobile ? hmacMobile(data.mobile) : null
+  if (data.mobile !== undefined) data.mobileHash = data.mobile ? hmacMobile(data.mobile) : null
   if (data.mobile) data.mobile = encrypt(data.mobile)
   if (data.workPhone) data.workPhone = encrypt(data.workPhone)
   if (data.homePhone) data.homePhone = encrypt(data.homePhone)
@@ -160,6 +173,13 @@ export async function createPerson(
   redirect(`/families/${familyId}`)
 }
 
+/**
+ * Update a person from the edit form. Unreadable values that the form echoes
+ * back as the "[decryption error]" placeholder are omitted from the write so
+ * the stored ciphertext survives (AUD-1-03).
+ * @param id Person.id
+ * @param familyId expected family (IDOR guard)
+ */
 export async function updatePerson(
   id: number,
   familyId: number,
@@ -178,7 +198,10 @@ export async function updatePerson(
   // archived records, but a direct action call must be rejected too.
   if (existing.archivedAt) return { error: "Not found" }
 
-  const parsed = PersonSchema.safeParse(Object.fromEntries(formData))
+  // AUD-1-03: pull "[decryption error]" echoes out before validation (they fail
+  // the email/date checks); the keys are dropped from the write further down.
+  const { clean, omitted: omittedKeys } = splitDecryptionPlaceholders(Object.fromEntries(formData), PERSON_ENCRYPTED_KEYS)
+  const parsed = PersonSchema.safeParse(clean)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const ministryRoles = readMinistryRoles(formData)
   if (ministryRoles === null) return { error: "Invalid ministry role" }
@@ -189,6 +212,9 @@ export async function updatePerson(
     delete updateData.emergencyContactName
     delete updateData.emergencyContactPhone
   }
+  // AUD-1-03: the edit form pre-fills from safeDecrypt; never write the
+  // "[decryption error]" placeholder over an unreadable stored value.
+  for (const key of omittedKeys) delete (updateData as Record<string, unknown>)[key]
   encryptPersonFields(updateData)
 
   // Optimistic concurrency: the edit form submits the row's last-seen

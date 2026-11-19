@@ -1,5 +1,8 @@
 import { encrypt, hmacSuburb } from "@/lib/crypto"
 
+/** Encrypted Family fields the edit form pre-fills via safeDecrypt. */
+export const FAMILY_ENCRYPTED_KEYS = ["address", "suburb", "state", "postcode", "homePhone", "notes"] as const
+
 /**
  * Single source of truth for which Family fields are encrypted on write.
  * Mutates `data` in place, encrypting only truthy fields so an empty string is

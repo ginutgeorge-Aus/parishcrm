@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useActionState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DECRYPTION_ERROR_PLACEHOLDER } from "@/lib/decryptionPlaceholder"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -45,6 +46,27 @@ type Person = {
   // Last-seen version for optimistic concurrency. Serialized across the
   // RSC boundary as a Date or ISO string depending on Next's transport.
   updatedAt?: Date | string
+}
+
+/**
+ * Stand-in for a typed input (email/date) whose stored value could not be
+ * decrypted. A date/email control cannot hold the placeholder text, so submitting
+ * it would blank the field and wipe the stored ciphertext (AUD-1-03). Show a
+ * disabled notice and post the placeholder in a hidden field; the server action
+ * recognises it and leaves the stored value untouched.
+ * @param id DOM id for the label association
+ * @param name form field name posted to the server action
+ */
+function UnreadableValue({ id, name }: { id: string; name: string }) {
+  return (
+    <>
+      <input type="hidden" name={name} value={DECRYPTION_ERROR_PLACEHOLDER} />
+      <Input id={id} value="Unreadable" disabled readOnly aria-describedby={`${id}-hint`} />
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        This value could not be read. It has not been changed.
+      </p>
+    </>
+  )
 }
 
 function dateStr(d?: Date | string | null) {
@@ -116,7 +138,11 @@ export function PersonForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="dateOfBirth">Date of birth</Label>
-            <Input id="dateOfBirth" name="dateOfBirth" type="date" defaultValue={dateStr(person?.dateOfBirth)} />
+            {person?.dateOfBirth === DECRYPTION_ERROR_PLACEHOLDER ? (
+              <UnreadableValue id="dateOfBirth" name="dateOfBirth" />
+            ) : (
+              <Input id="dateOfBirth" name="dateOfBirth" type="date" defaultValue={dateStr(person?.dateOfBirth)} />
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="suffix">Suffix</Label>
@@ -157,7 +183,11 @@ export function PersonForm({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" defaultValue={person?.email ?? ""} />
+            {person?.email === DECRYPTION_ERROR_PLACEHOLDER ? (
+              <UnreadableValue id="email" name="email" />
+            ) : (
+              <Input id="email" name="email" type="email" defaultValue={person?.email ?? ""} />
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="mobile">Mobile</Label>
