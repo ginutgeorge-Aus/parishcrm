@@ -11,7 +11,7 @@ export const PAYLOAD_GRACE_MS = 72 * 60 * 60 * 1000
 
 // Prisma filter for an EXPIRED new-registration ticket row that still holds
 // its staged payload: a late paid confirmation can still claim it. Pay-now
-// rows (registrationId set) are excluded; they keep the alert-only path.
+// rows (registrationId set) are excluded here; see PAY_NOW_LATE_CLAIMABLE_WHERE.
 export const LATE_CLAIMABLE_WHERE = { status: "EXPIRED", registrationId: null, payload: { not: "" } } as const
 
 // Pay-now twin: an EXPIRED row tied to an existing Registration. It holds no
