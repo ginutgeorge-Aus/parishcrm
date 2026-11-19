@@ -230,6 +230,18 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       const people = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "Person" WHERE id = ANY(${ids}) AND "archivedAt" IS NULL FOR SHARE`
       if (people.length !== ids.length) throw new Error(PERSON_GONE)
+      // Scope recheck (AUD-5-01): the pre-transaction lookup can go stale if an
+      // unenrol commits meanwhile. FOR SHARE on these enrolment rows makes a
+      // concurrent unenrol's DELETE wait until we commit (or already be visible
+      // here), so the eligibility read below holds at commit time.
+      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
+      await tx.$queryRaw`
+        SELECT id FROM "SundaySchoolEnrolment" WHERE "personId" = ANY(${ids}) AND year = ${year} FOR SHARE`
+      const stillEligible = await tx.person.findMany({
+        where: { id: { in: ids }, archivedAt: null, ...enrolCandidateWhere(g.session?.user?.role, year) },
+        select: { id: true },
+      })
+      if (stillEligible.length !== ids.length) throw new Error(PERSON_GONE)
       // Read inside the transaction (after the locks) so the audit count and the
       // revalidated paths reflect what this write actually moved.
       // Only a live class counts as a "move"; a row left in an archived class is

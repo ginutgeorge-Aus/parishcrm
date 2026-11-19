@@ -370,6 +370,14 @@ describe("enrolChildren", () => {
       expect(await enrolChildren(1, [2, 3])).toEqual({ success: "Enrolled 2" })
       expect(prisma.sundaySchoolEnrolment.upsert).toHaveBeenCalledTimes(2)
     })
+    it("HEADMASTER is refused when the person stops being eligible before commit", async () => {
+      as(UserRole.HEADMASTER)
+      liveClass()
+      ;(prisma.person.findMany as jest.Mock).mockResolvedValueOnce([{ id: 7 }]).mockResolvedValueOnce([])
+      expect(await enrolChildren(1, [7])).toEqual({ error: "Person not found" })
+      expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
+      expect(prisma.sundaySchoolEnrolment.updateMany).not.toHaveBeenCalled()
+    })
     it("OFFICE_ADMIN still enrols anyone not archived", async () => {
       as(UserRole.OFFICE_ADMIN)
       liveClass()
