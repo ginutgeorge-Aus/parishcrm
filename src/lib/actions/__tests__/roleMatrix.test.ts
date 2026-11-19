@@ -51,6 +51,8 @@ const writes: string[] = []
 /** Every Prisma call (read or write): a guard refusal happens before any of them. */
 const dbCalls: string[] = []
 let currentRole: Role | undefined
+/** Rows the mocked `findMany` returns; empty unless a case needs a non-empty read to prove a refusal. */
+let findManyRows: unknown[] = []
 
 jest.mock("server-only", () => ({}))
 jest.mock("@/auth", () => ({
@@ -77,7 +79,7 @@ jest.mock("@/lib/prisma", () => {
           jest.fn(async () => {
             dbCalls.push(`${name}.${method}`)
             if (WRITE_METHODS.has(method)) writes.push(`${name}.${method}`)
-            return method.startsWith("find") ? (method === "findMany" ? [] : null) : method === "count" ? 0 : undefined
+            return method.startsWith("find") ? (method === "findMany" ? findManyRows : null) : method === "count" ? 0 : undefined
           }),
       },
     )
@@ -323,6 +325,8 @@ function isRefusalShape(r: unknown): boolean {
   if (Array.isArray(r)) return r.length === 0
   if (r && typeof r === "object") {
     const o = r as Record<string, unknown>
+    // A success flag beats any refusal marker: `{ success: true, error: "x" }` is not a refusal.
+    if (o.success || o.ok) return false
     if (typeof o.error === "string") return true
     if (o.status === "not-editor") return true
     return Object.keys(o).length === 0
@@ -337,6 +341,18 @@ function isRefusalShape(r: unknown): boolean {
  */
 function isRefusalThrow(e: unknown): boolean {
   return e instanceof Error && REFUSAL_THROW.test(e.message)
+}
+
+/**
+ * Fixtures for actions that return an empty read for the default junk arguments, which would make a
+ * removed guard indistinguishable from a refusal. Each gives real arguments and the rows `findMany`
+ * returns, so without its guard the action would hand back a non-empty result.
+ */
+const READ_FIXTURES: Record<string, { args: unknown[]; rows: unknown[] }> = {
+  "sacrament.searchSacramentPeople": {
+    args: ["smith"],
+    rows: [{ id: 1, firstName: "Sam", lastName: "Smith", family: { name: "Smith" } }],
+  },
 }
 
 /** An empty FormData, passed as the second argument of every action. */
@@ -383,6 +399,17 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(rawQueryWrites([{ sql: "UPDATE t" }])).toBe(true)
   })
 
+  it("isRefusalShape rejects a success flag even when an error marker is present", () => {
+    expect(isRefusalShape({ error: "Unauthorized" })).toBe(true)
+    expect(isRefusalShape({ success: true, error: "Unauthorized" })).toBe(false)
+    expect(isRefusalShape({ ok: true, status: "not-editor" })).toBe(false)
+  })
+
+  it("every read fixture targets a discovered guarded export", () => {
+    const found = new Set(ENTRIES.map((e) => `${e.file}.${e.fn}`))
+    for (const k of Object.keys(READ_FIXTURES)) expect(found).toContain(k)
+  })
+
   it("audit roles are all real UserRole values", () => {
     for (const r of AUDIT_ROLES) expect(ALL_ROLES).toContain(r)
   })
@@ -410,6 +437,7 @@ describe("role matrix: generated from src/lib/actions", () => {
   beforeEach(() => {
     writes.length = 0
     dbCalls.length = 0
+    findManyRows = []
   })
 
   it.each(cases.map(([label, entry, role]) => [`${label} / ${role}`, entry, role] as const))("%s refuses with no DB write", async (_label, entry, role) => {
@@ -418,7 +446,9 @@ describe("role matrix: generated from src/lib/actions", () => {
     let result: unknown
     let thrown: unknown
     try {
-      result = await mod[entry.fn](anyArg(), formData(), anyArg())
+      const fixture = READ_FIXTURES[`${entry.file}.${entry.fn}`]
+      if (fixture) findManyRows = fixture.rows
+      result = await mod[entry.fn](...(fixture ? fixture.args : [anyArg(), formData(), anyArg()]))
     } catch (e) {
       thrown = e
     }

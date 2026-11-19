@@ -1,6 +1,7 @@
 import "dotenv/config"
 import { PrismaClient } from "../../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
+import { encrypt, hmacEmail, hmacMobile, hmacSuburb } from "../../src/lib/cryptoCore"
 
 // perf baseline — seed realistic single-parish scale into a LOCAL dev DB so the
 // slow-query + route-metrics pass runs against volume, not the tiny fixture in
@@ -8,16 +9,41 @@ import { PrismaPg } from "@prisma/adapter-pg"
 // reset produce identical data. Refuses any non-local DATABASE_URL.
 //
 //   npx tsx scripts/perf/seed-volume.ts
+//   SEED_SCALE=large npx tsx scripts/perf/seed-volume.ts   # 10k people / 100k txns (OSS-38)
+//
+// PII-bearing columns (txn description, person email/mobile/DOB, family suburb) are written
+// ENCRYPTED, as the app does, so decrypt-in-memory paths cost what they cost in prod
+// (plaintext passes through decrypt() for free and would measure nothing).
+// Needs ENCRYPTION_KEY — use a throwaway key for a local perf DB.
+// All values are synthetic (example.test emails, 04-prefixed fake mobiles).
 //
 // Prereq: `npm run db:seed` first (needs the admin user + chart of accounts + General fund).
 
-const TARGETS = {
-  families: 500,
-  peoplePerFamily: 4, // → ~2,000 people
-  transactions: 30_000,
-  auditLogs: 50_000,
-  registrations: 5_000, // 1 published event
+const SCALES = {
+  default: {
+    families: 500,
+    peoplePerFamily: 4, // → ~2,000 people
+    transactions: 30_000,
+    auditLogs: 50_000,
+    registrations: 5_000, // 1 published event
+  },
+  // OSS-38: stress the capped decrypt-in-memory paths (EXPORT_CAP 10k, SEARCH_SCAN_CAP 5k, legacy suburb scan).
+  large: {
+    families: 2_500,
+    peoplePerFamily: 4, // → 10,000 people
+    transactions: 100_000,
+    auditLogs: 50_000,
+    registrations: 5_000,
+  },
 } as const
+const SCALE_NAME = (process.env.SEED_SCALE ?? "default") as keyof typeof SCALES
+if (!(SCALE_NAME in SCALES)) throw new Error(`SEED_SCALE must be one of: ${Object.keys(SCALES).join(", ")}`)
+const TARGETS = SCALES[SCALE_NAME]
+
+const SUBURBS = ["Parramatta", "Blacktown", "Penrith", "Strathfield", "Auburn", "Granville", "Westmead", "Harris Park"] as const
+/** Every 5th family has no suburbHash, imitating pre-backfill legacy rows the filter must decrypt-scan.
+ *  5 is coprime with SUBURBS.length (8), so legacy rows cover every suburb. */
+const isLegacySuburb = (i: number) => i % 5 === 4
 
 const CHUNK = 5_000
 
@@ -76,6 +102,8 @@ async function main() {
       name: `PerfFam ${String(i + 1).padStart(4, "0")}`,
       state: "NSW",
       postcode: "2148",
+      suburb: encrypt(SUBURBS[i % SUBURBS.length]),
+      suburbHash: isLegacySuburb(i) ? null : hmacSuburb(SUBURBS[i % SUBURBS.length]),
       status: "ACTIVE" as const,
       joinedDate: dateForIndex(i),
     }),
@@ -86,7 +114,10 @@ async function main() {
   console.log("Seeding people…")
   const ROLES = ["HEAD", "SPOUSE", "CHILD", "CHILD"] as const
   const people = families.flatMap((fam, fi) =>
-    Array.from({ length: TARGETS.peoplePerFamily }, (_, k) => ({
+    Array.from({ length: TARGETS.peoplePerFamily }, (_, k) => {
+      const email = `p${fi + 1}-${k + 1}@example.test`
+      const mobile = `04${String(10_000_000 + fi * 4 + k).padStart(8, "0")}`
+      return {
       familyId: fam.id,
       firstName: `P${fi + 1}-${k + 1}`,
       lastName: `Fam${fi + 1}`,
@@ -94,7 +125,13 @@ async function main() {
       classification: "MEMBER" as const,
       gender: (k % 2 === 0 ? "MALE" : "FEMALE") as "MALE" | "FEMALE",
       membershipDate: dateForIndex(fi),
-    })),
+      email: encrypt(email),
+      emailHash: hmacEmail(email),
+      mobile: encrypt(mobile),
+      mobileHash: hmacMobile(mobile),
+      dateOfBirth: encrypt(new Date(EPOCH - spread(fi * 4 + k, 60 * 365) * DAY).toISOString().slice(0, 10)),
+      }
+    }),
   )
   await createInChunks(people.length, (i) => people[i], (rows) => prisma.person.createMany({ data: rows }))
 
@@ -105,7 +142,7 @@ async function main() {
       const familyId = families[i % families.length].id
       return {
         date: dateForIndex(i),
-        description: `Perf txn ${i + 1}`,
+        description: encrypt(`Perf txn ${i + 1}`),
         amount: (spread(i, 50_000) + 100) / 100, // $1.00–$500.99
         type: "INCOME" as const,
         accountId: acctId(i),
@@ -171,7 +208,7 @@ async function main() {
   const [famCount, personCount, txnCount, auditCount, regCount] = await Promise.all([
     prisma.family.count({ where: { name: { startsWith: "PerfFam " } } }),
     prisma.person.count({ where: { lastName: { startsWith: "Fam" } } }),
-    prisma.transaction.count({ where: { description: { startsWith: "Perf txn " } } }),
+    prisma.transaction.count({ where: { family: { name: { startsWith: "PerfFam " } } } }),
     prisma.auditLog.count(),
     prisma.registration.count({ where: { eventId: event.id } }),
   ])
