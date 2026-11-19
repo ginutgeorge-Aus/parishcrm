@@ -196,7 +196,7 @@ export async function sendBookingRequest(ids: number[]): Promise<{ success: stri
     // Build the email from the rows as they are NOW the claim is held: an edit that committed between the first
     // read and the claim (before the venue-known lock applied) is otherwise emailed with its old date or times.
     const claimed = await prisma.venueUsage.findMany({
-      where: { id: { in: claimedIds }, bookingRequestedAt: claimAt },
+      where: { id: { in: claimedIds }, bookingRequestedAt: claimAt, status: "REQUESTED" },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
       select: { id: true, date: true, startTime: true, endTime: true, status: true },
     })

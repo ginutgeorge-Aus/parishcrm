@@ -63,9 +63,8 @@ export function isMaintenanceBypassPath(pathname: string): boolean {
   )
 }
 
-// Escape the five HTML-significant chars. CHURCH_NAME and the admin-set state
-// message are interpolated into the page below; without escaping either could
-// inject markup/script into the served HTML (/, Stored XSS).
+// CHURCH_NAME and the admin-set state message are interpolated into the page below and escaped with the shared
+// escapeHtml; without escaping either could inject markup/script into the served HTML (Stored XSS).
 
 export function renderMaintenanceHtml(
   state: MaintenanceState,

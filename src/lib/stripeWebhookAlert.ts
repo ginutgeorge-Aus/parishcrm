@@ -60,12 +60,6 @@ export function createWebhookFailureTracker(deps: WebhookAlertDeps) {
 }
 
 /**
- * Escapes the characters that are significant in HTML text content.
- * @param s Raw text.
- * @returns Text safe to embed in an HTML element body.
- */
-
-/**
  * Emails every active ADMIN the webhook-failure alert.
  * @throws When there is no recipient or every send definitively failed.
  */
