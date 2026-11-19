@@ -261,7 +261,7 @@ export async function syncEventToWebsite(eventId: number): Promise<void> {
   }
 }
 
-export type WebsiteDeletePayload = { action: "delete"; crmId: number; revision: string }
+type WebsiteDeletePayload = { action: "delete"; crmId: number; revision: string }
 
 // Revision string shared by upserts (Event.updatedAt) and deletes (send time):
 // ISO 8601 UTC, ms precision, so receivers compare them as plain strings.
