@@ -22,6 +22,25 @@ import { featureGuard } from "@/lib/featureFlags"
 export type VolunteerTokenResult = { error: string } | { token: string | null }
 
 /**
+ * Turn the volunteer view on: mint a fresh token and store its digest, only while no token exists.
+ * Only a digest is stored, so an existing link cannot be shown again. The write is conditional on the
+ * token still being null, so the loser of a race (a stale tab, two concurrent enables) gets the
+ * already-on error instead of replacing the live shared link.
+ * @param id event id
+ * @returns the plaintext token (shown once) or an error result
+ */
+async function mintVolunteerToken(id: number): Promise<{ token: string } | { error: string }> {
+  const token = generateVolunteerToken()
+  const { count } = await prisma.event.updateMany({ where: { id, volunteerToken: null }, data: { volunteerToken: hashToken(token) } })
+  if (count > 0) return { token }
+  // Re-read the token: another editor may have turned the view off since the conditional write
+  // missed. Never retry the write, that could undo their disable.
+  const current = await prisma.event.findUnique({ where: { id }, select: { id: true, volunteerToken: true } })
+  if (!current) return { error: "Event not found" }
+  return { error: current.volunteerToken ? "Volunteer view is already on. Reload the page." : "Volunteer view changed in the meantime. Reload the page." }
+}
+
+/**
  * Enable → mint a fresh token and return it once (only a digest is stored); NOT idempotent: it errors
  * when a token already exists, so a stale tab cannot replace a live link. Disable → null the token so
  * the shared link 404s. canEdit-gated.
@@ -37,19 +56,9 @@ export async function setVolunteerView(id: number, enabled: boolean): Promise<Vo
 
   let token: string | null = null
   if (enabled) {
-    // Only a digest is stored, so an existing link cannot be shown again: turning the view on mints a
-    // fresh token and returns it once. Turning on when it is already on (a stale tab, or two
-    // concurrent enables) would replace the live shared link, so the write is conditional on the
-    // token still being null: the loser of a race gets the already-on error, not a second token.
-    token = generateVolunteerToken()
-    const { count } = await prisma.event.updateMany({ where: { id, volunteerToken: null }, data: { volunteerToken: hashToken(token) } })
-    if (count === 0) {
-      // Re-read the token: another editor may have turned the view off since the conditional write
-      // missed. Never retry the write, that could undo their disable.
-      const current = await prisma.event.findUnique({ where: { id }, select: { id: true, volunteerToken: true } })
-      if (!current) return { error: "Event not found" }
-      return { error: current.volunteerToken ? "Volunteer view is already on. Reload the page." : "Volunteer view changed in the meantime. Reload the page." }
-    }
+    const minted = await mintVolunteerToken(id)
+    if ("error" in minted) return minted
+    token = minted.token
   } else {
     // One updateMany by id (no existence pre-check): a delete racing the write yields count 0 and
     // "Event not found", not a thrown P2025 shown as a retryable error.

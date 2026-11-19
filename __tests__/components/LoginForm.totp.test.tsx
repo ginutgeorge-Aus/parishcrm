@@ -104,6 +104,38 @@ describe("LoginForm — authenticator step", () => {
     expect(screen.queryByLabelText("Authenticator code")).not.toBeInTheDocument()
   })
 
+  it("ignores a late email-fallback rejection after Back and re-entry", async () => {
+    await toTotpStep()
+    let fail!: (e: unknown) => void
+    mockSignIn.mockReturnValueOnce(new Promise((_, rej) => { fail = rej }))
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    fireEvent.click(screen.getByRole("button", { name: /Back to password step/ }))
+    await screen.findByLabelText("Password")
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequired", error: "TotpRequired", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+    await screen.findByLabelText("Authenticator code")
+    await act(async () => { fail(new Error("network")) })
+    expect(screen.queryByText("Something went wrong. Please try again.")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Authenticator code")).not.toHaveAttribute("aria-invalid")
+  })
+
+  it("ignores a late resend rejection after Back and re-entry", async () => {
+    await toTotpStep()
+    mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    await screen.findByLabelText("Verification code")
+    let fail!: (e: unknown) => void
+    mockSignIn.mockReturnValueOnce(new Promise((_, rej) => { fail = rej }))
+    fireEvent.click(screen.getByRole("button", { name: /resend/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Back to password step" }))
+    await screen.findByLabelText("Password")
+    mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+    await screen.findByLabelText("Verification code")
+    await act(async () => { fail(new Error("network")) })
+    expect(screen.queryByText("Failed to resend. Try again.")).not.toBeInTheDocument()
+  })
+
   it("hides the email-code button and explains why when backup codes exist", async () => {
     mockSignIn.mockResolvedValueOnce({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false })
     render(<LoginForm churchName="Demo Church" />)

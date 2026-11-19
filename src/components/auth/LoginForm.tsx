@@ -228,7 +228,8 @@ export function LoginForm({
         setResendMsg("Failed to resend. Try again.")
       }
     } catch {
-      // Transport-level rejection — same class as handlePasswordSubmit.
+      // Transport-level rejection — same class as handlePasswordSubmit. Ignore it if the user left the step.
+      if (attempt !== stepAttemptRef.current) return
       setResendMsg("Failed to resend. Try again.")
     } finally {
       setResendLoading(false)
@@ -323,6 +324,7 @@ export function LoginForm({
         setError("We couldn't send your verification code. Please try again in a moment.")
       }
     } catch {
+      if (attempt !== stepAttemptRef.current) return
       setError("Something went wrong. Please try again.")
     } finally {
       setResendLoading(false)
