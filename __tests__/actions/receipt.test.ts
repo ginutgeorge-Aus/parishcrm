@@ -255,7 +255,16 @@ describe("sendSingleReceipt", () => {
 })
 
 // --- sendBatchReceipts ---
+/** Default fresh-state read for the per-row recheck: serves whatever the last findMany returned. */
+function mockFreshFromFindMany() {
+  mockFindUnique.mockImplementation(async (args: { where: { id: number } }) => {
+    const rows = ((await mockFindMany.mock.results.at(-1)?.value) ?? []) as { id: number }[]
+    return rows.find((t) => t.id === args.where.id) ?? null
+  })
+}
 describe("sendBatchReceipts", () => {
+  beforeEach(mockFreshFromFindMany)
+
   it("blocks VIEWER", async () => {
     mockSession.mockResolvedValue(viewerSession)
     const result = await sendBatchReceipts([{ transactionId: 1, toEmail: "a@b.com" }])
@@ -422,7 +431,7 @@ describe("sendBatchReceipts", () => {
     expect(result).toEqual({ sent: 1, failed: 0, errors: [] })
   })
 
-  it("batches reads (one findMany, no per-row findUnique) but writes each ReceiptSend per-row", async () => {
+  it("batches the initial read (one findMany, one recheck findUnique per row) and writes each ReceiptSend per-row", async () => {
     mockSession.mockResolvedValue(adminSession)
     mockFindMany.mockResolvedValue([
       { ...mockTransaction, id: 10 },
@@ -437,7 +446,7 @@ describe("sendBatchReceipts", () => {
     expect(mockFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: { in: [10, 11] } } })
     )
-    expect(mockFindUnique).not.toHaveBeenCalled()
+    expect(mockFindUnique).toHaveBeenCalledTimes(2)
     // each receipt is persisted immediately after its send, not batched
     // after the loop — an interrupted batch must not lose delivery records.
     expect(mockReceiptCreateMany).not.toHaveBeenCalled()
@@ -675,6 +684,7 @@ describe("sendSingleReceipt email bound", () => {
 })
 
 describe("receipt recipient gate (archived + consent), single and batch", () => {
+  beforeEach(mockFreshFromFindMany)
   const person = (over: object) => ({ firstName: "Jane", lastName: "Doe", emailConsent: true, archivedAt: null, ...over })
   const fam = (over: object, people: object[]) => ({ name: "Smith", archivedAt: null, people, ...over })
 
@@ -743,6 +753,65 @@ describe("receipt recipient gate (archived + consent), single and batch", () => 
     expect(r).toEqual({ sent: 1, failed: 1, errors: [{ transactionId: 1, error: "Recipient is archived" }] })
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
     expect(mockSendEmail.mock.calls[0][0]).toBe("b@example.com")
+  })
+
+  it("batch: recipient archived mid-batch (after snapshot) is skipped, others still sent", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const rows = [
+      { ...mockTransaction, id: 1, person: person({}) },
+      { ...mockTransaction, id: 2, person: person({}) },
+      { ...mockTransaction, id: 3, person: person({}) },
+    ]
+    mockFindMany.mockResolvedValue(rows)
+    // Fresh-state fixtures for ids 2 and 3 become blocked only AFTER the first
+    // email is sent, proving the per-row recheck runs after the first send.
+    const blockedFresh: Record<number, unknown> = {
+      2: { ...rows[1], person: person({ archivedAt: new Date() }) },
+      3: { ...rows[2], person: person({ emailConsent: false }) },
+    }
+    mockFindUnique.mockImplementation(async ({ where }: { where: { id: number } }) => {
+      if (where.id !== 1 && mockSendEmail.mock.calls.length >= 1) return blockedFresh[where.id]
+      return rows[where.id - 1]
+    })
+    mockSendEmail.mockResolvedValue(undefined)
+    const r = await sendBatchReceipts([
+      { transactionId: 1, toEmail: "a@example.com" },
+      { transactionId: 2, toEmail: "b@example.com" },
+      { transactionId: 3, toEmail: "c@example.com" },
+    ])
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail.mock.calls[0][0]).toBe("a@example.com")
+    expect(r).toEqual({
+      sent: 1,
+      failed: 2,
+      errors: [
+        { transactionId: 2, error: "Recipient is archived" },
+        { transactionId: 3, error: "Recipient has not consented to email receipts" },
+      ],
+    })
+  })
+
+  it("batch: recheck read failure on one row is recorded safely, row not sent, batch continues", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const rows = [
+      { ...mockTransaction, id: 1, person: person({}) },
+      { ...mockTransaction, id: 2, person: person({}) },
+      { ...mockTransaction, id: 3, person: person({}) },
+    ]
+    mockFindMany.mockResolvedValue(rows)
+    mockFindUnique.mockImplementation(async ({ where }: { where: { id: number } }) => {
+      if (where.id === 2) throw new Error("db down for b@example.com")
+      return rows[where.id - 1]
+    })
+    mockSendEmail.mockResolvedValue(undefined)
+    const r = await sendBatchReceipts([
+      { transactionId: 1, toEmail: "a@example.com" },
+      { transactionId: 2, toEmail: "b@example.com" },
+      { transactionId: 3, toEmail: "c@example.com" },
+    ])
+    expect(mockSendEmail.mock.calls.map((c) => c[0])).toEqual(["a@example.com", "c@example.com"])
+    expect(r).toEqual({ sent: 2, failed: 1, errors: [{ transactionId: 2, error: "Could not verify recipient" }] })
+    expect(JSON.stringify(r)).not.toContain("b@example.com")
   })
 
   it("fetch: no prefill for archived or opted-out person, nor archived family", async () => {

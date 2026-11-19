@@ -233,7 +233,11 @@ export async function sendSingleReceipt(
   return { success: `Receipt sent to ${toEmail}` }
 }
 
-/** Email a batch of giving receipts. ADMIN/PASTOR only. */
+/**
+ * Email a batch of giving receipts. ADMIN/PASTOR only. Each row is gated against the
+ * pre-loop snapshot, then re-checked against fresh DB state right before its send so
+ * a recipient archived or opted out mid-batch is skipped (reported in `errors`).
+ */
 export async function sendBatchReceipts(
   rows: { transactionId: number; toEmail: string }[]
 ): Promise<BatchReceiptResult> {
@@ -297,6 +301,25 @@ export async function sendBatchReceipts(
     if (blockReason) {
       failed++
       errors.push({ transactionId: row.transactionId, error: blockReason })
+      continue
+    }
+    // txById is a snapshot from before the loop; an operator may have archived or
+    // opted out this recipient while earlier rows were sending. Re-read just
+    // before the send (1 extra query per row, max MAX_RECEIPT_BATCH_SIZE).
+    let lateBlock: string | null
+    try {
+      lateBlock = await recheckReceiptRecipient(row.transactionId, row.toEmail)
+    } catch {
+      // Fail closed for this row only: never send unverified, never log raw
+      // error text (may embed the address), keep earlier results and go on.
+      logger.error("[receipt] sendBatchReceipts recheck failed", { transactionId: row.transactionId })
+      failed++
+      errors.push({ transactionId: row.transactionId, error: "Could not verify recipient" })
+      continue
+    }
+    if (lateBlock) {
+      failed++
+      errors.push({ transactionId: row.transactionId, error: lateBlock })
       continue
     }
     const data = buildReceiptData(tx, church)
