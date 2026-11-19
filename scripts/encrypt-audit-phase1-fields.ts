@@ -25,7 +25,7 @@ const { apply: APPLY, confirmed: CONFIRMED, batchSize: BATCH } = parseScriptArgs
 
 type Delegate = {
   findMany(args: unknown): Promise<Array<Record<string, unknown>>>
-  updateMany(args: unknown): Promise<unknown>
+  updateMany(args: unknown): Promise<{ count: number }>
 }
 
 /**
@@ -47,9 +47,10 @@ async function backfill(label: string, delegate: Delegate, field: string): Promi
     for (const row of rows) {
       const v = row[field]
       if (typeof v === "string" && v.length > 0 && keyIdOf(v) === null) {
-        changed++
         // Guarded on the value we read: a concurrent edit matches 0 rows and is never overwritten.
-        if (APPLY) await delegate.updateMany({ where: { id: row.id, [field]: v }, data: { [field]: encrypt(v) } })
+        // On --apply, count only rows actually written; a dry run counts candidates.
+        if (APPLY) changed += (await delegate.updateMany({ where: { id: row.id, [field]: v }, data: { [field]: encrypt(v) } })).count
+        else changed++
       }
     }
     cursor = rows[rows.length - 1].id as number
@@ -68,17 +69,17 @@ async function hashTokens(): Promise<void> {
   for (const e of events) {
     const next = e.volunteerToken ? canonicalStoredToken(e.volunteerToken) : null
     if (next) {
-      n++
       // Guarded on the value read: a concurrent regenerate matches 0 rows and is never overwritten.
-      if (APPLY) await prisma.event.updateMany({ where: { id: e.id, volunteerToken: e.volunteerToken }, data: { volunteerToken: next } })
+      if (APPLY) n += (await prisma.event.updateMany({ where: { id: e.id, volunteerToken: e.volunteerToken }, data: { volunteerToken: next } })).count
+      else n++
     }
   }
   console.log(`event.volunteerToken: ${n} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
 
   const row = await prisma.appSetting.findUnique({ where: { key: "venueUsage.calendarToken" } })
   const nextVenue = row?.value ? canonicalStoredToken(row.value) : null
-  const venue = nextVenue ? 1 : 0
-  if (nextVenue && APPLY) await prisma.appSetting.updateMany({ where: { key: "venueUsage.calendarToken", value: row!.value }, data: { value: nextVenue } })
+  let venue = nextVenue ? 1 : 0
+  if (nextVenue && APPLY) venue = (await prisma.appSetting.updateMany({ where: { key: "venueUsage.calendarToken", value: row!.value }, data: { value: nextVenue } })).count
   console.log(`venueUsage.calendarToken: ${venue} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
 }
 

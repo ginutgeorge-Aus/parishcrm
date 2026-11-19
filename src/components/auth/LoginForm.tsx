@@ -20,10 +20,6 @@ import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/br
 // WebAuthn support never changes during a page's life, so there is nothing to subscribe to.
 const noopSubscribe = () => () => { /* no-op */ }
 
-// Shown when the server refuses an email code because the account has an authenticator and unused backup codes.
-const EMAIL_CODES_OFF_MSG =
-  "Email codes are turned off for accounts with an authenticator app. Use your app, or a backup code. If you have lost both, ask an administrator to reset your authenticator."
-
 export function LoginForm({
   churchName,
   demoLogins,
@@ -63,6 +59,8 @@ export function LoginForm({
   const totpRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const firstRender = useRef(true)
+  // Bumped when the user leaves the OTP/authenticator step, so a late resend or email-fallback reply is ignored.
+  const stepAttemptRef = useRef(0)
   // Server snapshot is false: the server render can't know, and a mismatch would break hydration.
   const passkeySupported = useSyncExternalStore(noopSubscribe, browserSupportsWebAuthn, () => false)
 
@@ -205,8 +203,10 @@ export function LoginForm({
     // "Invalid or expired code." — the two together read as contradictory.
     setError("")
     setResendLoading(true)
+    const attempt = stepAttemptRef.current
     try {
       const result = await signIn("credentials", { email, password, mode: "password", emailFallback: "true", remember: remember ? "true" : "false", redirect: false })
+      if (attempt !== stepAttemptRef.current) return
       if (result?.code === "OtpSent") {
         setResendMsg("New code sent.")
         setOtp("")
@@ -224,7 +224,6 @@ export function LoginForm({
         setOtp("")
         setEmailFallbackBlocked(true)
         setStep("totp")
-        setError(EMAIL_CODES_OFF_MSG)
       } else {
         setResendMsg("Failed to resend. Try again.")
       }
@@ -302,10 +301,12 @@ export function LoginForm({
     setError("")
     setResendMsg("")
     setResendLoading(true)
+    const attempt = stepAttemptRef.current
     try {
       const result = await signIn("credentials", {
         email, password, mode: "password", emailFallback: "true", remember: remember ? "true" : "false", redirect: false,
       })
+      if (attempt !== stepAttemptRef.current) return
       if (result?.code === "OtpSent" || result?.code === "OtpCooldown") {
         if (result.code === "OtpCooldown") setResendMsg("A code was already sent — check your inbox.")
         setTotpCode("")
@@ -318,7 +319,6 @@ export function LoginForm({
         // Server refuses the email code while unused backup codes exist (audit AUD-1-18). With
         // emailFallback set, the server never answers plain TotpRequired, so only this code is handled.
         setEmailFallbackBlocked(true)
-        setError(EMAIL_CODES_OFF_MSG)
       } else {
         setError("We couldn't send your verification code. Please try again in a moment.")
       }
@@ -451,7 +451,7 @@ export function LoginForm({
             <button
               type="button"
               aria-label="Back to password step"
-              onClick={() => { setStep("password"); setTotpCode(""); setUseBackup(false); setError("") }}
+              onClick={() => { stepAttemptRef.current += 1; setStep("password"); setTotpCode(""); setUseBackup(false); setError("") }}
               className="inline-flex items-center min-h-11 min-w-[44px] gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <span aria-hidden="true">←</span> Back
@@ -512,7 +512,7 @@ export function LoginForm({
             <button
               type="button"
               aria-label="Back to password step"
-              onClick={() => { setStep("password"); setOtp(""); setError("") }}
+              onClick={() => { stepAttemptRef.current += 1; setStep("password"); setOtp(""); setError("") }}
               className="inline-flex items-center min-h-11 min-w-[44px] gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <span aria-hidden="true">←</span> Back

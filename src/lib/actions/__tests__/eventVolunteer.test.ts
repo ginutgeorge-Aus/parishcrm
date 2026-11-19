@@ -50,20 +50,29 @@ describe("setVolunteerView", () => {
   it("refuses to turn on when already on (stale tab or a lost race), so the live shared link survives", async () => {
     asRole("ADMIN")
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "digest" })
     const res = await setVolunteerView(1, true)
     expect(res).toEqual({ error: "Volunteer view is already on. Reload the page." })
+    expect(prisma.event.update).not.toHaveBeenCalled()
+    expect(prisma.event.updateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports a changed state, without retrying, when another editor turned the view off after the enable missed", async () => {
+    asRole("ADMIN")
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: null })
+    expect(await setVolunteerView(1, true)).toEqual({ error: "Volunteer view changed in the meantime. Reload the page." })
+    expect(prisma.event.updateMany).toHaveBeenCalledTimes(1)
     expect(prisma.event.update).not.toHaveBeenCalled()
   })
 
   it("nulls the token when disabling", async () => {
     asRole("ADMIN")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     const res = await setVolunteerView(1, false)
     expect(res).toEqual({ token: null })
-    expect(prisma.event.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { volunteerToken: null } }),
-    )
+    expect(prisma.event.updateMany).toHaveBeenCalledWith({ where: { id: 1 }, data: { volunteerToken: null } })
+    expect(prisma.event.update).not.toHaveBeenCalled()
   })
 
   it("404s a missing event when enabling", async () => {
@@ -75,7 +84,7 @@ describe("setVolunteerView", () => {
 
   it("404s a missing event when disabling", async () => {
     asRole("ADMIN")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(null)
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
     expect(await setVolunteerView(999, false)).toEqual({ error: "Event not found" })
     expect(prisma.event.update).not.toHaveBeenCalled()
   })
@@ -94,6 +103,7 @@ describe("regenerateVolunteerToken", () => {
     asRole("AUDITOR")
     expect(await regenerateVolunteerToken(1)).toEqual({ error: "Unauthorized" })
     expect(prisma.event.updateMany).not.toHaveBeenCalled()
+    expect(prisma.event.update).not.toHaveBeenCalled()
   })
 
   it("sets a fresh token only while the view is on", async () => {
@@ -112,8 +122,22 @@ describe("regenerateVolunteerToken", () => {
   it("refuses when the view is off, so a stale tab cannot re-enable a disabled link", async () => {
     asRole("PASTOR")
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: null })
     expect(await regenerateVolunteerToken(1)).toEqual({ error: "Volunteer view is off. Reload the page." })
+    // Only mutation attempt: the single guarded updateMany; no unguarded or fallback write.
+    expect(prisma.event.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.event.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 1, volunteerToken: { not: null } } }),
+    )
+    expect(prisma.event.update).not.toHaveBeenCalled()
+  })
+
+  it("reports a changed state, without retrying, when another editor turned the view on after the regenerate missed", async () => {
+    asRole("PASTOR")
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "digest" })
+    expect(await regenerateVolunteerToken(1)).toEqual({ error: "Volunteer view changed in the meantime. Reload the page." })
+    expect(prisma.event.updateMany).toHaveBeenCalledTimes(1)
   })
 
   it("404s a missing event", async () => {

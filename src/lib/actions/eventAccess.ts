@@ -44,13 +44,17 @@ export async function setVolunteerView(id: number, enabled: boolean): Promise<Vo
     token = generateVolunteerToken()
     const { count } = await prisma.event.updateMany({ where: { id, volunteerToken: null }, data: { volunteerToken: hashToken(token) } })
     if (count === 0) {
-      const exists = await prisma.event.findUnique({ where: { id }, select: { id: true } })
-      return { error: exists ? "Volunteer view is already on. Reload the page." : "Event not found" }
+      // Re-read the token: another editor may have turned the view off since the conditional write
+      // missed. Never retry the write, that could undo their disable.
+      const current = await prisma.event.findUnique({ where: { id }, select: { id: true, volunteerToken: true } })
+      if (!current) return { error: "Event not found" }
+      return { error: current.volunteerToken ? "Volunteer view is already on. Reload the page." : "Volunteer view changed in the meantime. Reload the page." }
     }
   } else {
-    const existing = await prisma.event.findUnique({ where: { id }, select: { id: true } })
-    if (!existing) return { error: "Event not found" }
-    await prisma.event.update({ where: { id }, data: { volunteerToken: null } })
+    // One updateMany by id (no existence pre-check): a delete racing the write yields count 0 and
+    // "Event not found", not a thrown P2025 shown as a retryable error.
+    const { count } = await prisma.event.updateMany({ where: { id }, data: { volunteerToken: null } })
+    if (count === 0) return { error: "Event not found" }
   }
   await logAudit(actorId(session), enabled ? "VOLUNTEER_VIEW_ENABLED" : "VOLUNTEER_VIEW_DISABLED", "Event", id)
   revalidatePath(`/events/${id}/registrations`)
@@ -76,8 +80,11 @@ export async function regenerateVolunteerToken(id: number): Promise<VolunteerTok
     data: { volunteerToken: hashToken(token) },
   })
   if (count === 0) {
-    const exists = await prisma.event.findUnique({ where: { id }, select: { id: true } })
-    return { error: exists ? "Volunteer view is off. Reload the page." : "Event not found" }
+    // Re-read the token: another editor may have turned the view on since the conditional write
+    // missed. Never retry, that would replace the link they just issued.
+    const current = await prisma.event.findUnique({ where: { id }, select: { id: true, volunteerToken: true } })
+    if (!current) return { error: "Event not found" }
+    return { error: current.volunteerToken ? "Volunteer view changed in the meantime. Reload the page." : "Volunteer view is off. Reload the page." }
   }
   await logAudit(actorId(session), "VOLUNTEER_VIEW_REGENERATED", "Event", id)
   revalidatePath(`/events/${id}/registrations`)

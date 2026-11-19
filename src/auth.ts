@@ -41,7 +41,11 @@ export class OtpSent extends CredentialsSignin {
   code = "OtpSent"
 }
 
-/** A code was emailed less than 30 seconds ago, so no new one is sent. */
+/**
+ * A code was issued less than 30 seconds ago, so no new one is sent. Judged from the stored `otpExpiresAt`
+ * (a recent issuance attempt), not from confirmed email delivery: if sending and the rollback both failed,
+ * the expiry stays set and an immediate retry can still get this error.
+ */
 class OtpCooldown extends CredentialsSignin {
   code = "OtpCooldown"
 }
@@ -455,9 +459,10 @@ export async function authorizeCredentials(
     // read means only the request that "wins" the race affects a row — a
     // concurrent request that already cleared otpCode makes this a no-op.
     // Only the OTP fields are reset here: verifyPassword above already
-    // cleared failedLoginAttempts (compare-and-swap) and refused an active
-    // password lock, so resetting them again would only wipe a concurrent
-    // wrong-password increment.
+    // attempted to clear failedLoginAttempts (compare-and-swap, which may
+    // match no row if a concurrent wrong password bumped it) and refused an
+    // active password lock. Consuming the OTP must therefore leave the
+    // password counter and lock alone, so a concurrent increment survives.
     const { count } = await prisma.user.updateMany({
       where: { id: user.id, otpCode: user.otpCode, otpExpiresAt: { gt: new Date() } },
       data: {
