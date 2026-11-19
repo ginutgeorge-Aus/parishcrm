@@ -382,7 +382,7 @@ describe("deleteEvent", () => {
   it("refuses to delete when an UNFULFILLED/COMPLETED checkout records money taken — never calls delete", async () => {
     mockSession("ADMIN")
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
-    ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValueOnce(0).mockResolvedValueOnce(0).mockResolvedValueOnce(1)
     const result = await deleteEvent(1)
     expect(result).toEqual({ error: expect.stringContaining("card payment records") })
     expect(prisma.checkoutSession.count).toHaveBeenCalledWith({
