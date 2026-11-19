@@ -95,3 +95,9 @@ test("a failed audit write rolls back and returns the audit-failed error, not a 
   const res = await updateSessionCustodian(1, undefined, fd({ custodianId: "5" }))
   expect(res).toEqual({ error: expect.stringMatching(/audit log/i) })
 })
+
+test("a serialization conflict (P2034) returns a retry error, not a 500", async () => {
+  ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+  const res = await updateSessionCustodian(1, undefined, fd({ custodianId: "5" }))
+  expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
+})
