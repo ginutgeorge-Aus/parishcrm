@@ -17,7 +17,10 @@ it("expires OPEN sessions past expiresAt but keeps the payload so a late Stripe 
   const arg = prisma.checkoutSession.updateMany.mock.calls[1][0]
   expect(arg.where.status).toBe("OPEN")
   expect(arg.where.expiresAt.lt).toBeInstanceOf(Date)
-  expect(arg.data).toEqual({ status: "EXPIRED" }) // payload kept
+  // payload kept; expiresAt restamped to the moment of expiry so the 72h
+  // grace window runs from then, not from the original Stripe expiry
+  expect(arg.data).toEqual({ status: "EXPIRED", expiresAt: expect.any(Date) })
+  expect(Math.abs(arg.data.expiresAt.getTime() - Date.now())).toBeLessThan(5000)
 })
 
 it("scrubs the payload of rows expired more than 72h ago", async () => {
@@ -38,5 +41,5 @@ it("scrubs before expiring, so rows newly marked EXPIRED this run keep their pay
   await sweepExpiredCheckouts()
   const [first, second] = prisma.checkoutSession.updateMany.mock.calls.map((c: unknown[]) => (c[0] as { data: unknown }).data)
   expect(first).toEqual({ payload: "" })
-  expect(second).toEqual({ status: "EXPIRED" })
+  expect(second).toEqual({ status: "EXPIRED", expiresAt: expect.any(Date) })
 })

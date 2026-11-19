@@ -76,12 +76,25 @@ async function checkSuccessPageRateLimit(
 // seconds; beyond this the claim is treated as orphaned.
 const COMPLETED_IN_FLIGHT_MS = 10 * 60 * 1000
 
+// A still-pending checkout older than this stops promising an imminent email:
+// a card webhook never takes this long, so it is either a slow bank-debit
+// settlement (days) or a webhook that never arrives (payload held up to 72h).
+const PENDING_DELAYED_MS = 60 * 60 * 1000
+
+/**
+ * Resolve a Stripe card-return token to the created registration ref, or to a
+ * pending / unfulfilled outcome when the webhook has not produced one.
+ * @param cardToken `cs_...` session id from the return URL, or null
+ * @param ref already-known registration ref (skips the lookup when set)
+ * @param eventId event the page belongs to (the session must match it)
+ * @returns the ref plus pending / unfulfilled / delayed flags
+ */
 async function resolveCardPaymentRef(
   cardToken: string | null,
   ref: string,
   eventId: number,
-): Promise<{ resolvedRef: string; paymentPending: boolean; paymentUnfulfilled: boolean }> {
-  const noOutcome = { resolvedRef: ref, paymentPending: false, paymentUnfulfilled: false }
+): Promise<{ resolvedRef: string; paymentPending: boolean; paymentUnfulfilled: boolean; paymentDelayed: boolean }> {
+  const noOutcome = { resolvedRef: ref, paymentPending: false, paymentUnfulfilled: false, paymentDelayed: false }
   if (!cardToken || ref) return noOutcome
 
   const checkoutSession = await prisma.checkoutSession.findUnique({
@@ -115,7 +128,10 @@ async function resolveCardPaymentRef(
     checkoutSession.status === "UNFULFILLED" ||
     (checkoutSession.status === "EXPIRED" && !isLateClaimable(checkoutSession)) ||
     completedStale
-  return { resolvedRef: ref, paymentUnfulfilled: isUnfulfilled, paymentPending: !isUnfulfilled }
+  // A fresh COMPLETED row is mid-persist (seconds), however old createdAt is.
+  const paymentDelayed =
+    !isUnfulfilled && checkoutSession.status !== "COMPLETED" && Date.now() - checkoutSession.createdAt.getTime() > PENDING_DELAYED_MS
+  return { resolvedRef: ref, paymentUnfulfilled: isUnfulfilled, paymentPending: !isUnfulfilled, paymentDelayed }
 }
 
 function UnfulfilledNotice({ eventTitle, churchEmail }: Readonly<{ eventTitle: string; churchEmail: string }>) {
@@ -134,15 +150,23 @@ function UnfulfilledNotice({ eventTitle, churchEmail }: Readonly<{ eventTitle: s
   )
 }
 
-function PendingNotice({ churchEmail }: Readonly<{ churchEmail: string }>) {
+/**
+ * "Payment received, still finalising" notice. Once the checkout is older than
+ * PENDING_DELAYED_MS the copy stops promising an imminent email.
+ * @param churchEmail contact address shown to the payer
+ * @param delayed whether the pending state has lasted unusually long
+ * @returns the pending notice card
+ */
+function PendingNotice({ churchEmail, delayed }: Readonly<{ churchEmail: string; delayed?: boolean }>) {
   return (
     <div className="max-w-lg mx-auto py-12 px-4">
       <div className="bg-card rounded-2xl border border-border p-8 text-center">
         <div aria-hidden="true" className="text-4xl mb-4">⏳</div>
         <h1 className="text-2xl font-bold text-foreground mb-2">Payment received</h1>
         <p className="text-muted-foreground">
-          Your confirmation is being finalised — check your email shortly. Questions? Contact
-          us at {churchEmail}
+          {delayed
+            ? `Your confirmation is taking longer than usual. Some payments take a few days to clear. If you have not received a confirmation email within a few days, contact us at ${churchEmail}`
+            : `Your confirmation is being finalised — check your email shortly. Questions? Contact us at ${churchEmail}`}
         </p>
       </div>
     </div>
@@ -396,10 +420,10 @@ export default async function SuccessPage(props: Readonly<Props>) {
   const rateLimited = await checkSuccessPageRateLimit(ref, cardToken, churchEmail)
   if (rateLimited) return rateLimited
 
-  const { resolvedRef, paymentPending, paymentUnfulfilled } = await resolveCardPaymentRef(cardToken, ref, event.id)
+  const { resolvedRef, paymentPending, paymentUnfulfilled, paymentDelayed } = await resolveCardPaymentRef(cardToken, ref, event.id)
 
   if (paymentUnfulfilled) return <UnfulfilledNotice eventTitle={event.title} churchEmail={churchEmail} />
-  if (paymentPending) return <PendingNotice churchEmail={churchEmail} />
+  if (paymentPending) return <PendingNotice churchEmail={churchEmail} delayed={paymentDelayed} />
 
   // Look up by the opaque CSPRNG token, never the sequential id, so REG-1..N
   // cannot be enumerated; still event-scoped to block cross-event lookups.

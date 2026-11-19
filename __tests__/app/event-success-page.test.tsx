@@ -214,13 +214,26 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
 
   it("shows a 'payment received, being finalised' state — not 404 — when the webhook hasn't stamped publicToken yet", async () => {
     mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: null, bankAccount: null })
-    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null })
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, createdAt: new Date() })
 
     const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_pending"))
 
     expect(html).toMatch(/payment received/i)
     expect(html).toMatch(/being finalised/i)
     expect(mockRegFindFirst).not.toHaveBeenCalled()
+  })
+
+  it("stops promising an imminent email once a pending checkout is over an hour old", async () => {
+    mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: null, bankAccount: null })
+    mockCheckoutSessionFindUnique.mockResolvedValue({
+      eventId: 10, publicToken: null, status: "OPEN", createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    })
+
+    const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_slow"))
+
+    expect(html).toMatch(/payment received/i)
+    expect(html).toMatch(/taking longer than usual/i)
+    expect(html).not.toMatch(/being finalised/i)
   })
 
   it("shows the 'couldn't complete your registration' state — not 'being finalised' — for an EXPIRED session where a late webhook confirmed the charge", async () => {
@@ -240,7 +253,7 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
 
   it("shows 'being finalised' for an EXPIRED session that still holds its payload — a late Stripe confirmation can still create the booking", async () => {
     mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: "013-999", bankAccount: "12345678" })
-    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "EXPIRED", registrationId: null, payload: "enc:x" })
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "EXPIRED", registrationId: null, payload: "enc:x", createdAt: new Date() })
 
     const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_late"))
 
@@ -253,7 +266,7 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
     // Webhook has claimed the row but not yet stamped the token (or crashed
     // before it and a redelivery will backfill). Duplicate charges are
     // terminalized UNFULFILLED instead, so COMPLETED-without-token is in flight.
-    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "COMPLETED", completedAt: new Date() })
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "COMPLETED", completedAt: new Date(), createdAt: new Date() })
 
     const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_midpersist"))
 
@@ -289,7 +302,7 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
   it("still shows 'being finalised' for a genuinely pending pre-webhook session (OPEN, no token)", async () => {
     mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: null, bankAccount: null })
     // Webhook simply hasn't landed yet — row still OPEN, no token. Transient, not terminal.
-    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "OPEN" })
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "OPEN", createdAt: new Date() })
 
     const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_open"))
 
