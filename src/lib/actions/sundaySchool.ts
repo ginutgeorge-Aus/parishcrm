@@ -17,6 +17,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { canManageSundaySchool, isAdmin } from "@/lib/roleGuard"
 import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { ClassFormSchema, currentSchoolYear, planRollover } from "@/lib/sundaySchool"
+import { enrolCandidateWhere } from "@/lib/sundaySchoolAccess"
 import { holdYear, isYearLockedTx, lockLiveClass, lockStateError, withLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
@@ -206,10 +207,14 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
   if (ids.length > MAX_BATCH) return { error: "Too many people at once" }
   if (!ids.every(isValidPgId)) return { error: "Invalid person" }
 
-  const found = await prisma.person.findMany({ where: { id: { in: ids }, archivedAt: null }, select: { id: true } })
-  if (found.length !== ids.length) return { error: PERSON_GONE }
-
   const year = g.cls.year
+  // Same PERSON_GONE for "hidden from this role" as for "missing": a different
+  // message would reveal which ids are adults.
+  const found = await prisma.person.findMany({
+    where: { id: { in: ids }, archivedAt: null, ...enrolCandidateWhere(g.session?.user?.role, year) },
+    select: { id: true },
+  })
+  if (found.length !== ids.length) return { error: PERSON_GONE }
   let movedFrom: { classId: number }[] = []
   try {
     // FOR SHARE on the class row blocks a concurrent archive (its UPDATE needs

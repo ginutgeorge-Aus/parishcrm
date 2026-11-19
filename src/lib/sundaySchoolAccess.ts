@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
-import { canManageSundaySchool } from "@/lib/roleGuard"
+import { canManageSundaySchool, isHeadmaster } from "@/lib/roleGuard"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import type { Prisma } from "@/lib/generated/prisma/client"
 
 /** True when this login is assigned to take this class's roll. */
 export async function isRollMarker(userId: number, classId: number): Promise<boolean> {
@@ -36,4 +37,18 @@ export async function canMarkRoll(userId: number, classId: number, role: UserRol
  */
 export async function canMarkExam(userId: number, classId: number, role: UserRole | undefined): Promise<boolean> {
   return canMarkRoll(userId, classId, role)
+}
+
+/**
+ * Extra `Person` filter for who this role may enrol into a class (AUD-5-01).
+ * HEADMASTER has no people access, so only children, or people already enrolled
+ * in a live class this year (their name is already visible; moving must keep
+ * working). Other editors: no extra filter. Shared by the action so the rule
+ * lives in one place, not just in the picker.
+ * @param role the caller's role
+ * @param year the target class's school year
+ */
+export function enrolCandidateWhere(role: UserRole | undefined, year: number): Prisma.PersonWhereInput {
+  if (!isHeadmaster(role)) return {}
+  return { OR: [{ role: "CHILD" }, { sundaySchoolEnrolments: { some: { year, class: { archivedAt: null } } } }] }
 }
