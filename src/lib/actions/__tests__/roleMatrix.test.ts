@@ -453,6 +453,20 @@ describe("role matrix: generated from src/lib/actions", () => {
     }
   })
 
+  it("leadingGuards ignores comments/strings, rejects !!canX, and accepts canX(...) === false", () => {
+    expect(leadingGuards('// if (!isAdmin(r)) return\nconst s = "!isAdmin("\nawait prisma.x.create()')).toEqual([])
+    expect(leadingGuards("const ok = !!isAdmin(r)\nawait prisma.x.create()")).toEqual([])
+    expect(leadingGuards("if (isAdmin(session?.user?.role) === false) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+  })
+
+  it("rawQueryWrites treats SELECT as a read and writes, locks and unknown shapes as writes", () => {
+    expect(rawQueryWrites([["SELECT id FROM t WHERE a = ", ""]])).toBe(false)
+    expect(rawQueryWrites(["INSERT INTO t VALUES (1)"])).toBe(true)
+    expect(rawQueryWrites([["SELECT 1 FROM t FOR SHARE"]])).toBe(true)
+    expect(rawQueryWrites([{ sql: "UPDATE t" }])).toBe(true)
+  })
+
   it("audit roles are all real UserRole values", () => {
     for (const r of AUDIT_ROLES) expect(ALL_ROLES).toContain(r)
   })
