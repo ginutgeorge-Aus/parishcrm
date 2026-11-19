@@ -197,6 +197,8 @@ export async function removeTeacher(classId: number, personId: number): Promise<
  * moved: their enrolment is re-pointed and `enrolledAt` restarts, which bounds
  * what their progress page lists for this class. Re-enrolling a child already
  * here changes nothing. canManageSundaySchool-gated; ids deduped and capped.
+ * Roles without people access (HEADMASTER) may only enrol children or people
+ * already enrolled this year (`enrolCandidateWhere`); others get PERSON_GONE.
  */
 export async function enrolChildren(classId: number, personIds: number[]): Promise<ActionResultWithSuccess> {
   const g = await editableClass(classId)

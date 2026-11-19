@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { canManageSundaySchool, isHeadmaster } from "@/lib/roleGuard"
+import { canManageSundaySchool, canViewPeople } from "@/lib/roleGuard"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
@@ -49,6 +49,7 @@ export async function canMarkExam(userId: number, classId: number, role: UserRol
  * @param year the target class's school year
  */
 export function enrolCandidateWhere(role: UserRole | undefined, year: number): Prisma.PersonWhereInput {
-  if (!isHeadmaster(role)) return {}
+  // Fail closed: any role without people access is limited, not just HEADMASTER.
+  if (canViewPeople(role)) return {}
   return { OR: [{ role: "CHILD" }, { sundaySchoolEnrolments: { some: { year, class: { archivedAt: null } } } }] }
 }
