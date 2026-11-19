@@ -512,14 +512,14 @@ it("does NOT create a registration when payment_status is not 'paid' (async meth
   // staging row's expiry well past the hourly sweep so the eventual
   // async_payment_succeeded webhook doesn't hit an already-EXPIRED row.
   // An EXPIRED row that still holds its payload (unpaid `completed` delivered
-  // late, after the sweep) is re-opened too, so the 72h scrub can't wipe it
-  // before settlement.
+  // late, after the sweep) keeps its EXPIRED status (no resurrection) and only
+  // has expiresAt pushed out, so the 72h scrub can't wipe it before settlement.
   expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
     where: {
       stripeSessionId: "cs_async",
       OR: [{ status: "OPEN" }, { status: "EXPIRED", registrationId: null, payload: { not: "" } }],
     },
-    data: { status: "OPEN", expiresAt: expect.any(Date) },
+    data: { expiresAt: expect.any(Date) }, // status untouched: never re-opened
   })
   const arg = prisma.checkoutSession.updateMany.mock.calls[0][0]
   expect(arg.data.expiresAt.getTime()).toBeGreaterThan(Date.now() + 60 * 60 * 1000)

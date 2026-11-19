@@ -376,13 +376,17 @@ export async function handleStripeWebhook(
       if (session.payment_status !== "paid") {
         // A live PaymentIntent is still in flight for this row — protect it
         // from the hourly sweep so it survives until settlement
-        // resolves, however many days that takes. Idempotent: only an OPEN
-        // row, or an EXPIRED row that still holds its payload (this delivery
-        // arrived after the sweep), matches; the latter is re-opened so the
-        // sweep's 72h payload scrub cannot wipe it before settlement.
+        // resolves, however many days that takes. Idempotent. An OPEN row gets
+        // its expiry pushed out. An EXPIRED row that still holds its payload
+        // (this delivery arrived after the sweep) keeps its EXPIRED status
+        // (never resurrected: it stays out of the OPEN-only paths and cannot
+        // be re-swept) and only gets expiresAt pushed out, which moves the
+        // sweep's 72h payload scrub window so it cannot wipe the payload
+        // before settlement.
+        const expiresAt = new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS)
         await prisma.checkoutSession.updateMany({
           where: { stripeSessionId: session.id, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
-          data: { status: "OPEN", expiresAt: new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS) },
+          data: { expiresAt },
         })
         return { status: 200 }
       }
