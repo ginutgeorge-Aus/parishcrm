@@ -177,3 +177,29 @@ test("edit mode prefills date/amount/notes and shows only the correctable fields
   expect(screen.queryByLabelText(/deposited by/i)).not.toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument()
 })
+
+describe("edit mode safeguards", () => {
+  const transfer = { date: "2026-07-31", amount: "40.00", notes: "kept" }
+
+  test("sends loaded amount and date for the stale-form check and keeps edited notes across a reset", () => {
+    const { container } = render(<TransferForm action={noop} maxAmount={100} transfer={transfer} />)
+    expect((container.querySelector('input[name="expectedAmount"]') as HTMLInputElement).value).toBe("40.00")
+    expect((container.querySelector('input[name="expectedDate"]') as HTMLInputElement).value).toBe("2026-07-31")
+    const notes = screen.getByLabelText(/notes/i) as HTMLTextAreaElement
+    fireEvent.change(notes, { target: { value: "edited" } })
+    container.querySelector("form")!.reset()
+    expect(notes.value).toBe("edited")
+  })
+
+  test("the window-guard override is dropped when amount changes after confirming", async () => {
+    const action = async () => ({ error: "dup (within 7 days of this transfer) already booked" })
+    const { container } = render(<TransferForm action={action} maxAmount={100} transfer={transfer} isAdmin />)
+    await act(async () => { fireEvent.submit(container.querySelector("form")!) })
+    fireEvent.click(screen.getByRole("checkbox"))
+    const flag = () => (container.querySelector('input[name="overrideWindowGuard"]') as HTMLInputElement).value
+    expect(flag()).toBe("true")
+    fireEvent.change(screen.getByLabelText(/amount deposited/i), { target: { value: "41.00" } })
+    expect(flag()).toBe("")
+    expect(screen.getByRole("checkbox")).not.toBeChecked()
+  })
+})

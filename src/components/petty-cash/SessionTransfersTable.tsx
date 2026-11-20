@@ -90,7 +90,11 @@ export function SessionTransfersTable({ sessionId, transfers, totalTransfers, us
             <th scope="col" className="pb-2 font-medium">Deposit slip</th>
             <th scope="col" className="pb-2 font-medium">Retained float</th>
             <th scope="col" className="pb-2 font-medium text-right">Amount</th>
-            {showActions && <th scope="col" className="pb-2" />}
+            {showActions && (
+              <th scope="col" className="pb-2">
+                <span className="sr-only">Actions</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>

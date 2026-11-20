@@ -60,7 +60,7 @@ export default async function EditTransferPage(props: Readonly<{
         <div className="max-w-lg space-y-3">
           <p className="text-sm">
             This transfer is linked to an imported bank deposit, so its amount and date must match that deposit and
-            cannot be edited here. Correct the imported deposit instead.
+            cannot be edited here.
           </p>
           <Link className="text-sm underline" href={`/accounting/petty-cash/sessions/${sessionId}`}>
             Back to session

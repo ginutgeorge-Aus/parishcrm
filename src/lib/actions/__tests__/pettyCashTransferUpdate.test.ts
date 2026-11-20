@@ -68,6 +68,8 @@ function form(fields: Record<string, string> = {}) {
   fd.set("date", "2026-08-01")
   fd.set("amount", "1050.00")
   fd.set("notes", "re-keyed")
+  fd.set("expectedAmount", "1500.00")
+  fd.set("expectedDate", "2026-07-31")
   for (const [k, v] of Object.entries(fields)) fd.set(k, v)
   return fd
 }
@@ -136,11 +138,13 @@ describe("updateTransfer", () => {
   })
 
   it.each([
-    ["the old date", new Date("2026-07-31T00:00:00.000Z")],
-    ["the new date", new Date("2026-08-01T00:00:00.000Z")],
-  ])("updateTransfer is refused when %s is locked", async (_label, lock) => {
+    ["the old date", "2026-07-31", "2026-08-01", new Date("2026-07-31T00:00:00.000Z")],
+    // Old date (Aug 1) is unlocked; only the submitted new date (Jul 31) is in the locked period.
+    ["the new date", "2026-08-01", "2026-07-31", new Date("2026-07-31T00:00:00.000Z")],
+  ])("updateTransfer is refused when %s is locked", async (_label, oldDate, newDate, lock) => {
+    useTx(makeTx({ transfer: { date: new Date(`${oldDate}T00:00:00.000Z`) } }))
     ;(getAccountingLockDate as jest.Mock).mockResolvedValue(lock)
-    await expect(updateTransfer(5, undefined, form())).resolves.toEqual({ error: expect.stringMatching(/locked accounting period/) })
+    await expect(updateTransfer(5, undefined, form({ date: newDate, expectedDate: oldDate }))).resolves.toEqual({ error: expect.stringMatching(/locked accounting period/) })
     // The lock is read through the transaction client, not the global client.
     expect(getAccountingLockDate).toHaveBeenCalledWith(tx)
     expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
@@ -166,6 +170,43 @@ describe("updateTransfer", () => {
     }))
     await expect(updateTransfer(5, undefined, form())).resolves.toEqual({ error: expect.stringMatching(/imported cash-out for this amount and date already exists/) })
     expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects a stale edit form whose loaded amount no longer matches", async () => {
+    await expect(updateTransfer(5, undefined, form({ expectedAmount: "100.00" }))).resolves.toEqual({
+      error: expect.stringMatching(/changed by someone else/),
+    })
+    expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects a stale edit form whose loaded date no longer matches", async () => {
+    await expect(updateTransfer(5, undefined, form({ expectedDate: "2026-07-30" }))).resolves.toEqual({
+      error: expect.stringMatching(/changed by someone else/),
+    })
+    expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
+  })
+
+  it("refuses moving a transfer inside the retention period to before it", async () => {
+    await expect(updateTransfer(5, undefined, form({ date: "2000-01-01" }))).resolves.toEqual({
+      error: expect.stringMatching(/retention period/),
+    })
+    expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
+  })
+
+  it("keeps the stored note when the submitted note is the decryption placeholder", async () => {
+    await updateTransfer(5, undefined, form({ notes: "[decryption error]" }))
+    expect(tx.pettyCashTransfer.update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: { amount: "1050.00", date: new Date("2026-08-01") },
+    })
+  })
+
+  it("clears the note when the submitted note is empty", async () => {
+    await updateTransfer(5, undefined, form({ notes: "" }))
+    expect(tx.pettyCashTransfer.update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: { amount: "1050.00", date: new Date("2026-08-01"), notes: null },
+    })
   })
 
   it("returns 'Transfer not found' for a missing transfer", async () => {

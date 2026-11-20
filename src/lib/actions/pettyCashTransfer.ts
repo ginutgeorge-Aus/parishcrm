@@ -10,6 +10,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents } from "@/lib/formatting"
 import { encrypt, decrypt } from "@/lib/crypto"
+import { splitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAuditTx } from "@/lib/audit"
 import { assertUnlocked, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
@@ -477,13 +478,19 @@ export async function createTransfer(
 
 /** Rejection for editing a transfer whose ledger mirror is an adopted bank-import cash-out leg. */
 const ADOPTED_EDIT_ERROR =
-  "This transfer is linked to an imported bank deposit, so its amount and date must match that deposit and cannot be edited here. Correct the imported deposit instead."
+  "This transfer is linked to an imported bank deposit, so its amount and date must match that deposit and cannot be edited here."
+
+/** Shown when the edit form was loaded before another correction changed the transfer. */
+const STALE_EDIT_ERROR = "This transfer was changed by someone else since you opened it — reload the page and try again."
 
 const UpdateTransferSchema = z.object({
   date: TransferSchema.shape.date,
   amount: TransferSchema.shape.amount,
   notes: z.string().max(1000).optional().transform((v) => v?.trim() || undefined),
   overrideWindowGuard: TransferSchema.shape.overrideWindowGuard,
+  // Values the editor loaded: a stale form (another edit saved since) is rejected, not blindly written.
+  expectedAmount: z.string().min(1, STALE_EDIT_ERROR),
+  expectedDate: z.string().min(1, STALE_EDIT_ERROR),
 })
 
 /**
@@ -505,9 +512,12 @@ export async function updateTransfer(
   const off = await featureGuard("pettyCash")
   if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
-  const parsed = UpdateTransferSchema.safeParse(Object.fromEntries(formData))
+  // The edit page shows safeDecrypt's placeholder for an unreadable note: never write it over the ciphertext.
+  const { clean, omitted } = splitDecryptionPlaceholders(Object.fromEntries(formData), ["notes"])
+  const parsed = UpdateTransferSchema.safeParse(clean)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const { amount, date, notes } = parsed.data
+  const keepNotes = omitted.includes("notes")
   // Server-side role check, as in createTransfer: a non-admin sending the field is ignored.
   const windowOverride = parsed.data.overrideWindowGuard && isAdmin(session?.user?.role)
   // Resolved before the Serializable transaction (self-heal create), as in createTransfer.
@@ -527,6 +537,11 @@ export async function updateTransfer(
       if (!transfer) return { error: "Transfer not found" }
       // Row-locking OPEN re-check (see assertSessionOpenTx): a concurrent close can't slip past.
       await assertSessionOpenTx(tx, transfer.sessionId, "Cannot edit in closed session")
+      // Optimistic check: the form must have been loaded from the current amount and date.
+      if (
+        parsed.data.expectedAmount !== (toCents(transfer.amount) / 100).toFixed(2) ||
+        parsed.data.expectedDate !== utcYmd(transfer.date)
+      ) return { error: STALE_EDIT_ERROR }
       if (transfer.transaction?.reconciled) return { error: RECONCILED_EDIT_ERROR }
       if (transfer.transaction?.bankRef?.startsWith(XFER_OUT_PREFIX)) return { error: ADOPTED_EDIT_ERROR }
       // Both dates: moving a transfer out of, or into, a locked period would change closed books.
@@ -535,6 +550,11 @@ export async function updateTransfer(
         if (isDateLocked(d, lockDate))
           return { error: `This date is in a locked accounting period (on or before ${lockDate!.toISOString().slice(0, 10)}).` }
       }
+      // Delete is blocked for a transfer dated on/after the retention floor: a correction must not
+      // move it before the floor and so make it deletable early.
+      const floor = retentionFloor()
+      if (transfer.date >= floor && date < floor)
+        return { error: "This transfer is within the 7-year retention period, so its date cannot be moved to before that period." }
       // Cash available to this transfer = running balance with its old amount added back.
       const s = await tx.pettyCashSession.findUnique({
         where: { id: transfer.sessionId },
@@ -558,7 +578,7 @@ export async function updateTransfer(
 
       await tx.pettyCashTransfer.update({
         where: { id },
-        data: { amount, date, notes: notes ? encrypt(notes) : null },
+        data: { amount, date, ...(keepNotes ? {} : { notes: notes ? encrypt(notes) : null }) },
       })
       // updateMany: a transfer recorded before mirroring existed has no ledger row.
       const { count } = await tx.transaction.updateMany({
