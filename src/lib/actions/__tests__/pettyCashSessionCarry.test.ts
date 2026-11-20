@@ -159,7 +159,7 @@ describe("closeSession roll-forward", () => {
       { id: 1, title: "05-JAN-2020", openedAt: new Date("2020-01-06T00:00:00Z") },
       { id: 2, title: "12-JAN-2020", openedAt: new Date("2020-01-13T00:00:00Z") },
     ])
-    mockAuditFind.mockResolvedValue({ id: 500 }) // AUTO_OPENED row says: carried from session 1
+    mockAuditFind.mockResolvedValue({ resourceId: 2 }) // AUTO_OPENED row for session 2 says: carried from session 1
   })
 
   test("closing a session rolls the corrected balance into the next session and audits it", async () => {
@@ -174,7 +174,6 @@ describe("closeSession roll-forward", () => {
     expect(mockAuditFind).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         action: "PETTY_CASH_SESSION_AUTO_OPENED",
-        resourceId: 2,
         metadata: { path: ["carriedFromSessionId"], equals: 1 },
       }),
     }))
@@ -193,6 +192,15 @@ describe("closeSession roll-forward", () => {
     mockAuditFind.mockResolvedValue(null)
     await closeSession(1, undefined, fd({ notes: "handover" }))
     expect(s.update).not.toHaveBeenCalled()
+  })
+
+  test("a manual session backfilled between the weeks does not hide the auto-opened successor", async () => {
+    // Session 3 (19-JAN) was auto-opened from session 1; manual session 2 (12-JAN) sits between.
+    mockAuditFind.mockResolvedValue({ resourceId: 3 })
+    s.findUnique.mockImplementation(async ({ where }: { where: { id: number } }) =>
+      where.id === 1 ? closing : where.id === 3 ? { id: 3, status: "OPEN", openingBalance: "100.00" } : next)
+    await closeSession(1, undefined, fd({ notes: "handover" }))
+    expect(s.update).toHaveBeenCalledWith({ where: { id: 3 }, data: { openingBalance: "80.00" } })
   })
 
   test("a closed next session is never changed", async () => {
