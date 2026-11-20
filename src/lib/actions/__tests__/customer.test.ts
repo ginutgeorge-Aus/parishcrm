@@ -15,12 +15,14 @@ jest.mock("@/lib/crypto", () => ({
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
 jest.mock("@/lib/prisma", () => {
-  // Interactive transactions run their callback against the same mocks (the tx client mirrors prisma).
-  const prisma: Record<string, unknown> = { customer: { create: jest.fn(), update: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() } }
-  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
+  // Distinct tx client: mutations exist only on it, so a write via the root client throws and fails the test.
+  const tx = { customer: { create: jest.fn(), update: jest.fn() } }
+  const prisma: Record<string, unknown> = { customer: { findMany: jest.fn(), findUnique: jest.fn() }, __tx: tx }
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(tx))
   return { prisma }
 })
 
+const tx = (prisma as unknown as { __tx: { customer: { create: jest.Mock; update: jest.Mock } } }).__tx
 const mockAuth = auth as jest.Mock
 const as = (role: string) => mockAuth.mockResolvedValue({ user: { id: "1", role } })
 function fd(o: Record<string, string> = {}) {
@@ -28,7 +30,7 @@ function fd(o: Record<string, string> = {}) {
   for (const [k, v] of Object.entries({ name: "Example Scouts", abn: "", email: "scouts@example.com", phone: "", address: "1 Example St", notes: "", ...o })) f.set(k, v)
   return f
 }
-beforeEach(() => { jest.clearAllMocks(); as("ADMIN"); (prisma.customer.create as jest.Mock).mockResolvedValue({ id: 9, name: "Example Scouts" }) })
+beforeEach(() => { jest.clearAllMocks(); as("ADMIN"); tx.customer.create.mockResolvedValue({ id: 9, name: "Example Scouts" }) })
 
 describe("createCustomer", () => {
   it.each(["OFFICE_ADMIN", "AUDITOR", "VIEWER"])("rejects %s", async (r) => {
@@ -36,10 +38,10 @@ describe("createCustomer", () => {
   })
   it("encrypts contact fields, audits without PII, redirects", async () => {
     await createCustomer(undefined, fd())
-    expect(prisma.customer.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+    expect(tx.customer.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       name: "Example Scouts", email: "enc:scouts@example.com", address: "enc:1 Example St", phone: null, notes: null, abn: null,
     }) })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "CUSTOMER_CREATED", "Customer", 9, {})
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "CUSTOMER_CREATED", "Customer", 9, {})
     expect(redirect).toHaveBeenCalledWith("/accounting/customers")
   })
   it("rolls back and returns AUDIT_FAILED_ERROR when the audit write fails", async () => {
@@ -54,33 +56,33 @@ describe("createCustomer", () => {
 
 describe("updateCustomer / setCustomerActive", () => {
   it("updates and audits", async () => {
-    ;(prisma.customer.update as jest.Mock).mockResolvedValue({ id: 9 })
+    ;tx.customer.update.mockResolvedValue({ id: 9 })
     await updateCustomer(9, undefined, fd({ name: "Renamed" }))
-    expect(prisma.customer.update).toHaveBeenCalledWith({ where: { id: 9 }, data: expect.objectContaining({ name: "Renamed" }) })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "CUSTOMER_UPDATED", "Customer", 9, {})
+    expect(tx.customer.update).toHaveBeenCalledWith({ where: { id: 9 }, data: expect.objectContaining({ name: "Renamed" }) })
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "CUSTOMER_UPDATED", "Customer", 9, {})
   })
   it("update: audit failure maps to AUDIT_FAILED_ERROR, not 'not found'", async () => {
-    ;(prisma.customer.update as jest.Mock).mockResolvedValue({ id: 9 })
+    ;tx.customer.update.mockResolvedValue({ id: 9 })
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
     expect(await updateCustomer(9, undefined, fd())).toEqual({ error: AUDIT_FAILED_ERROR })
     expect(redirect).not.toHaveBeenCalled()
   })
   it("setCustomerActive: audit failure maps to AUDIT_FAILED_ERROR", async () => {
-    ;(prisma.customer.update as jest.Mock).mockResolvedValue({ id: 9 })
+    ;tx.customer.update.mockResolvedValue({ id: 9 })
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
     expect(await setCustomerActive(9, false)).toEqual({ error: AUDIT_FAILED_ERROR })
   })
   it("deactivates", async () => {
-    ;(prisma.customer.update as jest.Mock).mockResolvedValue({ id: 9 })
+    ;tx.customer.update.mockResolvedValue({ id: 9 })
     expect(await setCustomerActive(9, false)).toEqual({ success: "Customer deactivated" })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "CUSTOMER_ACTIVE_SET", "Customer", 9, { isActive: false })
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "CUSTOMER_ACTIVE_SET", "Customer", 9, { isActive: false })
   })
 })
 
 describe("createCustomerInline", () => {
   it("audits in the transaction and rolls back on audit failure", async () => {
     await createCustomerInline({ name: "Example Scouts", email: "", address: "" })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "CUSTOMER_CREATED", "Customer", 9, { inline: true })
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "CUSTOMER_CREATED", "Customer", 9, { inline: true })
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
     expect(await createCustomerInline({ name: "Example Scouts", email: "", address: "" })).toEqual({ error: AUDIT_FAILED_ERROR })
   })
