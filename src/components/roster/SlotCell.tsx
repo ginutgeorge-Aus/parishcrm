@@ -16,9 +16,10 @@ const STATUS_LABEL: Record<RosterAssignmentStatus, string> = { PENDING: "Pending
 
 /**
  * One slot of the service grid: who is rostered (with status and remove), how
- * many places are open, and an assign dropdown. The dropdown loads the
- * server's suggestions (no conflicts, longest since served first) on first
- * focus, so conflicting people are never offered.
+ * many places are open, and an assign dropdown. The dropdown reloads the
+ * server's suggestions (no conflicts, longest since served first) every time
+ * it is opened, so conflicting people are never offered and changes made in
+ * other slots show up.
  */
 export function SlotCell({
   slotId, assignments, open,
@@ -29,9 +30,14 @@ export function SlotCell({
   const [options, setOptions] = useState<RosterSuggestion[] | null>(null)
   const [loading, setLoading] = useState(false)
 
-  /** Load suggestions once, on first focus of the dropdown. */
+  /**
+   * Fetch fresh suggestions each time the dropdown is opened (focus/mousedown),
+   * so a person freed from another slot of the service is offered without a
+   * page reload. Previous options stay visible while the refetch runs; an
+   * in-flight guard collapses the focus + mousedown pair of one click.
+   */
   async function loadOptions() {
-    if (options !== null || loading) return
+    if (loading) return
     setLoading(true)
     setError(null)
     try {
