@@ -150,6 +150,13 @@ function leadingGuards(body: string): string[] {
 }
 
 /**
+ * Matches `export const f = async (...) =>`, `= async x =>` and `= async function`, with or without a
+ * type annotation (including function types such as `: () => Promise<unknown>`, whose `=>` the lazy
+ * annotation match skips past).
+ */
+const CONST_FN_EXPORT = /^export const (\w+)\s*(?::[^\n]*?)?=\s*(?:async\b\s*)?(?:function\b|\(|\w+\s*=>)/gm
+
+/**
  * Scan every `src/lib/actions/*.ts` that mentions roleGuard and return each exported async function
  * whose body opens with a negated roleGuard check, plus the exports discovery cannot see: arrow
  * exports (`export const f = async (...) =>`) and function exports that call a roleGuard helper
@@ -168,7 +175,7 @@ function discover(): { entries: Entry[]; undiscovered: string[] } {
       if (guards.length) out.push({ file: base, fn: m[1], guards })
       else if (callsHelperBeforeDb(body)) undiscovered.push(`${base}.${m[1]}`)
     }
-    for (const m of src.matchAll(/^export const (\w+)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\(|\w+\s*=>)/gm)) {
+    for (const m of src.matchAll(CONST_FN_EXPORT)) {
       undiscovered.push(`${base}.${m[1]}`)
     }
   }
@@ -231,7 +238,7 @@ function isRefusalThrow(e: unknown): boolean {
 }
 
 /** Error messages thrown by the redirect/notFound mocks: the only throws that count as a refusal. */
-const REFUSAL_THROW = /^(REDIRECT:\/(login|unauthorized|forbidden)\b|NOT_FOUND$)/
+const REFUSAL_THROW = /^(REDIRECT:\/(login|unauthorized|forbidden)(?:[?#].*)?$|NOT_FOUND$)/
 
 /**
  * Fixtures for actions that return an empty read for the default junk arguments, which would make a
@@ -258,6 +265,9 @@ const { entries: ENTRIES, undiscovered: UNDISCOVERED } = discover()
  * enough). Pinned so a new multi-guard export forces a decision.
  */
 const ANY_OF = new Set(["registration.getRegistrationDetail"])
+
+/** Multi-guard exports pinned as ALL-of (several sequential refusal guards). Disjoint from `ANY_OF`. */
+const ALL_OF = new Set<string>()
 
 /**
  * Exports that look guarded (or are arrow exports) but that discovery cannot parse, pinned so a
@@ -548,15 +558,28 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(UNDISCOVERED).toEqual(EXPECTED_UNDISCOVERED)
   })
 
-  it("classifies every multi-guard export as ANY-of, and every ANY-of pin is a discovered multi-guard export", () => {
+  it("classifies every multi-guard export as ANY-of or ALL-of, with no overlap and no stale pin", () => {
     const multi = ENTRIES.filter((e) => e.guards.length > 1).map((e) => `${e.file}.${e.fn}`)
-    expect([...ANY_OF].sort()).toEqual(multi.sort())
+    expect([...ANY_OF].filter((k) => ALL_OF.has(k))).toEqual([])
+    expect([...ANY_OF, ...ALL_OF].sort()).toEqual(multi.sort())
+  })
+
+  it("export discovery sees arrow, typed-arrow and function-expression exports", () => {
+    const hit = (line: string) => [...line.matchAll(CONST_FN_EXPORT)].length === 1
+    expect(hit("export const a = async (x) => {")).toBe(true)
+    expect(hit("export const a = async x => {")).toBe(true)
+    expect(hit("export const a: () => Promise<unknown> = async () => {")).toBe(true)
+    expect(hit("export const a = async function (x) {")).toBe(true)
+    expect(hit("export const A = 5")).toBe(false)
   })
 
   it("isRefusalThrow accepts only login/unauthorized/forbidden redirects and not-found", () => {
     expect(isRefusalThrow(new Error("REDIRECT:/login"))).toBe(true)
     expect(isRefusalThrow(new Error("NOT_FOUND"))).toBe(true)
+    expect(isRefusalThrow(new Error("REDIRECT:/login?next=/x"))).toBe(true)
     expect(isRefusalThrow(new Error("REDIRECT:/anywhere"))).toBe(false)
+    expect(isRefusalThrow(new Error("REDIRECT:/login-x"))).toBe(false)
+    expect(isRefusalThrow(new Error("REDIRECT:/forbidden/other"))).toBe(false)
     expect(isRefusalThrow(new Error("NOT_FOUND_EXTRA"))).toBe(false)
   })
 
