@@ -92,22 +92,42 @@ type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
 
 type AttemptField = "failedLoginAttempts" | "failedOtpAttempts"
 
+const LOCK_FIELD = { failedLoginAttempts: "lockedUntil", failedOtpAttempts: "otpLockedUntil" } as const
+const LOCK_MS = 15 * 60 * 1000
+
+type Claim = { attempts: number; lockedUntil: Date | null }
+
 /**
  * Claims one guess slot BEFORE the secret is compared. The `lt: 5` filter makes the claim atomic,
  * so N concurrent guesses can never produce more than 5 compares (a read-then-increment lets them
- * all pass the check first). The claimed attempt stays counted on failure; success resets it.
+ * all pass the check first). The filter also needs the lock to be null or expired, so a request
+ * that read the user before a lock was written cannot guess during it. When the claim is the 5th,
+ * the lock is written in the SAME transaction (counter reset to 0 with it), so a crash can never
+ * leave counter 5 with no lock. The claimed attempt stays counted on failure; success resets it.
  * @param userId the account being guessed against
  * @param field which counter to claim from
- * @returns the counter value after the claim, or null when all 5 slots are taken (treat as locked)
+ * @returns the counter after the claim plus the lock this claim set (if any), or null when no slot is free or the account is locked
  */
-async function claimAttempt(userId: number, field: AttemptField): Promise<number | null> {
+async function claimAttempt(userId: number, field: AttemptField): Promise<Claim | null> {
+  const lockField = LOCK_FIELD[field]
   try {
-    const row = await prisma.user.update({
-      where: { id: userId, [field]: { lt: 5 } },
-      data: { [field]: { increment: 1 } },
-      select: { [field]: true },
+    return await prisma.$transaction(async (tx) => {
+      const row = await tx.user.update({
+        where: {
+          id: userId,
+          [field]: { lt: 5 },
+          OR: [{ [lockField]: null }, { [lockField]: { lte: new Date() } }],
+        },
+        data: { [field]: { increment: 1 } },
+        select: { [field]: true },
+      })
+      const attempts = (row as unknown as Record<AttemptField, number | undefined>)?.[field] ?? 0
+      if (attempts < 5) return { attempts, lockedUntil: null }
+      const lockedUntil = new Date(Date.now() + LOCK_MS)
+      // Reset the counter as we lock, else one wrong guess after expiry re-locks on the stale counter.
+      await tx.user.update({ where: { id: userId }, data: { [lockField]: lockedUntil, [field]: 0 } })
+      return { attempts, lockedUntil }
     })
-    return (row as unknown as Record<AttemptField, number | undefined>)?.[field] ?? 0
   } catch (err) {
     if ((err as { code?: string })?.code === "P2025") return null
     throw err
@@ -115,25 +135,13 @@ async function claimAttempt(userId: number, field: AttemptField): Promise<number
 }
 
 /**
- * Handles one wrong second-factor code: locks the account for 15 minutes once the claimed attempt
- * was the 5th, and audit-logs the failed login. The attempt itself was counted by `claimAttempt`.
+ * Handles one wrong second-factor code: audit-logs the failed login. The attempt (and the lock on
+ * the 5th) was already written by `claimAttempt`.
  * @param userId the account that failed
  * @param reason short reason code for the audit log
  * @param ip client IP for the audit log, if known
- * @param attempts counter value returned by `claimAttempt` for this guess
  */
-async function recordOtpFailure(userId: number, reason: string, ip: string | undefined, attempts: number): Promise<void> {
-  if (attempts >= 5) {
-    // Match null OR an already-expired lock — filtering on `otpLockedUntil: null`
-    // alone means the account can never re-lock after its first lockout expires,
-    // because the field then holds a stale (past) timestamp, not null.
-    await prisma.user.updateMany({
-      where: { id: userId, OR: [{ otpLockedUntil: null }, { otpLockedUntil: { lte: new Date() } }] },
-      // Reset the counter as we lock — else a single wrong code after
-      // the lock expires re-locks instantly on the still-stale counter.
-      data: { otpLockedUntil: new Date(Date.now() + 15 * 60 * 1000), failedOtpAttempts: 0 },
-    })
-  }
+function recordOtpFailure(userId: number, reason: string, ip: string | undefined): void {
   void logAudit(userId, "USER_LOGIN_FAILED", "User", userId, { reason }, ip)
 }
 
@@ -220,16 +228,6 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   const passwordValid = await compare(password, user.passwordHash)
 
   if (!passwordValid) {
-    if (claimed >= 5) {
-      // Match null OR an already-expired lock (same class of bug as
-      // the OTP lock above): `lockedUntil: null` alone never re-locks after expiry.
-      await prisma.user.updateMany({
-        where: { id: user.id, OR: [{ lockedUntil: null }, { lockedUntil: { lte: new Date() } }] },
-        // Reset the counter as we lock — else a single wrong password after
-        // the lock expires re-locks instantly on the still-stale counter.
-        data: { lockedUntil: new Date(Date.now() + 15 * 60 * 1000), failedLoginAttempts: 0 },
-      })
-    }
     notifyFailedLogin(user.email).catch((err: unknown) => {
       console.error("[notify] Failed to send failed-login alert:", err instanceof Error ? err.message : String(err))
     })
@@ -243,9 +241,12 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   // The OTP counter/lock is separate and deliberately untouched here.
   // Compare-and-swap on the value this request claimed: a concurrent wrong-password
   // increment makes this a no-op instead of being silently wiped.
-  if (claimed > 0) {
+  // A correct 5th password still logs in: drop the lock that claim set (matched on its exact value).
+  if (claimed.lockedUntil) {
+    await prisma.user.updateMany({ where: { id: user.id, lockedUntil: claimed.lockedUntil }, data: { lockedUntil: null } })
+  } else if (claimed.attempts > 0) {
     await prisma.user.updateMany({
-      where: { id: user.id, failedLoginAttempts: claimed },
+      where: { id: user.id, failedLoginAttempts: claimed.attempts },
       data: { failedLoginAttempts: 0 },
     })
   }
@@ -469,7 +470,7 @@ export async function authorizeCredentials(
     const otpValid = storedBuf.length === inputBuf.length && timingSafeEqual(storedBuf, inputBuf)
 
     if (!otpValid) {
-      await recordOtpFailure(user.id, "invalid_otp", ip, claimedOtp)
+      recordOtpFailure(user.id, "invalid_otp", ip)
       return null
     }
 
@@ -525,7 +526,7 @@ export async function authorizeCredentials(
         void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: result.reason }, ip)
         return null
       }
-      await recordOtpFailure(user.id, result.reason, ip, claimedTotp)
+      recordOtpFailure(user.id, result.reason, ip)
       return null
     }
     if (result.via === "backup") {
