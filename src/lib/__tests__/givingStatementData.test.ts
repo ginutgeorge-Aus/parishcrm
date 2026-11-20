@@ -19,6 +19,18 @@ describe("loadStatements", () => {
     expect(where).toMatchObject({ isGiving: true, type: "INCOME", familyId: { in: [1] } })
   })
 
+  it("excludes the internal-transfer account (AUD-3-02)", async () => {
+    findTx.mockResolvedValue([])
+    await loadStatements(2025, [1])
+    expect(findTx.mock.calls[0][0].where).toMatchObject({ account: { code: { not: "XFER" } } })
+  })
+
+  it("excludes the internal-transfer account from the summary groupBy (AUD-3-02)", async () => {
+    ;(prisma.transaction.groupBy as jest.Mock).mockResolvedValue([])
+    await loadStatementSummaries(2025)
+    expect((prisma.transaction.groupBy as jest.Mock).mock.calls[0][0].where).toMatchObject({ account: { code: { not: "XFER" } } })
+  })
+
   it("never selects the gift description", async () => {
     findTx.mockResolvedValue([])
     await loadStatements(2025)

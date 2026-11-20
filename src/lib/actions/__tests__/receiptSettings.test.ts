@@ -6,7 +6,7 @@ jest.mock("@/lib/prisma", () => ({
     $transaction: jest.fn(),
   },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/receiptSettings", () => ({
   readReceiptSettings: jest.fn(async () => ({ numberPrefix: "RCPT" })),
@@ -15,6 +15,8 @@ jest.mock("@/lib/receiptSettings", () => ({
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { readReceiptSettings } from "@/lib/receiptSettings"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import {
   updateReceiptSettings,
   resetReceiptSettings,
@@ -55,6 +57,17 @@ it("upserts allowlisted keys for an admin", async () => {
   // Returns the effective settings re-read after the write, so the form can adopt them.
   expect(r).toEqual({ ok: true, settings: { numberPrefix: "RCPT" } })
   expect(prisma.appSetting.upsert).toHaveBeenCalledTimes(2)
+  expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "RECEIPT_SETTINGS_UPDATED", "AppSetting", undefined, {
+    keys: ["receiptNumberPrefix", "receiptDocumentTitle"],
+  })
+})
+
+it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails (update and reset)", async () => {
+  asRole("ADMIN")
+  ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+  expect(await updateReceiptSettings({ receiptNumberPrefix: "RCPT" })).toEqual({ error: AUDIT_FAILED_ERROR })
+  ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+  expect(await resetReceiptSettings()).toEqual({ error: AUDIT_FAILED_ERROR })
 })
 
 it("omits settings (never reports defaults as saved) when the post-save read fails", async () => {
@@ -81,6 +94,7 @@ it("resets all receipt settings in one delete", async () => {
 
   expect(r).toEqual({ ok: true })
   expect(prisma.appSetting.deleteMany).toHaveBeenCalledTimes(1)
+  expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "RECEIPT_SETTINGS_RESET", "AppSetting", undefined, { keys: expect.any(Array) })
   expect(prisma.appSetting.deleteMany).toHaveBeenCalledWith({
     where: { key: { in: expect.arrayContaining(["receiptLegalText", "receiptNumberPrefix"]) } },
   })

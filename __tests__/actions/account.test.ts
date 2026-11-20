@@ -69,6 +69,24 @@ beforeEach(() => {
   mockGroupFind.mockResolvedValue({ id: 1, type: "INCOME" }) // selected group exists, matches INCOME by default
 })
 
+describe("XFER account protection (AUD-3-02)", () => {
+  it("updateAccount refuses the XFER account", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 5, code: "XFER", type: "EXPENSE" })
+    const result = await updateAccount(5, undefined, fd({ code: "XFER", name: "Renamed", type: "EXPENSE", groupId: "1" }))
+    expect(result).toEqual({ error: "The internal transfer account cannot be changed" })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it("deleteAccount refuses the XFER account", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 5, code: "XFER" })
+    const result = await deleteAccount(5)
+    expect(result).toEqual({ error: "The internal transfer account cannot be changed" })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+})
+
 // --- createAccount ---
 describe("createAccount", () => {
   it("blocks unauthenticated", async () => {

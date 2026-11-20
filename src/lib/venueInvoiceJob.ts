@@ -170,13 +170,16 @@ const DONE_ATTEMPTS = 3
  * Write `reminderSentAt` (fenced on our claim), retrying a thrown error with a short backoff.
  * @param month "YYYY-MM"
  * @param claimAt the claim timestamp this run holds
- * @returns whether the write succeeded
+ * @returns whether the write landed (false when it threw every attempt, or when our claim was replaced so no row matched)
  */
 async function markMonthDone(month: string, claimAt: Date): Promise<boolean> {
   for (let attempt = 1; attempt <= DONE_ATTEMPTS; attempt++) {
     try {
-      await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
-      return true
+      const { count } = await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
+      if (count === 1) return true
+      // The claim was replaced: retrying cannot help and the month is not closed by this run.
+      logger.error(`[venueInvoiceJob] completion for ${month} not recorded: claim no longer held`)
+      return false
     } catch (e) {
       logger.error(`[venueInvoiceJob] recording completion failed (attempt ${attempt}): ${e instanceof Error ? e.message : String(e)}`)
       if (attempt < DONE_ATTEMPTS) await new Promise((r) => setTimeout(r, 50 * attempt))
@@ -209,7 +212,9 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
   let mail: { subject: string; html: string; text: string }
   if (request?.status === "SUCCESS") {
     if (!request.autoSent) {
-      await releaseClaim(month, claimAt)
+      // Sent by hand: close the month for the job (reminderSentAt), else every tick of days 1-7 re-claims it.
+      // A failed write only means the next tick retries it, so release the claim then.
+      if (!(await markMonthDone(month, claimAt))) await releaseClaim(month, claimAt)
       return ZERO
     }
     // Sent by an earlier run whose notices all failed: retry the notices only (no send). The notice comes from what

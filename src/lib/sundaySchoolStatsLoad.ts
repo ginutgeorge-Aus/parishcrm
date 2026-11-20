@@ -62,7 +62,7 @@ export async function loadClassStats(
         totalMarks: e.totalMarks.toString(),
         results: e.results.map((r) => ({ personId: r.personId, score: r.score.toString() })),
       })),
-    })
-    return { year: c.year, archived: c.archivedAt !== null, stats: keepStudents ? stats : { ...stats, students: [] } }
+    }, { students: keepStudents })
+    return { year: c.year, archived: c.archivedAt !== null, stats }
   })
 }

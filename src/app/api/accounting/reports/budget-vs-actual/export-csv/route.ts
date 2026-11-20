@@ -8,6 +8,7 @@ import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { toCents, type Money } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
+import { XFER_CODE } from "@/lib/xferAccount"
 
 /** GET /api/accounting/reports/budget-vs-actual/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   const [accounts, budgetRows, actualGroups] = await Promise.all([
     prisma.account.findMany({
       // Exclude XFER — see the on-screen Budget vs Actual query comment.
-      where: { code: { not: "XFER" }, OR: [{ isActive: true }, { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } }] },
+      where: { code: { not: XFER_CODE }, OR: [{ isActive: true }, { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } }] },
       orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],
       include: { group: { select: { id: true, name: true, sortOrder: true } } },
     }),

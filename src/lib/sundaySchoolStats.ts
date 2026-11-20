@@ -33,7 +33,10 @@ export type ExamSummary = {
   results: number
   /** Results not counted because the score or total is not a valid decimal, or the total is 0. */
   skipped: number
-  /** Exact sum of each result's score/total ratio; kept so summaries can be merged without rounding. */
+  /**
+   * Exact sum of each result's score/total ratio; kept so summaries can be merged without rounding.
+   * The denominator is bounded by the LCM of the distinct exam totals (a handful in practice).
+   */
   ratioSum: Fraction
   averagePercent: number | null
 }
@@ -56,7 +59,8 @@ export type ClassStatsInput = {
   students: { personId: number; name: string }[]
   /**
    * Marks on this class's rolls; rows for children not in `students` are ignored.
-   * `count` (default 1) lets a loader pass pre-grouped counts instead of one row per mark.
+   * `count` (default 1) lets a loader pass pre-grouped counts instead of one row per mark;
+   * it must be a non-negative integer (anything else counts as 0).
    */
   attendance: { personId: number; status: AttendanceStatus; count?: number }[]
   /** The class's live (non-archived) exams with their results. */
@@ -114,13 +118,22 @@ export function beforeEnrolment(date: Date, enrolledAt: Date): boolean {
  * @param statuses one entry per roll row, null when the child was not marked
  */
 export function summariseAttendance(statuses: readonly (AttendanceStatus | null)[]): AttendanceSummary {
-  let present = 0, late = 0, absent = 0
-  for (const s of statuses) {
-    if (s === "PRESENT") present++
-    else if (s === "LATE") late++
-    else if (s === "ABSENT") absent++
-  }
-  return withRate({ present, late, absent })
+  const c = { present: 0, late: 0, absent: 0 }
+  for (const s of statuses) tally(c, s, 1)
+  return withRate(c)
+}
+
+/**
+ * Add `n` marks of one status to the counters; a null (unmarked) status adds nothing.
+ * The single status-to-counter mapping shared by `summariseAttendance` and `classStats`.
+ * @param c counters to mutate
+ * @param status the mark, or null when not marked
+ * @param n how many marks to add (non-negative integer)
+ */
+function tally(c: { present: number; late: number; absent: number }, status: AttendanceStatus | null, n: number): void {
+  if (status === "PRESENT") c.present += n
+  else if (status === "LATE") c.late += n
+  else if (status === "ABSENT") c.absent += n
 }
 
 /**
@@ -266,8 +279,10 @@ export function formatPercent(p: number | null): string {
  * count, so a child who moved out doesn't skew this class's numbers, and the
  * class totals always equal the sum of the rows shown.
  * @param input the class's raw rows
+ * @param opts `students: false` skips building per-child summaries (`students` is
+ *   empty); class totals are then merged straight from the raw rows and are identical.
  */
-export function classStats(input: ClassStatsInput): ClassStats {
+export function classStats(input: ClassStatsInput, opts: { students?: boolean } = {}): ClassStats {
   const marks = new Map<number, { present: number; late: number; absent: number }>()
   const scores = new Map<number, { score: string; totalMarks: string }[]>()
   for (const s of input.students) {
@@ -279,13 +294,28 @@ export function classStats(input: ClassStatsInput): ClassStats {
     if (!c) continue
     // `count` is a non-negative integer; anything else (negative, fractional, NaN) counts as 0.
     const raw = a.count ?? 1
-    const n = Number.isInteger(raw) && raw > 0 ? raw : 0
-    if (a.status === "PRESENT") c.present += n
-    else if (a.status === "LATE") c.late += n
-    else if (a.status === "ABSENT") c.absent += n
+    tally(c, a.status, Number.isInteger(raw) && raw > 0 ? raw : 0)
   }
   for (const e of input.exams) {
     for (const r of e.results) scores.get(r.personId)?.push({ score: r.score, totalMarks: e.totalMarks })
+  }
+  if (opts.students === false) {
+    const total = { present: 0, late: 0, absent: 0 }
+    for (const c of marks.values()) {
+      total.present += c.present
+      total.late += c.late
+      total.absent += c.absent
+    }
+    return {
+      id: input.id,
+      name: input.name,
+      level: input.level,
+      location: input.location,
+      enrolled: input.students.length,
+      attendance: withRate(total),
+      exams: summariseExams([...scores.values()].flat()),
+      students: [],
+    }
   }
   const students = input.students.map((s) => ({
     personId: s.personId,

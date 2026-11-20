@@ -32,8 +32,9 @@ const PATH_TOKEN_PATTERNS: { gate: string; re: RegExp }[] = [
   { gate: "/family/update/", re: /(\/family\/update\/)[^/?#]+/g },
   // Volunteer crew view: /e/<slug>/crew/<token>.
   { gate: "/crew/", re: /(\/e\/[^/?#]+\/crew\/)[^/?#]+/g },
-  // Venue calendar feed/view bearer-token route: /venue/<token>.
-  { gate: "/venue/", re: /(\/venue\/)[^/?#]+/g },
+  // Venue calendar feed/view bearer-token route: /venue/<token>. Anchored to the path start (or the origin of a
+  // full URL) so nested paths such as /api/venue/<x> are not redacted.
+  { gate: "/venue/", re: /((?<=^|^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*)\/venue\/)[^/?#]+/g },
   // Personal roster calendar feed: /api/roster/feed/<token>[.ics].
   { gate: "/api/roster/feed/", re: /(\/api\/roster\/feed\/)[^/?#]+/g },
 ]

@@ -175,6 +175,12 @@ describe("classStats", () => {
       { personId: 11, name: "Ben Brown", attendance: expect.objectContaining({ marked: 1, rate: 100 }), exams: expect.objectContaining({ results: 1, averagePercent: 50 }) },
     ])
   })
+  it("students: false returns the same class totals with no per-child rows", () => {
+    const full = classStats(kindy)
+    const lean = classStats(kindy, { students: false })
+    expect(lean.students).toEqual([])
+    expect(lean).toEqual({ ...full, students: [] })
+  })
   it("a class with no rolls or exams has null rates", () => {
     const s = classStats({ ...kindy, attendance: [], exams: [] })
     expect(s.attendance.rate).toBeNull()

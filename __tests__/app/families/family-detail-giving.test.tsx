@@ -56,6 +56,14 @@ describe("FamilyDetailPage giving history", () => {
     expect(mockSafeDecrypt).toHaveBeenCalledWith("enc:Sunday Offering")
   })
 
+  it("excludes the internal-transfer account from the giving query (AUD-3-02)", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFamilyFindUnique.mockResolvedValue({ id: 1, name: "Smith Family", people: [] })
+    mockTransactionFindMany.mockResolvedValue([])
+    await FamilyDetailPage(makeProps())
+    expect(mockTransactionFindMany.mock.calls[0][0].where).toMatchObject({ isGiving: true, ...{ account: { code: { not: "XFER" } } } })
+  })
+
   it("skips giving and the self-update invite/banner while their features are off", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFamilyFindUnique.mockResolvedValue({ id: 1, name: "Smith Family", people: [] })
