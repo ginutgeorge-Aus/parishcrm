@@ -38,6 +38,7 @@ import type { ActionResultWithSuccess } from "./types"
 
 const UNAUTHORIZED = "Unauthorized"
 const NOT_FOUND = "Not found"
+const STALE = "This task changed. Refresh and try again."
 const TITLE_MAX = 200
 const NOTES_MAX = 4000
 const STATUSES = new Set<string>(Object.values(FollowUpStatus))
@@ -45,7 +46,7 @@ const STATUSES = new Set<string>(Object.values(FollowUpStatus))
 const pgId = z.number().int().positive().max(2147483647)
 
 /** Fields shared by create and update. Strings are trimmed; blank optional fields become null. */
-const TaskFields = z.object({
+const TaskFieldsSchema = z.object({
   title: z.string().trim().min(1, "Enter a title").max(TITLE_MAX, `Title must be ${TITLE_MAX} characters or fewer`),
   notes: z
     .string()
@@ -63,7 +64,7 @@ const TaskFields = z.object({
 })
 
 /** Create input: the shared fields plus exactly one target (person OR family). */
-const CreateSchema = TaskFields.extend({
+const CreateSchema = TaskFieldsSchema.extend({
   personId: pgId.nullish().transform((v) => v ?? null),
   familyId: pgId.nullish().transform((v) => v ?? null),
 }).refine((v) => (v.personId === null) !== (v.familyId === null), "Choose a person or a family")
@@ -72,9 +73,29 @@ export type FollowUpTaskInput = z.input<typeof CreateSchema>
 /**
  * Update input. Full replace: every key is required (null clears it), so a
  * caller that forgets a field can't silently unassign or undate a task.
+ * `expectedUpdatedAt` is the `updatedAt` the caller's form was loaded with: a
+ * save from a form older than the stored row is rejected, so a stale form can't
+ * overwrite a newer save.
  */
-export type FollowUpTaskUpdate = { title: string; notes: string | null; assigneeId: number | null; dueDate: string | null }
-const UPDATE_KEYS = ["title", "notes", "assigneeId", "dueDate"] as const
+export type FollowUpTaskUpdate = {
+  title: string
+  notes: string | null
+  assigneeId: number | null
+  dueDate: string | null
+  expectedUpdatedAt: Date | string
+}
+const UPDATE_KEYS = ["title", "notes", "assigneeId", "dueDate", "expectedUpdatedAt"] as const
+
+/**
+ * Epoch ms of the caller's `expectedUpdatedAt` (Date or ISO string), or NaN
+ * when it is missing or not a valid timestamp.
+ * @param v untrusted revision from the client
+ */
+function revisionMs(v: unknown): number {
+  if (v instanceof Date) return v.getTime()
+  if (typeof v === "string" && v.length <= 40) return new Date(v).getTime()
+  return Number.NaN
+}
 
 /** A decrypted task as the UI sees it. Dates are `YYYY-MM-DD` (Sydney calendar days). */
 export type FollowUpTaskView = {
@@ -231,9 +252,10 @@ export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ er
 /**
  * Edit a task's title, notes, assignee and due date. ADMIN | PASTOR only; the
  * target person/family is fixed at create. A stored value that can't be
- * decrypted is never overwritten by its own placeholder text.
+ * decrypted is never overwritten by its own placeholder text. A form older than
+ * the stored row (`expectedUpdatedAt` mismatch) is rejected as stale.
  * @param id FollowUpTask.id
- * @param input title, notes, assigneeId, dueDate
+ * @param input title, notes, assigneeId, dueDate, expectedUpdatedAt
  */
 export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
@@ -244,7 +266,9 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
   if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input && (input as Record<string, unknown>)[k] !== undefined)) {
     return { error: "Missing task fields" }
   }
-  const parsed = TaskFields.safeParse(input)
+  const expectedMs = revisionMs((input as Record<string, unknown>).expectedUpdatedAt)
+  if (Number.isNaN(expectedMs)) return { error: "Missing task fields" }
+  const parsed = TaskFieldsSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const d = parsed.data
 
@@ -253,6 +277,7 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
     select: { title: true, notes: true, assigneeId: true, dueDate: true, personId: true, familyId: true, updatedAt: true },
   })
   if (!existing) return { error: NOT_FOUND }
+  if (existing.updatedAt.getTime() !== expectedMs) return { error: STALE }
   const oldTitle = safeDecrypt(existing.title)
   const oldNotes = existing.notes ? safeDecrypt(existing.notes) : null
   if ((oldTitle === DECRYPTION_ERROR && d.title === DECRYPTION_ERROR) || (oldNotes === DECRYPTION_ERROR && d.notes === DECRYPTION_ERROR)) {

@@ -36,8 +36,9 @@ const mockMembershipUpdateMany = prisma.membershipApplication.updateMany as jest
 // reparent invite + settled submission history to the surviving family.
 const mockInviteUpdateMany = jest.fn()
 const mockSubmissionUpdateMany = jest.fn()
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditManyTx } from "@/lib/audit"
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditManyTx = logAuditManyTx as jest.Mock
 
 import { previewMerge, mergeFamilies } from "@/lib/actions/family"
 import { revalidatePath } from "next/cache"
@@ -154,6 +155,39 @@ describe("mergeFamilies", () => {
     expect(mockInviteUpdateMany).toHaveBeenCalledWith({ where: { familyId: 1 }, data: { familyId: 2 } })
     expect(mockSubmissionUpdateMany).toHaveBeenCalledWith({ where: { familyId: 1 }, data: { familyId: 2 } })
     expect(mockFamilyDelete).toHaveBeenCalledWith({ where: { id: 1 } })
+  })
+
+  it("re-homes family-level follow-up tasks and audits each as FOLLOW_UP_REHOMED", async () => {
+    mockFamilyFindUnique
+      .mockResolvedValueOnce({ id: 1, name: "Source", memberNo: "C1" })
+      .mockResolvedValueOnce({ id: 2, name: "Target", memberNo: "C2" })
+    mockPersonFindMany
+      .mockResolvedValueOnce([{ firstName: "Alice", lastName: "X" }])
+      .mockResolvedValueOnce([{ firstName: "Bob", lastName: "X" }])
+    mockTransactionCount.mockResolvedValue(0)
+    const taskFindMany = jest.fn().mockResolvedValue([{ id: 31 }, { id: 32 }])
+    const taskUpdateMany = jest.fn().mockResolvedValue({ count: 2 })
+    const tx = {
+      person: { updateMany: mockPersonUpdateMany },
+      transaction: { updateMany: mockTransactionUpdateMany },
+      membershipApplication: { updateMany: mockMembershipUpdateMany },
+      familyUpdateInvite: { updateMany: mockInviteUpdateMany },
+      familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
+      followUpTask: { findMany: taskFindMany, updateMany: taskUpdateMany },
+      fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
+      family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ name: "Old" }), delete: mockFamilyDelete },
+    }
+    mockPrismaTransaction.mockImplementation(async (fn: Function) => fn(tx))
+    mockPersonUpdateMany.mockResolvedValue({ count: 1 })
+    mockTransactionUpdateMany.mockResolvedValue({ count: 0 })
+    mockMembershipUpdateMany.mockResolvedValue({ count: 0 })
+    mockFamilyDelete.mockResolvedValue({})
+    expect(await mergeFamilies(1, 2)).toEqual({ success: true, fundraiser: { moved: 0, folded: 0, unlinked: 0 } })
+    expect(taskUpdateMany).toHaveBeenCalledWith({ where: { familyId: 1 }, data: { familyId: 2 } })
+    expect(mockLogAuditManyTx).toHaveBeenCalledWith(tx, [
+      { userId: 1, action: "FOLLOW_UP_REHOMED", resourceType: "FollowUpTask", resourceId: 31, metadata: { fromFamilyId: 1, toFamilyId: 2, merge: true } },
+      { userId: 1, action: "FOLLOW_UP_REHOMED", resourceType: "FollowUpTask", resourceId: 32, metadata: { fromFamilyId: 1, toFamilyId: 2, merge: true } },
+    ])
   })
 
   it("relinks membership applications from source to target before deleting", async () => {

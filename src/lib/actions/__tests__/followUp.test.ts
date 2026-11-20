@@ -61,6 +61,8 @@ const LIVE = { OR: [{ person: { is: { archivedAt: null } } }, { family: { is: { 
 const NON_MANAGERS = [UserRole.OFFICE_ADMIN, UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER, UserRole.TEACHER, undefined]
 const NO_SCOPE = [UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER, UserRole.HEADMASTER, UserRole.TEACHER, undefined]
 
+const STAMP = new Date("2026-11-01T00:00:00Z")
+
 const row = (over: Record<string, unknown> = {}) => ({
   id: 1,
   title: "enc:Visit",
@@ -109,6 +111,15 @@ describe("createFollowUpTask", () => {
     as(role)
     expect(await createFollowUpTask(valid)).toEqual({ error: "Unauthorized" })
     expect(p.followUpTask.create).not.toHaveBeenCalled()
+  })
+
+  it("passes the transaction client to logAuditTx, and rejects when the audit write fails", async () => {
+    const tx = { followUpTask: { create: jest.fn().mockResolvedValue({ id: 11 }) } }
+    p.$transaction.mockImplementationOnce((fn: (t: typeof tx) => unknown) => fn(tx))
+    await createFollowUpTask(valid)
+    expect(audit).toHaveBeenCalledWith(tx, 1, "FOLLOW_UP_CREATED", "FollowUpTask", 11, expect.anything())
+    audit.mockRejectedValueOnce(new Error("audit down"))
+    await expect(createFollowUpTask(valid)).rejects.toThrow("audit down")
   })
 
   it("creates an encrypted task and audits it in the transaction", async () => {
@@ -166,7 +177,9 @@ describe("createFollowUpTask", () => {
 
 describe("updateFollowUpTask", () => {
   const upd = (over: Record<string, unknown> = {}) =>
-    ({ title: "Visit", notes: null, assigneeId: 9, dueDate: null, ...over }) as Parameters<typeof updateFollowUpTask>[1]
+    ({ title: "Visit", notes: null, assigneeId: 9, dueDate: null, expectedUpdatedAt: STAMP, ...over }) as Parameters<
+      typeof updateFollowUpTask
+    >[1]
 
   beforeEach(() => {
     p.followUpTask.findFirst.mockResolvedValue({
@@ -176,7 +189,39 @@ describe("updateFollowUpTask", () => {
       dueDate: null,
       personId: 3,
       familyId: null,
+      updatedAt: STAMP,
     })
+  })
+
+  it("rejects a stale form (expectedUpdatedAt older than the stored row) without writing", async () => {
+    expect(await updateFollowUpTask(1, upd({ title: "New", expectedUpdatedAt: new Date("2026-10-01T00:00:00Z") }))).toEqual({
+      error: "This task changed. Refresh and try again.",
+    })
+    expect(p.followUpTask.updateMany).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it("accepts expectedUpdatedAt as an ISO string and guards the write on the stored updatedAt", async () => {
+    expect(await updateFollowUpTask(1, upd({ title: "New", expectedUpdatedAt: STAMP.toISOString() }))).toEqual({
+      success: "Task saved",
+    })
+    expect(p.followUpTask.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 1, updatedAt: STAMP, ...LIVE } }),
+    )
+  })
+
+  it.each([[undefined], ["not a date"], [5]])("rejects a missing or invalid expectedUpdatedAt (%s)", async (bad) => {
+    expect(await updateFollowUpTask(1, upd({ expectedUpdatedAt: bad }))).toEqual({ error: "Missing task fields" })
+    expect(p.followUpTask.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("passes the transaction client to logAuditTx on update, and rejects when the audit write fails", async () => {
+    const tx = { followUpTask: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } }
+    p.$transaction.mockImplementationOnce((fn: (t: typeof tx) => unknown) => fn(tx))
+    await updateFollowUpTask(1, upd({ title: "New" }))
+    expect(audit).toHaveBeenCalledWith(tx, 1, "FOLLOW_UP_UPDATED", "FollowUpTask", 1, expect.anything())
+    audit.mockRejectedValueOnce(new Error("audit down"))
+    await expect(updateFollowUpTask(1, upd({ title: "Newer" }))).rejects.toThrow("audit down")
   })
 
   it.each(NON_MANAGERS)("rejects role %s (assignees can't edit)", async (role) => {
@@ -190,7 +235,7 @@ describe("updateFollowUpTask", () => {
       success: "Task saved",
     })
     expect(p.followUpTask.updateMany).toHaveBeenCalledWith({
-      where: { id: 1, ...LIVE },
+      where: { id: 1, updatedAt: STAMP, ...LIVE },
       data: { assigneeId: 12, dueDate: new Date("2026-12-01T00:00:00.000Z") },
     })
     expect(audit).toHaveBeenCalledWith(expect.anything(), 1, "FOLLOW_UP_UPDATED", "FollowUpTask", 1, {
@@ -219,7 +264,7 @@ describe("updateFollowUpTask", () => {
   })
 
   it("never overwrites unreadable text with its placeholder", async () => {
-    p.followUpTask.findFirst.mockResolvedValue({ title: "BROKEN", notes: null, assigneeId: 9, dueDate: null, personId: 3, familyId: null })
+    p.followUpTask.findFirst.mockResolvedValue({ title: "BROKEN", notes: null, assigneeId: 9, dueDate: null, personId: 3, familyId: null, updatedAt: STAMP })
     expect(await updateFollowUpTask(1, upd({ title: "[decryption error]" }))).toEqual({
       error: expect.stringContaining("can't be read"),
     })
@@ -444,7 +489,7 @@ describe("public demo", () => {
     ;(auth as jest.Mock).mockClear()
     const blocked = { error: "Disabled in the live demo" }
     expect(await createFollowUpTask({ title: "x", personId: 3 })).toEqual(blocked)
-    expect(await updateFollowUpTask(1, { title: "x", notes: null, assigneeId: null, dueDate: null })).toEqual(blocked)
+    expect(await updateFollowUpTask(1, { title: "x", notes: null, assigneeId: null, dueDate: null, expectedUpdatedAt: STAMP })).toEqual(blocked)
     expect(await setFollowUpStatus(1, FollowUpStatus.DONE)).toEqual(blocked)
     expect(await deleteFollowUpTask(1)).toEqual(blocked)
     expect(auth).not.toHaveBeenCalled()
