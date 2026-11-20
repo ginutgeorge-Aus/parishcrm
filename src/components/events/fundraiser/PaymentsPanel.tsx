@@ -141,7 +141,7 @@ export function PaymentsPanel({
               <Label htmlFor={`mth-${entryId}`}>Method</Label>
               <select
                 id={`mth-${entryId}`}
-                className={NATIVE_SELECT_CLASS}
+                className={`${NATIVE_SELECT_CLASS} w-full`}
                 value={method}
                 onChange={(e) => setMethod(e.target.value as "CASH" | "BANK")}
               >

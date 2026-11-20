@@ -215,7 +215,7 @@ export function AddEntryDialog({
               <Label htmlFor="fe-delivery">Pickup or delivery</Label>
               <select
                 id="fe-delivery"
-                className={NATIVE_SELECT_CLASS}
+                className={`${NATIVE_SELECT_CLASS} w-full`}
                 value={delivery ? "delivery" : "pickup"}
                 onChange={(e) => setDelivery(e.target.value === "delivery")}
               >
