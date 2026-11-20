@@ -44,6 +44,7 @@ type M = jest.Mock
 const p = prisma as unknown as {
   prayerRequest: Record<"create" | "findUnique" | "findMany" | "updateMany", M>
   person: { findUnique: M }
+  $transaction: M
 }
 const audit = logAuditTx as M
 
@@ -102,6 +103,15 @@ describe("createPrayerRequest", () => {
     })
   })
 
+  it("passes the transaction client to logAuditTx, and rejects when the audit write fails", async () => {
+    const tx = { prayerRequest: { create: jest.fn().mockResolvedValue({ id: 7 }) } }
+    p.$transaction.mockImplementationOnce((fn: (t: typeof tx) => unknown) => fn(tx))
+    await createPrayerRequest(valid)
+    expect(audit).toHaveBeenCalledWith(tx, 1, "PRAYER_REQUEST_CREATED", "PrayerRequest", 7, expect.anything())
+    audit.mockRejectedValueOnce(new Error("audit down"))
+    await expect(createPrayerRequest(valid)).rejects.toThrow("audit down")
+  })
+
   it("stamps consent when created as OK to share", async () => {
     await createPrayerRequest({ ...valid, shareConsent: true })
     expect(p.prayerRequest.create.mock.calls[0][0].data).toEqual(
@@ -135,6 +145,15 @@ describe("updatePrayerRequest", () => {
     as(role)
     expect(await updatePrayerRequest(7, upd({ request: "x" }))).toEqual({ error: "Unauthorized" })
     expect(p.prayerRequest.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("passes the transaction client to logAuditTx, and rejects when the audit write fails", async () => {
+    const tx = { prayerRequest: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } }
+    p.$transaction.mockImplementationOnce((fn: (t: typeof tx) => unknown) => fn(tx))
+    await updatePrayerRequest(7, upd({ request: "New" }))
+    expect(audit).toHaveBeenCalledWith(tx, 1, "PRAYER_REQUEST_UPDATED", "PrayerRequest", 7, expect.anything())
+    audit.mockRejectedValueOnce(new Error("audit down"))
+    await expect(updatePrayerRequest(7, upd({ request: "Newer" }))).rejects.toThrow("audit down")
   })
 
   it("ticking OK to share stamps consent; the write is guarded by updatedAt", async () => {
