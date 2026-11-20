@@ -335,7 +335,7 @@ const AddAllSchema = z.object({
 
 /**
  * Add a booking for every Sunday of a month that has no non-cancelled booking yet (`canEdit`).
- * Each row gets {@link defaultStatusForDate}: REQUESTED from today (Sydney) on, CONFIRMED (used) for a past Sunday,
+ * Each row gets {@link defaultStatusForDate}: REQUESTED for a later Sunday, CONFIRMED (used) for today or a past Sunday,
  * the same rule as adding one row by hand. Refuses (adds nothing) when the new rows would push the month past
  * {@link MAX_ROWS_PER_MONTH}. CONFIRMED rows count on an invoice, so adding any returns the sent-month warning.
  * @param input month "YYYY-MM", shared start/end time and optional public purpose
