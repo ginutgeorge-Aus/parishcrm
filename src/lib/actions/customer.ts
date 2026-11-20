@@ -5,12 +5,13 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
 import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
@@ -40,6 +41,23 @@ function parseCustomer(formData: FormData): { data: { name: string; abn: string 
   return { data: { name: d.name, abn: d.abn || null, email: encryptOrNull(d.email), phone: encryptOrNull(d.phone), address: encryptOrNull(d.address), notes: encryptOrNull(d.notes) } }
 }
 
+const BUSY_ERROR = "Couldn't save the customer. Try again."
+
+/**
+ * Insert a customer and its CUSTOMER_CREATED audit row in one transaction, so neither commits without the other.
+ * @param data validated, already-encrypted customer fields
+ * @param uid acting user id (resolved before the transaction)
+ * @param meta audit metadata (flags only, never PII)
+ * @returns the created row
+ */
+async function createCustomerAudited(data: Prisma.CustomerCreateInput, uid: number | null, meta: Record<string, unknown>): Promise<{ id: number; name: string }> {
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.customer.create({ data })
+    await logAuditGuardedTx(tx, uid, "CUSTOMER_CREATED", "Customer", row.id, meta)
+    return row
+  })
+}
+
 /** Create a saved outside customer (ADMIN | PASTOR). */
 export async function createCustomer(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
@@ -48,8 +66,14 @@ export async function createCustomer(_prev: ActionResult, formData: FormData): P
   if (off) return off
   const parsed = parseCustomer(formData)
   if ("error" in parsed) return parsed
-  const row = await prisma.customer.create({ data: parsed.data })
-  await logAudit(actorId(session), "CUSTOMER_CREATED", "Customer", row.id, {})
+  const uid = actorId(session)
+  try {
+    await createCustomerAudited(parsed.data, uid, {})
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "createCustomer", BUSY_ERROR)
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath(LIST_PATH)
   redirect(LIST_PATH)
 }
@@ -63,12 +87,15 @@ export async function updateCustomer(id: number, _prev: ActionResult, formData: 
   if (!isValidPgId(id)) return { error: "Customer not found" }
   const parsed = parseCustomer(formData)
   if ("error" in parsed) return parsed
+  const uid = actorId(session)
   try {
-    await prisma.customer.update({ where: { id }, data: parsed.data })
-  } catch {
-    return { error: "Customer not found" }
+    await prisma.$transaction(async (tx) => {
+      await tx.customer.update({ where: { id }, data: parsed.data })
+      await logAuditGuardedTx(tx, uid, "CUSTOMER_UPDATED", "Customer", id, {})
+    })
+  } catch (e) {
+    return auditTxErrorResult(e, "updateCustomer", BUSY_ERROR) ?? { error: "Customer not found" }
   }
-  await logAudit(actorId(session), "CUSTOMER_UPDATED", "Customer", id, {})
   revalidatePath(LIST_PATH)
   redirect(LIST_PATH)
 }
@@ -81,12 +108,15 @@ export async function setCustomerActive(id: number, isActive: boolean): Promise<
   if (off) return off
   if (!isValidPgId(id)) return { error: "Customer not found" }
   if (typeof isActive !== "boolean") return { error: "Invalid request" }
+  const uid = actorId(session)
   try {
-    await prisma.customer.update({ where: { id }, data: { isActive } })
-  } catch {
-    return { error: "Customer not found" }
+    await prisma.$transaction(async (tx) => {
+      await tx.customer.update({ where: { id }, data: { isActive } })
+      await logAuditGuardedTx(tx, uid, "CUSTOMER_ACTIVE_SET", "Customer", id, { isActive })
+    })
+  } catch (e) {
+    return auditTxErrorResult(e, "setCustomerActive", BUSY_ERROR) ?? { error: "Customer not found" }
   }
-  await logAudit(actorId(session), "CUSTOMER_ACTIVE_SET", "Customer", id, { isActive })
   revalidatePath(LIST_PATH)
   return { success: isActive ? "Customer reactivated" : "Customer deactivated" }
 }
@@ -101,8 +131,14 @@ export async function createCustomerInline(input: { name: string; email: string;
   f.set("name", input.name ?? ""); f.set("email", input.email ?? ""); f.set("address", input.address ?? "")
   const parsed = parseCustomer(f)
   if ("error" in parsed) return parsed
-  const row = await prisma.customer.create({ data: parsed.data })
-  await logAudit(actorId(session), "CUSTOMER_CREATED", "Customer", row.id, { inline: true })
+  let row: { id: number; name: string }
+  try {
+    row = await createCustomerAudited(parsed.data, actorId(session), { inline: true })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "createCustomerInline", BUSY_ERROR)
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath(LIST_PATH)
   return { id: row.id, name: row.name }
 }

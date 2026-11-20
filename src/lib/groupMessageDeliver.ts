@@ -3,7 +3,7 @@ import { decrypt } from "@/lib/crypto"
 import { logger } from "@/lib/logger"
 import { sendEmail, isAmbiguousDeliveryError, alertOwnerEmailFailure } from "@/lib/email"
 import { getChurchSettings } from "@/lib/churchSettings"
-import { escapeHtml } from "@/lib/venueUsage"
+import { escapeHtml } from "@/lib/escapeHtml"
 
 /**
  * Group-email delivery (#303). Same PENDING / SENT / FAILED / UNKNOWN machine as

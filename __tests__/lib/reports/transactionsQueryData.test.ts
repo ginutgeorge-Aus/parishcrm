@@ -49,6 +49,16 @@ describe("getTransactionsData — nonexistent paymentAccount filter", () => {
   })
 })
 
+describe("getTransactionsData — XFER exclusion in tiles (AUD-3-02)", () => {
+  it("ANDs the NOT_XFER fragment into both tile aggregates", async () => {
+    const mockAgg = prisma.transaction.aggregate as jest.Mock
+    await getTransactionsData({})
+    const tileCalls = mockAgg.mock.calls.filter(([a]) => a.where?.AND)
+    expect(tileCalls).toHaveLength(2)
+    for (const [{ where }] of tileCalls) expect(where.AND).toContainEqual({ account: { code: { not: "XFER" } } })
+  })
+})
+
 describe("getTransactionsData — account dropdown", () => {
   const mockAccountFindMany = prisma.account.findMany as jest.Mock
 

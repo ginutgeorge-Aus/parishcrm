@@ -116,6 +116,15 @@ describe("DashboardPage first-run feature prompt", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/settings/features")
   })
 
+  it("excludes the internal-transfer account from both giving aggregates (AUD-3-02)", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks()
+    await DashboardPage()
+    const givingCalls = (prisma.transaction.aggregate as jest.Mock).mock.calls.filter(([a]) => a.where?.isGiving === true)
+    expect(givingCalls).toHaveLength(2)
+    for (const [{ where }] of givingCalls) expect(where).toMatchObject({ account: { code: { not: "XFER" } } })
+  })
+
   it("does not redirect without the flag", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     primeMocks()

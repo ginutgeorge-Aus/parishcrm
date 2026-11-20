@@ -5,6 +5,7 @@
 // always formatted in UTC, never server-local. Times are "HH:mm" 24h strings.
 
 import { isValidEmail } from "@/lib/validation"
+import { escapeHtml } from "@/lib/escapeHtml"
 import { applyVars, DEFAULT_EMAIL_TEMPLATES, type EmailTemplateFields } from "@/lib/emailTemplates"
 
 /** Setting keys (AppSetting) owned by the venue usage feature. */
@@ -229,19 +230,6 @@ export function nextSundayYMD(todayYMD: string): string {
   const d = ymdToUtcDate(todayYMD)
   d.setUTCDate(d.getUTCDate() + ((7 - d.getUTCDay()) % 7))
   return utcDateToYmd(d)
-}
-
-/**
- * Escape text for safe interpolation into HTML.
- * @param value raw text
- */
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
 }
 
 /**

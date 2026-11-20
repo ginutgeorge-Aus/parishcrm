@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
 import { ACCOUNTING_LOCK_DATE_KEY } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE, isRealCalendarDate } from "@/lib/validation"
 
@@ -58,15 +58,18 @@ export async function upsertOpeningBalance(
   const account = await prisma.paymentAccount.findUnique({ where: { id: paymentAccountId } })
   if (!account) return { error: "Account not found" }
 
+  const uid = actorId(session)
   try {
-    await prisma.accountOpeningBalance.upsert({
-      where: { paymentAccountId },
-      create: { paymentAccountId, amount, asOfDate },
-      update: { amount, asOfDate },
+    await prisma.$transaction(async (tx) => {
+      await tx.accountOpeningBalance.upsert({
+        where: { paymentAccountId },
+        create: { paymentAccountId, amount, asOfDate },
+        update: { amount, asOfDate },
+      })
+      await logAuditGuardedTx(tx, uid, "SETTING_UPDATED", "AccountOpeningBalance", undefined, { paymentAccountId })
     })
-    void logAudit(actorId(session), "SETTING_UPDATED", "AccountOpeningBalance", undefined, { paymentAccountId })
-  } catch {
-    return { error: "Failed to save" }
+  } catch (e) {
+    return auditTxErrorResult(e, "upsertOpeningBalance", "Failed to save. Try again.") ?? { error: "Failed to save" }
   }
 
   // Opening balances feed the dashboard balance cards and these report pages.
@@ -103,15 +106,18 @@ export async function setAccountingLockDate(
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const value = parsed.data.date
+  const uid = actorId(session)
   try {
-    await prisma.appSetting.upsert({
-      where: { key: ACCOUNTING_LOCK_DATE_KEY },
-      create: { key: ACCOUNTING_LOCK_DATE_KEY, value },
-      update: { value },
+    await prisma.$transaction(async (tx) => {
+      await tx.appSetting.upsert({
+        where: { key: ACCOUNTING_LOCK_DATE_KEY },
+        create: { key: ACCOUNTING_LOCK_DATE_KEY, value },
+        update: { value },
+      })
+      await logAuditGuardedTx(tx, uid, "ACCOUNTING_LOCK_DATE_SET", "AppSetting", undefined, { lockDate: value || null })
     })
-    void logAudit(actorId(session), "ACCOUNTING_LOCK_DATE_SET", "AppSetting", undefined, { lockDate: value || null })
-  } catch {
-    return { error: "Failed to save" }
+  } catch (e) {
+    return auditTxErrorResult(e, "setAccountingLockDate", "Failed to save. Try again.") ?? { error: "Failed to save" }
   }
 
   revalidatePath("/accounting/settings")

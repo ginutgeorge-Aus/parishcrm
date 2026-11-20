@@ -3,6 +3,7 @@ import Link from "next/link"
 import { Suspense } from "react"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { NOT_XFER } from "@/lib/xferAccount"
 import { safeDecrypt } from "@/lib/crypto"
 import { canViewAccounting, canAccessAccounting, canViewPeople, canEdit, isAdmin, canViewAttendance, canEditAttendance } from "@/lib/roleGuard"
 import { getLatestAttendance } from "@/lib/attendanceQueries"
@@ -161,13 +162,13 @@ export default async function DashboardPage() {
       : Promise.resolve(0),
     showMoney
       ? prisma.transaction.aggregate({
-          where: { isGiving: true, type: "INCOME", date: { gte: startOfMonth, lt: startOfNextMonth } },
+          where: { isGiving: true, type: "INCOME", date: { gte: startOfMonth, lt: startOfNextMonth }, ...NOT_XFER },
           _sum: { amount: true },
         })
       : Promise.resolve({ _sum: { amount: null } }),
     showMoney
       ? prisma.transaction.aggregate({
-          where: { isGiving: true, type: "INCOME", date: { gte: sameMonthLastYear, lt: endSameMonthLastYear } },
+          where: { isGiving: true, type: "INCOME", date: { gte: sameMonthLastYear, lt: endSameMonthLastYear }, ...NOT_XFER },
           _sum: { amount: true },
         })
       : Promise.resolve({ _sum: { amount: null } }),

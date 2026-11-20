@@ -8,6 +8,7 @@ import { toCents, centsToNumber, sumCents } from "@/lib/formatting"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { sydneyParts } from "@/lib/dates"
 import { monthOptions } from "@/lib/transactionFilters"
+import { NOT_XFER } from "@/lib/xferAccount"
 
 export type TransactionsSearchParams = {
   from?: string
@@ -187,8 +188,8 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
     // an active type filter (e.g. list filtered to EXPENSE would still show an
     // income total). AND makes the aggregate honour both — income tile → 0 when
     // filtered to EXPENSE, and vice versa.
-    prisma.transaction.aggregate({ where: { AND: [where, { type: "INCOME" }] }, _sum: { amount: true } }),
-    prisma.transaction.aggregate({ where: { AND: [where, { type: "EXPENSE" }] }, _sum: { amount: true } }),
+    prisma.transaction.aggregate({ where: { AND: [where, { type: "INCOME" }, NOT_XFER] }, _sum: { amount: true } }),
+    prisma.transaction.aggregate({ where: { AND: [where, { type: "EXPENSE" }, NOT_XFER] }, _sum: { amount: true } }),
     // Active accounts plus the filtered one even if deactivated — a P&L
     // drill-down can link an inactive category, and the dropdown must show it.
     prisma.account.findMany({
