@@ -118,3 +118,27 @@ describe("configurable membership fields (OSS)", () => {
     expect(screen.getByLabelText(/minimum \$80/)).toHaveAttribute("step", "0.01")
   })
 })
+
+describe("field-level server errors", () => {
+  const props = { churchName: "Demo Church", churchWebsite: "https://demo.example.com", parishFields: false, minDues: null, homeAddressLabel: "", arrivalDateLabel: "" }
+  function fillRequired() {
+    const set = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    set("Name *", "Jo Demo")
+    set("E-mail ID *", "jo@example.com")
+    set("Residential address *", "1 Example St")
+    set("Suburb *", "Sampletown")
+    set("State *", "NSW")
+    set("Postcode *", "2000")
+  }
+
+  it("catches an email the browser accepts but the schema refuses, before submit", async () => {
+    render(<MembershipForm {...props} />)
+    fillRequired()
+    fireEvent.change(screen.getByLabelText("E-mail ID *"), { target: { value: "mary@bad" } })
+    fireEvent.submit(screen.getByRole("button", { name: /submit membership form/i }).closest("form")!)
+    const input = screen.getByLabelText("E-mail ID *")
+    await waitFor(() => expect(input).toHaveAttribute("aria-invalid", "true"))
+    expect(screen.getAllByText(/valid email address/i).length).toBeGreaterThan(0)
+    expect(submit).not.toHaveBeenCalled()
+  })
+})

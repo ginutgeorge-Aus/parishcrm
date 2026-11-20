@@ -142,3 +142,5 @@ export function isP2003(e: unknown): boolean {
   const err = e as { code?: string; cause?: { kind?: string } }
   return err.code === "P2003" || err.cause?.kind === "ForeignKeyConstraintViolation"
 }
+
+export const EMAIL_MSG = "Enter a valid email address"
