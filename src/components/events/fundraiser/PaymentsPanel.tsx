@@ -12,6 +12,7 @@ import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
 import { randomUuid } from "@/lib/randomUuid"
+import { NATIVE_SELECT_CLASS } from "./nativeSelect"
 // Type-only (erased at build), so the server-only query module never reaches the client bundle.
 import type { FundraiserPaymentItem } from "@/lib/fundraiserQueries"
 
@@ -140,7 +141,7 @@ export function PaymentsPanel({
               <Label htmlFor={`mth-${entryId}`}>Method</Label>
               <select
                 id={`mth-${entryId}`}
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                className={NATIVE_SELECT_CLASS}
                 value={method}
                 onChange={(e) => setMethod(e.target.value as "CASH" | "BANK")}
               >
