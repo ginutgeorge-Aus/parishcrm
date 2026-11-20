@@ -6,6 +6,50 @@ import type { ReceiptSettings } from "@/lib/receiptSettings"
 
 export type DgrLine = { date: string; amount: number; method: string }
 
+/**
+ * DgrReceipt.status values (a String column, not a DB enum). UNKNOWN = the
+ * mail provider may have accepted the email before the connection dropped
+ * (isAmbiguousDeliveryError): treated like SENT for edit and delete, but a
+ * resend of the same, unchanged receipt is allowed after staff check.
+ */
+export const DGR_STATUS = {
+  DRAFT: "DRAFT",
+  SENDING: "SENDING",
+  SENT: "SENT",
+  FAILED: "FAILED",
+  UNKNOWN: "UNKNOWN",
+} as const
+
+/**
+ * A SENDING claim older than this is treated as a crashed send and may be
+ * recovered by editing the receipt. Same window as the giving-statement claim.
+ * While SENDING, `sentAt` holds the claim time (overwritten on SENT, cleared on FAILED).
+ */
+export const DGR_SEND_STALE_MS = 15 * 60 * 1000
+
+/**
+ * Whether a receipt may be edited: DRAFT, FAILED (definite failure), or a
+ * SENDING whose claim went stale. A SENDING row with no claim time predates
+ * the claim timestamp and is treated as stale.
+ * @param status receipt status
+ * @param sentAt claim time while SENDING
+ * @param now current time
+ */
+export function isDgrReceiptEditable(status: string, sentAt: Date | null | undefined, now: Date = new Date()): boolean {
+  if (status === DGR_STATUS.DRAFT || status === DGR_STATUS.FAILED) return true
+  if (status !== DGR_STATUS.SENDING) return false
+  return !sentAt || now.getTime() - sentAt.getTime() > DGR_SEND_STALE_MS
+}
+
+/**
+ * Whether a receipt may be deleted: only DRAFT, or FAILED with a definite
+ * failure. SENDING and UNKNOWN may have reached the donor; SENT has.
+ * @param status receipt status
+ */
+export function isDgrReceiptDeletable(status: string): boolean {
+  return status === DGR_STATUS.DRAFT || status === DGR_STATUS.FAILED
+}
+
 // DGR receipts key FYs by their END year. A January-start FY is the calendar
 // year, so its start and end year coincide (label "2026", not "2025–26").
 export function fyLabel(fyEndYear: number): string {
