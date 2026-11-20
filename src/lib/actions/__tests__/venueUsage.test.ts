@@ -776,13 +776,26 @@ describe("sent / in-flight month warning on every booking change (#510 #513 #509
     const r = await updateVenueUsage(5, validInput)
     expect(r).toMatchObject({ warning: expect.stringMatching(/August 2026 was already sent.*September 2026 is being sent right now/) })
   })
-  it("addAllSundays adds REQUESTED rows only, so it never looks the month up", async () => {
-    asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([])
-    ;(prisma.venueUsage.createMany as jest.Mock).mockResolvedValue({ count: 4 })
-    sentMonths("2026-09")
-    expect(await addAllSundays({ month: "2026-09", startTime: "17:00", endTime: "20:00" })).not.toHaveProperty("warning")
-    expect(prisma.venueUsageRequest.findMany).not.toHaveBeenCalledWith(SENT_LOOKUP_ANY)
+  it("addAllSundays adds only future REQUESTED rows, so it never looks the month up", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-31T02:00:00Z"))
+    try {
+      asRole("PASTOR")
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([])
+      ;(prisma.venueUsage.createMany as jest.Mock).mockResolvedValue({ count: 4 })
+      sentMonths("2026-09")
+      expect(await addAllSundays({ month: "2026-09", startTime: "17:00", endTime: "20:00" })).not.toHaveProperty("warning")
+      expect(prisma.venueUsageRequest.findMany).not.toHaveBeenCalledWith(SENT_LOOKUP_ANY)
+    } finally { jest.useRealTimers() }
+  })
+  it("addAllSundays warns when it adds past (CONFIRMED) Sundays to an already-sent month", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-20T02:00:00Z"))
+    try {
+      asRole("PASTOR")
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([])
+      ;(prisma.venueUsage.createMany as jest.Mock).mockResolvedValue({ count: 4 })
+      sentMonths("2026-09")
+      expect(await addAllSundays({ month: "2026-09", startTime: "17:00", endTime: "20:00" })).toMatchObject({ warning: expect.stringMatching(/September 2026 was already sent/) })
+    } finally { jest.useRealTimers() }
   })
 })
 
@@ -882,6 +895,8 @@ describe("approval invalidation", () => {
 
 describe("addAllSundays", () => {
   const input = { month: "2026-09", startTime: "17:00", endTime: "20:00", purpose: "Sunday service" }
+  beforeEach(() => { jest.useFakeTimers().setSystemTime(new Date("2026-08-31T02:00:00Z")) })
+  afterEach(() => { jest.useRealTimers() })
   it("gates role, feature and input", async () => {
     asRole("VIEWER"); expect(await addAllSundays(input)).toEqual({ error: "Unauthorized" })
     asRole("PASTOR"); expect(await addAllSundays({ ...input, month: "2026-13" })).toEqual({ error: "Invalid month" })
@@ -901,6 +916,18 @@ describe("addAllSundays", () => {
     expect(data.map((d: { date: Date }) => d.date.toISOString().slice(0, 10))).toEqual(["2026-09-06", "2026-09-20", "2026-09-27"])
     expect(data.every((d: { status: string; createdById: number }) => d.status === "REQUESTED" && d.createdById === 7)).toBe(true)
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_BULK_ADDED", "VenueUsage", undefined, { month: "2026-09", added: 3, skipped: 1 })
+  })
+  it("books today and past Sundays as CONFIRMED (same rule as a single add), later ones as REQUESTED, and says so", async () => {
+    jest.setSystemTime(new Date("2026-09-20T02:00:00Z")) // Sydney is Sun 20 Sep
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.venueUsage.createMany as jest.Mock).mockResolvedValue({ count: 4 })
+    const r = await addAllSundays(input)
+    const data = (prisma.venueUsage.createMany as jest.Mock).mock.calls[0][0].data as { date: Date; status: string }[]
+    expect(data.map((d) => [d.date.toISOString().slice(0, 10), d.status])).toEqual([
+      ["2026-09-06", "CONFIRMED"], ["2026-09-13", "CONFIRMED"], ["2026-09-20", "CONFIRMED"], ["2026-09-27", "REQUESTED"],
+    ])
+    expect(r).toMatchObject({ success: "Added 4 Sundays (3 as used, 1 as requested)" })
   })
   it("adds nothing when every Sunday is taken", async () => {
     asRole("PASTOR")

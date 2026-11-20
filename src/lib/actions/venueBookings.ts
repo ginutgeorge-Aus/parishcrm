@@ -49,10 +49,10 @@ async function gate() {
   return { session, settings, userId: actorId(session) } as const
 }
 
-/** REQUESTED, not-yet-asked rows (all months), oldest first. */
+/** REQUESTED, not-yet-asked rows dated today (Sydney) or later (all months), oldest first. A past date is never asked for. */
 function loadCandidates() {
   return prisma.venueUsage.findMany({
-    where: { status: "REQUESTED", bookingRequestedAt: null },
+    where: { status: "REQUESTED", bookingRequestedAt: null, date: { gte: sydneyToday() } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
     take: MAX_ROWS_PER_MONTH,
     select: { id: true, date: true, startTime: true, endTime: true, purpose: true },
