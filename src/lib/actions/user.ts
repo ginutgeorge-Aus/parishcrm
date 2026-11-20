@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { logger } from "@/lib/logger"
 import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { z } from "zod"
 import { hash } from "bcryptjs"
@@ -11,7 +12,8 @@ import { randomBytes, createHash } from "node:crypto"
 import { prisma, Prisma } from "@/lib/prisma"
 import { canManageUsers, canAssignRole, isAdmin } from "@/lib/roleGuard"
 import { TOTP_CLEARED } from "@/lib/totp"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
+import { auditIpFromHeaders } from "@/lib/clientIp"
 import { sendWelcomeEmail } from "@/lib/email"
 import { isP2002, isP2034, isValidPgId } from "@/lib/validation"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
@@ -33,6 +35,66 @@ class LastAdminError extends Error {}
 // transaction actually starting. Surfaces the same clean "User not found"
 // ActionResult instead of writing over (or double-archiving) a gone user.
 class TargetGoneError extends Error {}
+
+// Thrown when the target reloaded INSIDE a transaction holds a role the actor
+// may not manage (canAssignRole), e.g. an ADMIN promoted it between the outer
+// authorization read and the write. Maps to "Unauthorized" (AUD-1-02b).
+class TargetUnauthorizedError extends Error {}
+
+// Thrown when the in-transaction audit row cannot be written. The mutation
+// rolls back with it, so an unlogged user/role change never commits (AUD-1-02c).
+class AuditWriteError extends Error {
+  constructor() {
+    super("Could not record this change in the audit log, so nothing was saved. Please try again.")
+  }
+}
+
+/**
+ * Writes the audit row inside the caller's transaction and fails closed: any
+ * write error becomes an AuditWriteError, which rolls back the mutation.
+ * @param tx interactive-transaction client
+ * @param userId acting user
+ * @param action audit action code
+ * @param targetId the user account acted on
+ * @param metadata ids/roles/flags only, never an email address
+ * @param ip client IP, when known
+ */
+async function auditUserTx(
+  tx: Prisma.TransactionClient,
+  userId: number | null,
+  action: string,
+  targetId: number,
+  metadata: Record<string, unknown>,
+  ip: string | undefined,
+): Promise<void> {
+  try {
+    await logAuditTx(tx, userId, action, "User", targetId, metadata, ip)
+  } catch (e) {
+    logger.error("user action audit write failed", { action, targetId, error: e instanceof Error ? e.message : String(e) })
+    throw new AuditWriteError()
+  }
+}
+
+/**
+ * Client IP for the audit row of the current server-action request.
+ * @returns the validated IP, or undefined
+ */
+async function requestAuditIp(): Promise<string | undefined> {
+  return auditIpFromHeaders(await headers())
+}
+
+/**
+ * Maps the errors a guarded single-target write can throw (unlock, TOTP reset,
+ * passkey revoke) to an ActionResult message; undefined means rethrow.
+ * @param e the caught error
+ * @returns the message, or undefined
+ */
+function targetWriteErrorMessage(e: unknown): string | undefined {
+  // P2025: the target moved to a role the actor may not manage since the pre-read.
+  if ((e as { code?: unknown })?.code === "P2025") return "Unauthorized"
+  if (e instanceof AuditWriteError) return e.message
+  return undefined
+}
 
 // Block removing/demoting the last remaining ADMIN — including self. ADMIN is
 // the only role that can manage users/accounting settings, so zero admins
@@ -76,12 +138,18 @@ const UpdateUserSchema = z.object({
 // user regardless of email outcome.
 const WELCOME_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-// Write-time mirror of canAssignRole's target check: ride this on the
-// mutation's where-unique so a concurrent promotion to ADMIN/PASTOR between the
-// authorization pre-read and the write makes the write miss (P2025) instead of
-// acting on the now-elevated account. ADMIN actors are unrestricted.
+/**
+ * Write-time mirror of canAssignRole's target check: ride this on the
+ * mutation's where-unique so a concurrent promotion to a role the actor may not
+ * manage (ADMIN, PASTOR, or the actor's own role) between the authorization
+ * pre-read and the write makes the write miss (P2025) instead of acting on that
+ * account. ADMIN actors are unrestricted.
+ * @param actorRole the signed-in user's role
+ * @returns a where-unique fragment
+ */
 function assignableTargetWhere(actorRole: UserRole | undefined) {
-  return isAdmin(actorRole) ? {} : { role: { notIn: [UserRole.ADMIN, UserRole.PASTOR] } }
+  if (isAdmin(actorRole)) return {}
+  return { role: { notIn: ROLE_VALUES.filter((r) => !canAssignRole(actorRole, r)) } }
 }
 
 async function issueWelcomeInvite(
@@ -184,19 +252,25 @@ export async function createUser(
   // Unusable random password — the account cannot be logged into until the
   // user completes the set-password invite below.
   const passwordHash = await hash(randomBytes(32).toString("hex"), 12)
+  const userId = actorId(session)
+  const ip = await requestAuditIp()
   let newUser
   try {
-    newUser = await prisma.user.create({
-      data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
+    // Create + audit commit together: a failed audit write rolls the account back.
+    newUser = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
+      })
+      await auditUserTx(tx, userId, "USER_CREATED", created.id, { targetUserId: created.id, toRole: parsed.data.role }, ip)
+      return created
     })
   } catch (e) {
     // The isEmailTaken check above is check-then-act — a concurrent create can
     // slip in between it and this create() call.
     if (isP2002(e)) return { error: "Email already in use" }
+    if (e instanceof AuditWriteError) return { error: e.message }
     throw e
   }
-  const userId = actorId(session)
-  await logAudit(userId, "USER_CREATED", "User", newUser.id, { targetUserId: newUser.id })
 
   const sent = await issueWelcomeInvite(newUser)
   await logAudit(userId, sent ? "WELCOME_EMAIL_SENT" : "WELCOME_EMAIL_FAILED", "User", newUser.id, {
@@ -209,8 +283,9 @@ export async function createUser(
 
 type UserUpdateData = {
   name: string
-  email: string
-  role: UserRole
+  // email/role are absent on a self-edit (name only).
+  email?: string
+  role?: UserRole
   passwordHash?: string
   sessionsValidFrom?: Date
   failedLoginAttempts?: number
@@ -219,6 +294,14 @@ type UserUpdateData = {
   otpLockedUntil?: Date | null
 }
 
+/**
+ * Builds the admin-edit write from the parsed form: name, email, role, and on a
+ * new password the hash plus session/lockout resets. Email/role-change
+ * credential invalidation is added in applyUserUpdate against the
+ * in-transaction row.
+ * @param parsedData the validated form fields
+ * @returns the update data
+ */
 async function buildUserUpdateData(parsedData: {
   name: string
   email: string
@@ -254,18 +337,46 @@ async function buildUserUpdateData(parsedData: {
 // read and this transaction starting could demote a newly-promoted sole
 // admin with no recount ever running (the stale pre-tx role said "not
 // ADMIN", so the guard was skipped entirely).
+/**
+ * Reloads the target inside the Serializable transaction, re-checks that the
+ * actor may manage its CURRENT role (AUD-1-02b), runs the last-admin guard, and
+ * writes the update. An email change voids any outstanding reset link and OTP
+ * code and ends live sessions; a role change ends live sessions (AUD-1-02d).
+ * @param tx interactive-transaction client
+ * @param id the target user
+ * @param data the write built by buildUserUpdateData (name only on a self-edit)
+ * @param actorRole the signed-in user's role
+ * @param isSelf true when the actor edits their own account (role re-check skipped)
+ * @returns the old and new role and whether the email changed, for the audit row
+ */
 async function applyUserUpdate(
   tx: Prisma.TransactionClient,
   id: number,
-  newRole: UserRole,
-  data: UserUpdateData
-): Promise<void> {
-  const current = await tx.user.findUnique({ where: { id }, select: { role: true, archivedAt: true } })
+  data: UserUpdateData,
+  actorRole: UserRole | undefined,
+  isSelf: boolean,
+): Promise<{ fromRole: UserRole; toRole: UserRole; emailChanged: boolean }> {
+  const current = await tx.user.findUnique({ where: { id }, select: { role: true, email: true, archivedAt: true } })
   if (!current || current.archivedAt) throw new TargetGoneError("User not found")
-  if (current.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
+  if (!isSelf && !canAssignRole(actorRole, current.role)) throw new TargetUnauthorizedError("Unauthorized")
+  const toRole = data.role ?? current.role
+  if (current.role === UserRole.ADMIN && toRole !== UserRole.ADMIN) {
     await assertNotLastAdmin(tx, id, "Cannot remove the last administrator")
   }
-  await tx.user.update({ where: { id }, data })
+  // data.email is already normalised; a case-only difference is not a change.
+  const emailChanged = data.email !== undefined && data.email !== normalizeEmail(current.email)
+  const roleChanged = toRole !== current.role
+  const write: Prisma.UserUpdateInput = { ...data }
+  if (emailChanged) {
+    // A reset link or OTP code already mailed to the old address must not keep working.
+    write.passwordResetToken = null
+    write.passwordResetExpires = null
+    write.otpCode = null
+    write.otpExpiresAt = null
+  }
+  if (emailChanged || roleChanged) write.sessionsValidFrom = new Date()
+  await tx.user.update({ where: { id }, data: write })
+  return { fromRole: current.role, toRole, emailChanged }
 }
 
 // Maps the errors applyUserUpdate's transaction can throw to a clean
@@ -273,6 +384,8 @@ async function applyUserUpdate(
 // caller rethrows.
 function updateUserErrorMessage(e: unknown): string | undefined {
   if (e instanceof TargetGoneError) return e.message
+  if (e instanceof TargetUnauthorizedError) return e.message
+  if (e instanceof AuditWriteError) return e.message
   if (e instanceof LastAdminError) return e.message
   if (isP2002(e)) return "Email already in use"
   if (isP2034(e)) return "Cannot remove the last administrator — please try again."
@@ -303,11 +416,22 @@ export async function updateUser(
   const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, email: true, archivedAt: true } })
   if (!target || target.archivedAt) return { error: "User not found" }
 
-  // Non-ADMIN actors may not touch an elevated (ADMIN/PASTOR) account, nor grant
-  // an elevated role. Editing a PASTOR target also lets a non-ADMIN reset its
-  // password → account takeover, so the target's current role is guarded too
-  //.
-  if (!canAssignRole(session?.user?.role, target.role) || !canAssignRole(session?.user?.role, parsed.data.role)) {
+  const userId = actorId(session)
+  const isSelf = userId === id
+  if (isSelf) {
+    // Self-edit here is name only: changing your own email, role or password
+    // from the admin form would skip the checks the account flows apply.
+    if (parsed.data.email !== normalizeEmail(target.email) || parsed.data.role !== target.role || parsed.data.password) {
+      return {
+        error:
+          "You can only change your own name here. To change your password, use “Forgot password” on the sign-in page; ask another administrator to change your email or role.",
+      }
+    }
+  } else if (!canAssignRole(session?.user?.role, target.role) || !canAssignRole(session?.user?.role, parsed.data.role)) {
+    // Non-ADMIN actors may not touch an account they cannot manage (ADMIN,
+    // PASTOR, or a peer OFFICE_ADMIN), nor grant such a role. Editing one lets
+    // the actor reset its email/password → account takeover, so the target's
+    // current role is guarded too (AUD-1-02).
     return { error: "Unauthorized" }
   }
 
@@ -319,21 +443,31 @@ export async function updateUser(
     return { error: "Email already in use" }
   }
 
-  const data = await buildUserUpdateData(parsed.data)
+  const data: UserUpdateData = isSelf ? { name: parsed.data.name } : await buildUserUpdateData(parsed.data)
+  const ip = await requestAuditIp()
 
   // The P2002 catch below is a backstop for the email-collision race: the
   // isEmailTaken check above is itself check-then-act.
   try {
     await prisma.$transaction(
       async (tx) => {
-        await applyUserUpdate(tx, id, parsed.data.role, data)
-        if (parsed.data.password) {
+        const change = await applyUserUpdate(tx, id, data, session?.user?.role, isSelf)
+        if (data.passwordHash) {
           // Trusted devices skip OTP and passkeys bypass the password entirely, so
           // a forced password change drops both — in the same transaction, so a
           // failed delete can't leave them alive behind a committed new password.
           await tx.trustedDevice.deleteMany({ where: { userId: id } })
           await tx.passkey.deleteMany({ where: { userId: id } })
         }
+        // Same transaction: a failed audit write rolls the update back. No
+        // email addresses in metadata, only whether it changed.
+        await auditUserTx(tx, userId, "USER_UPDATED", id, {
+          targetUserId: id,
+          fromRole: change.fromRole,
+          toRole: change.toRole,
+          emailChanged: change.emailChanged,
+          passwordChanged: data.passwordHash !== undefined,
+        }, ip)
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
@@ -342,16 +476,15 @@ export async function updateUser(
     if (message) return { error: message }
     throw e
   }
-  const userId = actorId(session)
-  await logAudit(userId, "USER_UPDATED", "User", id, {
-    targetUserId: id,
-    role: parsed.data.role,
-    passwordChanged: !!parsed.data.password,
-  })
   revalidatePath("/users")
   redirect("/users")
 }
 
+/**
+ * Clears a user's password and OTP lockouts (admin unlock), audited in the same transaction.
+ * @param id the user to unlock
+ * @returns the `ActionResult`
+ */
 export async function unlockUser(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -364,22 +497,31 @@ export async function unlockUser(id: number): Promise<ActionResult> {
   if (!target || target.archivedAt) return { error: "User not found" }
   if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
 
+  const ip = await requestAuditIp()
   try {
-    await prisma.user.update({
-      where: { id, ...assignableTargetWhere(session?.user?.role) },
-      // Clear both password and OTP lockout state — leaving the OTP lockout in
-      // place re-locks the user at the OTP step with no explanation
-      data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id, ...assignableTargetWhere(session?.user?.role) },
+        // Clear both password and OTP lockout state — leaving the OTP lockout in
+        // place re-locks the user at the OTP step with no explanation
+        data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+      })
+      await auditUserTx(tx, actorId(session), "USER_UNLOCKED", id, { targetUserId: id, targetRole: target.role }, ip)
     })
   } catch (e) {
-    // Target promoted to ADMIN/PASTOR since the pre-read.
-    if ((e as { code?: unknown })?.code === "P2025") return { error: "Unauthorized" }
+    const message = targetWriteErrorMessage(e)
+    if (message) return { error: message }
     throw e
   }
-  await logAudit(actorId(session), "USER_UNLOCKED", "User", id)
   revalidatePath("/users")
 }
 
+/**
+ * Lost-phone recovery: clears a user's authenticator, backup codes, trusted
+ * devices and passkeys and ends their sessions, audited in the same transaction.
+ * @param id the user to reset
+ * @returns the `ActionResult`
+ */
 export async function resetUserTotp(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -392,30 +534,37 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
   if (!target || target.archivedAt) return { error: "User not found" }
   if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
 
+  const ip = await requestAuditIp()
   try {
     // Lost-phone recovery: drop the authenticator, every backup code, and every
     // trusted device (a device trusted by whoever holds the phone must not keep
     // skipping the second factor), plus every live session (the lost device may
     // already be signed in). Next login falls back to email OTP.
-    await prisma.$transaction([
-      prisma.user.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id, ...assignableTargetWhere(session?.user?.role) },
         data: { ...TOTP_CLEARED, sessionsValidFrom: new Date() },
-      }),
-      prisma.backupCode.deleteMany({ where: { userId: id } }),
-      prisma.trustedDevice.deleteMany({ where: { userId: id } }),
+      })
+      await tx.backupCode.deleteMany({ where: { userId: id } })
+      await tx.trustedDevice.deleteMany({ where: { userId: id } })
       // A lost phone usually holds a passkey too.
-      prisma.passkey.deleteMany({ where: { userId: id } }),
-    ])
+      await tx.passkey.deleteMany({ where: { userId: id } })
+      await auditUserTx(tx, actorId(session), "TOTP_RESET", id, { targetUserId: id, targetRole: target.role }, ip)
+    })
   } catch (e) {
-    // Target promoted to ADMIN/PASTOR since the pre-read.
-    if ((e as { code?: unknown })?.code === "P2025") return { error: "Unauthorized" }
+    const message = targetWriteErrorMessage(e)
+    if (message) return { error: message }
     throw e
   }
-  await logAudit(actorId(session), "TOTP_RESET", "User", id, { targetUserId: id })
   revalidatePath("/users")
 }
 
+/**
+ * Lost/stolen device: deletes a user's passkeys and trusted devices and ends
+ * their sessions, audited in the same transaction.
+ * @param id the user whose passkeys are revoked
+ * @returns the `ActionResult`
+ */
 export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -428,24 +577,30 @@ export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
   if (!target || target.archivedAt) return { error: "User not found" }
   if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
 
+  const ip = await requestAuditIp()
   try {
     // Lost/stolen device: drop every passkey and kill live sessions (the device
     // may already be signed in). Password + OTP/TOTP still work.
-    await prisma.$transaction([
-      prisma.user.update({ where: { id, ...assignableTargetWhere(session?.user?.role) }, data: { sessionsValidFrom: new Date() } }),
-      prisma.passkey.deleteMany({ where: { userId: id } }),
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id, ...assignableTargetWhere(session?.user?.role) }, data: { sessionsValidFrom: new Date() } })
+      await tx.passkey.deleteMany({ where: { userId: id } })
       // Trusted devices skip OTP after the password; the lost device may hold one.
-      prisma.trustedDevice.deleteMany({ where: { userId: id } }),
-    ])
+      await tx.trustedDevice.deleteMany({ where: { userId: id } })
+      await auditUserTx(tx, actorId(session), "PASSKEYS_REVOKED", id, { targetUserId: id, targetRole: target.role }, ip)
+    })
   } catch (e) {
-    // Target promoted to ADMIN/PASTOR since the pre-read.
-    if ((e as { code?: unknown })?.code === "P2025") return { error: "Unauthorized" }
+    const message = targetWriteErrorMessage(e)
+    if (message) return { error: message }
     throw e
   }
-  await logAudit(actorId(session), "PASSKEYS_REVOKED", "User", id, { targetUserId: id })
   revalidatePath("/users")
 }
 
+/**
+ * Soft-deletes (archives) a user, audited in the same transaction.
+ * @param id the user to archive
+ * @returns the `ActionResult`
+ */
 export async function deleteUser(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -477,10 +632,14 @@ export async function deleteUser(id: number): Promise<ActionResult> {
   // the recount + tombstone write below reload the target INSIDE the
   // transaction so neither a concurrent promotion (stale pre-tx role)
   // nor a concurrent archive (double-tombstoning the email) can slip past it.
+  const ip = await requestAuditIp()
   try {
     await prisma.$transaction(async (tx) => {
       const current = await tx.user.findUnique({ where: { id }, select: { role: true, email: true, archivedAt: true } })
       if (!current || current.archivedAt) throw new TargetGoneError("User not found")
+      // Re-check against the reloaded role: a concurrent promotion must not let
+      // a non-ADMIN archive an account it can no longer manage (AUD-1-02b).
+      if (!canAssignRole(session?.user?.role, current.role)) throw new TargetUnauthorizedError("Unauthorized")
       if (current.role === UserRole.ADMIN) {
         await assertNotLastAdmin(tx, id, "Cannot delete the last administrator")
       }
@@ -496,19 +655,28 @@ export async function deleteUser(id: number): Promise<ActionResult> {
           passwordResetExpires: null,
         },
       })
+      await auditUserTx(tx, userId, "USER_DELETED", id, { targetUserId: id, fromRole: current.role }, ip)
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (e instanceof TargetGoneError) return { error: e.message }
+    if (e instanceof TargetUnauthorizedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return { error: e.message }
     if (e instanceof LastAdminError) return { error: e.message }
     if (isP2034(e)) {
       return { error: "Cannot delete the last administrator — please try again." }
     }
     throw e
   }
-  await logAudit(userId, "USER_DELETED", "User", id)
   revalidatePath("/users")
 }
 
+/**
+ * Re-issues the set-password invite for a user who has never signed in.
+ * Someone who has signed in uses "Forgot password" instead, so this cannot
+ * mint a fresh 7-day reset link for an account already in use.
+ * @param id the user to re-invite
+ * @returns success, or an error message
+ */
 export async function resendWelcome(id: number): Promise<{ success: true } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -526,6 +694,12 @@ export async function resendWelcome(id: number): Promise<{ success: true } | { e
   // (consistency with the create/update/delete escalation guards).
   if (!canAssignRole(session?.user?.role, target.role)) {
     return { error: "Unauthorized" }
+  }
+
+  // A USER_LOGIN audit row means the account is already in use (AUD-1-02d).
+  const signedIn = await prisma.auditLog.findFirst({ where: { userId: id, action: "USER_LOGIN" }, select: { id: true } })
+  if (signedIn) {
+    return { error: "This user has already signed in. Ask them to use “Forgot password” on the sign-in page instead." }
   }
 
   const sent = await issueWelcomeInvite(target, assignableTargetWhere(session?.user?.role))

@@ -14,7 +14,7 @@ import {
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { ActionResult } from "@/lib/actions/types"
 import { UserRole } from "@/lib/generated/prisma/enums"
-import { isAdmin } from "@/lib/roleGuard"
+import { canAssignRole } from "@/lib/roleGuard"
 import { ROLE_LABELS } from "@/lib/roleLabels"
 
 type User = { id: number; name: string; email: string; role: UserRole }
@@ -29,11 +29,9 @@ export function UserForm({
   currentUserRole?: UserRole
 }>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
-  const isActorAdmin = isAdmin(currentUserRole)
-  // Non-ADMIN actors (OFFICE_ADMIN) cannot assign the ADMIN role.
-  const roleOptions = Object.values(UserRole).filter(
-    (r) => isActorAdmin || r !== UserRole.ADMIN
-  )
+  // Same rule the server enforces: a non-ADMIN actor (OFFICE_ADMIN) cannot
+  // grant ADMIN, PASTOR or its own role.
+  const roleOptions = Object.values(UserRole).filter((r) => canAssignRole(currentUserRole, r))
 
   return (
     <form action={formAction} className="max-w-md space-y-4">

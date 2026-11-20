@@ -37,8 +37,19 @@ export function canManageUsers(role: UserRole | undefined): boolean {
 // already holds one — otherwise an OFFICE_ADMIN could grant themselves PASTOR
 // (self-escalation) or take over a PASTOR account by resetting its password
 //. Enforced server-side in user.ts createUser/updateUser.
+/**
+ * Whether the actor may create an account with, or manage an account holding,
+ * `targetRole`. ADMIN may do anything. A non-ADMIN manager (OFFICE_ADMIN) may
+ * not touch an elevated role (ADMIN, PASTOR) nor its own role: otherwise one
+ * OFFICE_ADMIN could reset a peer's email, password and 2FA and sign in as
+ * them (AUD-1-02). So only an ADMIN creates or manages OFFICE_ADMIN accounts.
+ * @param actorRole the signed-in user's role
+ * @param targetRole the role being granted, or the target account's current role
+ * @returns true when allowed
+ */
 export function canAssignRole(actorRole: UserRole | undefined, targetRole: UserRole): boolean {
   if (isAdmin(actorRole)) return true
+  if (targetRole === actorRole) return false
   return targetRole !== UserRole.ADMIN && targetRole !== UserRole.PASTOR
 }
 
