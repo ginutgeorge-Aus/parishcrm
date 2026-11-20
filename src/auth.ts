@@ -106,9 +106,10 @@ type Claim = { attempts: number; lockedUntil: Date | null }
  * leave counter 5 with no lock. The claimed attempt stays counted on failure; success resets it.
  * @param userId the account being guessed against
  * @param field which counter to claim from
+ * @param healed true on the single retry after healing a stuck counter (stops recursion)
  * @returns the counter after the claim plus the lock this claim set (if any), or null when no slot is free or the account is locked
  */
-async function claimAttempt(userId: number, field: AttemptField): Promise<Claim | null> {
+async function claimAttempt(userId: number, field: AttemptField, healed = false): Promise<Claim | null> {
   const lockField = LOCK_FIELD[field]
   try {
     return await prisma.$transaction(async (tx) => {
@@ -129,8 +130,17 @@ async function claimAttempt(userId: number, field: AttemptField): Promise<Claim 
       return { attempts, lockedUntil }
     })
   } catch (err) {
-    if ((err as { code?: string })?.code === "P2025") return null
-    throw err
+    if ((err as { code?: string })?.code !== "P2025") throw err
+    if (healed) return null
+    // Heal a row stuck at counter >= 5 with no live lock (left by the pre-claim code, which wrote the
+    // lock in a separate step): the `lt: 5` claim never matches it, so the account would stay locked
+    // with no expiry. Live claims never leave this state (the 5th zeroes the counter), so a row the
+    // heal matches gets exactly one fresh claim.
+    const heal = await prisma.user.updateMany({
+      where: { id: userId, [field]: { gte: 5 }, OR: [{ [lockField]: null }, { [lockField]: { lte: new Date() } }] },
+      data: { [field]: 0 },
+    })
+    return heal?.count === 1 ? claimAttempt(userId, field, true) : null
   }
 }
 
@@ -519,10 +529,19 @@ export async function authorizeCredentials(
       // Server-side fault (unreadable stored secret), not a wrong guess: don't
       // count it towards the user's OTP lockout.
       if (result.reason === "totp_secret_unreadable") {
-        await prisma.user.updateMany({
-          where: { id: user.id, failedOtpAttempts: { gt: 0 } },
-          data: { failedOtpAttempts: { decrement: 1 } },
-        })
+        if (claimedTotp.lockedUntil) {
+          // This claim was the 5th and set the lock (counter reset to 0): undo that lock, matched on
+          // its exact value, and restore the 4 real failures it zeroed.
+          await prisma.user.updateMany({
+            where: { id: user.id, otpLockedUntil: claimedTotp.lockedUntil },
+            data: { otpLockedUntil: null, failedOtpAttempts: 4 },
+          })
+        } else {
+          await prisma.user.updateMany({
+            where: { id: user.id, failedOtpAttempts: { gt: 0 } },
+            data: { failedOtpAttempts: { decrement: 1 } },
+          })
+        }
         void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: result.reason }, ip)
         return null
       }
