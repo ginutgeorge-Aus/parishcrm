@@ -8,7 +8,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
-import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
+import { encryptPersonFields, PERSON_ENCRYPTED_KEYS } from "@/lib/personFields"
 import { splitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
@@ -68,56 +68,6 @@ const PersonSchema = z.object({
 })
 
 import type { ActionResult } from "./types"
-
-/** Encrypted Person fields the edit form pre-fills via safeDecrypt. */
-const PERSON_ENCRYPTED_KEYS = [
-  "email", "dateOfBirth", "mobile", "workPhone", "homePhone",
-  "notes", "pastoralNotes", "emergencyContactName", "emergencyContactPhone",
-] as const
-
-/**
- * Encrypt-on-write for the Person PII fields, in place. Encrypts whichever PII
- * keys are present and truthy — the pastoral-notes / emergency-contact keys are
- * `delete`d before this runs when the role can't see them, so they're simply
- * skipped. Blind indexes (emailHash/mobileHash) are only set when their source
- * key is present. Shared by create + update so the field list can't drift.
- * @param data Person create/update data; mutated in place
- */
-function encryptPersonFields(data: {
-  email?: string | null
-  emailHash?: string | null
-  dateOfBirth?: string | null
-  mobile?: string | null
-  mobileHash?: string | null
-  workPhone?: string | null
-  homePhone?: string | null
-  notes?: string | null
-  pastoralNotes?: string | null
-  emergencyContactName?: string | null
-  emergencyContactPhone?: string | null
-}) {
-  // Person.notes shares the same "brief administrative annotation"
-  // shape as Family.notes, which IS encrypted (encryptFamilyFields) — this
-  // was the odd one out, stored plaintext at rest.
-  if (data.notes) data.notes = encrypt(data.notes)
-  if (data.pastoralNotes) data.pastoralNotes = encrypt(data.pastoralNotes)
-  if (data.emergencyContactName) data.emergencyContactName = encrypt(data.emergencyContactName)
-  if (data.emergencyContactPhone) data.emergencyContactPhone = encrypt(data.emergencyContactPhone)
-  // store the email blind index from the plaintext BEFORE encrypting, so
-  // the person-export can match registrations on an indexed column. null clears
-  // it when the email is removed.
-  // (skipped when the key is absent, e.g. an unreadable value was omitted, so
-  // the stored hash stays in step with the untouched ciphertext)
-  if (data.email !== undefined) data.emailHash = data.email ? hmacEmail(data.email) : null
-  if (data.email) data.email = encrypt(data.email)
-  if (data.dateOfBirth) data.dateOfBirth = encrypt(data.dateOfBirth)
-  // same before-encrypt blind-index pattern as email, for the
-  // membership-application family-match lookup.
-  if (data.mobile !== undefined) data.mobileHash = data.mobile ? hmacMobile(data.mobile) : null
-  if (data.mobile) data.mobile = encrypt(data.mobile)
-  if (data.workPhone) data.workPhone = encrypt(data.workPhone)
-  if (data.homePhone) data.homePhone = encrypt(data.homePhone)
-}
 
 /**
  * Read the repeated `ministryRoles` form field and validate it. Absent field
