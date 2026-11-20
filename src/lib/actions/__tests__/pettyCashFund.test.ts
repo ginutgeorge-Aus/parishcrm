@@ -137,6 +137,8 @@ describe("update paths accept a deactivated account (allowInactive)", () => {
   const editable = {
     id: 1,
     sessionId: 1,
+    // Same amount as the forms below, so the edit-time negative-float check (AUD-3-04) has nothing to warn about.
+    amount: "10.00",
     session: { id: 1, status: "OPEN", title: "01-JUL-2026" },
     transaction: null,
   }

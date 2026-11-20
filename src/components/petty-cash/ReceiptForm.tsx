@@ -90,6 +90,12 @@ export function ReceiptForm({
               Post anyway
             </Button>
           )}
+          {/* Negative-float warning (edit only: reducing a receipt). Same pattern as ExpenseForm. */}
+          {state.negativeBalanceWarning && (
+            <Button type="submit" name="confirmNegative" value="true" variant="outline" size="sm" disabled={isPending}>
+              Record anyway
+            </Button>
+          )}
         </div>
       )}
 

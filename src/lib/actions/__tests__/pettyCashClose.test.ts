@@ -20,9 +20,16 @@ jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn:
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    pettyCashSession: { findUnique: jest.fn(), updateMany: jest.fn() },
-    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
-      fn({ pettyCashSession: { updateMany: jest.requireMock("@/lib/prisma").prisma.pettyCashSession.updateMany }, __isTx: true })),
+    pettyCashSession: { findUnique: jest.fn(), updateMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    // No auto-opened successor: backs the AUD-3-04 roll-forward lookup.
+    auditLog: { findFirst: jest.fn().mockResolvedValue(null) },
+    // The close re-reads the session inside the tx (AUD-3-04), so the tx client
+    // exposes the same findUnique/findMany mocks.
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => {
+      const s = jest.requireMock("@/lib/prisma").prisma.pettyCashSession
+      const a = jest.requireMock("@/lib/prisma").prisma.auditLog
+      return fn({ pettyCashSession: { updateMany: s.updateMany, findUnique: s.findUnique, findMany: s.findMany }, auditLog: a, __isTx: true })
+    }),
   },
 }))
 
@@ -35,6 +42,7 @@ const mockAudit = logAuditTx as jest.Mock
 function openSession(overrides = {}) {
   return {
     id: 1,
+    title: "05-JAN-2020",
     status: "OPEN",
     openingBalance: "100.00",
     receipts: [],
@@ -180,9 +188,10 @@ test("a failed audit write rolls back and returns the audit-failed error, not a 
   expect(res).toEqual({ error: expect.stringMatching(/audit log/i) })
 })
 
-test("a serialization conflict (P2034) returns a retry error, not a 500", async () => {
+test("a serialization conflict (P2034) on every attempt returns a retry error, not a 500", async () => {
   mockFind.mockResolvedValue(openSession())
-  ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+  // serializableWrite retries P2034; the retry error only surfaces once every attempt conflicts.
+  ;(prisma.$transaction as jest.Mock).mockRejectedValue({ code: "P2034" })
   const res = await closeSession(1, undefined, fd({ notes: "handover" }))
   expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
 })

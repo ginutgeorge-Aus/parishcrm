@@ -8,13 +8,16 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
-import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
+import { toCents, centsToNumber, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { MONEY_DECIMAL_RE, isP2002, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
+import { encrypt } from "@/lib/crypto"
+import { serializableWrite } from "@/lib/serializableWrite"
+import type { Prisma } from "@/lib/generated/prisma/client"
 
 // --- Session ---
 
@@ -60,7 +63,7 @@ export async function createSession(
   })
   if (!custodian) return { error: "Custodian not found" }
 
-  let created
+  let created: { id: number }
   try {
     // Audit in the same transaction: opening a session fixes the custodian and
     // opening float, so a session must never exist without its audit row.
@@ -178,6 +181,12 @@ function isUniqueViolation(e: unknown): boolean {
 
 export type EnsureWeeklyResult = {
   status: "created" | "exists" | "skipped-no-custodian" | "skipped-missing-custodian" | "not-editor"
+  /**
+   * True when this Sunday's opening was carried from a prior session that is
+   * still OPEN, so the figure can still change. Closing that prior session
+   * rolls its final figure into this one (see closeSession).
+   */
+  provisional?: true
 }
 
 /**
@@ -204,11 +213,18 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
   if (!custodian) return { status: "skipped-missing-custodian" }
 
   const title = pettyCashTitle(mostRecentSundayYMD())
+  const thisDate = sessionDateFromTitle(title)!.getTime()
 
   // Dedup by title (any status) — a manually-created or already-auto-created
   // session for that Sunday means we do nothing.
   const existing = await prisma.pettyCashSession.findFirst({ where: { title }, select: { id: true } })
-  if (existing) return { status: "exists" }
+  if (existing) {
+    // Keep the "provisional" notice up on every load until last week is closed.
+    const rows = await prisma.pettyCashSession.findMany({ select: { id: true, title: true, openedAt: true, status: true } })
+    const priorId = findPriorSessionId(rows, thisDate)
+    const prior = rows.find((r) => r.id === priorId)
+    return prior?.status === "OPEN" ? { status: "exists", provisional: true } : { status: "exists" }
+  }
 
   // Carry the prior session's closing cash-in-hand forward as this session's
   // opening balance. Auto-opened sessions used to start at zero, so any
@@ -224,7 +240,6 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
   // (DD-MMM-YYYY) — titles are 1:1 with dates — and we take the session dated
   // latest but strictly before this Sunday. Session count is weekly-bounded, so
   // scanning titles in memory is cheap.
-  const thisDate = sessionDateFromTitle(title)!.getTime()
   const candidates = await prisma.pettyCashSession.findMany({
     select: { id: true, title: true, openedAt: true },
   })
@@ -233,6 +248,8 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
     ? await prisma.pettyCashSession.findUnique({
         where: { id: priorId },
         select: {
+          status: true,
+          countedCash: true,
           openingBalance: true,
           receipts: { select: { amount: true } },
           expenses: { select: { amount: true } },
@@ -240,9 +257,18 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
         },
       })
     : null
-  const openingBalance = prior
-    ? calcRunningBalance(prior.openingBalance, prior.receipts, prior.expenses, prior.transfers)
-    : 0
+  // AUD-3-04: a CLOSED prior with a physical count opens from the count — that is
+  // the cash actually in the tin (pending PO confirmation, #3341). Without a count,
+  // or while the prior is still OPEN, use its running balance; an OPEN prior makes
+  // the figure provisional until its close rolls the final one forward.
+  const provisional = prior?.status === "OPEN"
+  let openingBalance = 0
+  if (prior) {
+    openingBalance =
+      prior.status === "CLOSED" && prior.countedCash !== null
+        ? centsToNumber(toCents(prior.countedCash))
+        : calcRunningBalance(prior.openingBalance, prior.receipts, prior.expenses, prior.transfers)
+  }
 
   // The check + create aren't atomic; the @@unique([title]) constraint makes the
   // race safe — a concurrent double-load loses with P2002, which we treat as
@@ -253,10 +279,14 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
       const created = await tx.pettyCashSession.create({
         data: { title, custodianId, openingBalance },
       })
+      // carriedFromSessionId marks this opening as auto-derived from that session,
+      // so closing it later may roll its final figure in (no manual override).
       await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_AUTO_OPENED", "PettyCashSession", created.id, {
         title,
         custodianId,
         openingBalance,
+        ...(priorId ? { carriedFromSessionId: priorId } : {}),
+        ...(provisional ? { provisional: true } : {}),
       })
     })
   } catch (e) {
@@ -276,7 +306,7 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
   // No revalidatePath: this runs during the page's server render, where Next.js
   // forbids it. The page lists sessions after this call in the same
   // dynamic render, so the new session already shows.
-  return { status: "created" }
+  return provisional ? { status: "created", provisional: true } : { status: "created" }
 }
 
 const CloseSessionSchema = z.object({
@@ -289,6 +319,54 @@ const CloseSessionSchema = z.object({
     .refine((v) => v === undefined || toCents(v) >= 0, "Counted cash must be zero or more"),
 })
 
+type ClosingSession = { id: number; title: string }
+
+/**
+ * AUD-3-04: after session N closes, carry its final figure into the next session's
+ * opening balance — but only when that next session is still OPEN and was
+ * auto-opened from N (its AUTO_OPENED audit row names N as carriedFromSessionId).
+ * A manually opened session keeps its typed-in opening; a closed one is locked.
+ * Runs inside the close transaction so the close, the update and its audit row
+ * commit or roll back together.
+ * @param finalCents counted cash when the close took a count, else the system balance
+ */
+async function rollOpeningForward(
+  tx: Prisma.TransactionClient,
+  userId: number | null,
+  closing: ClosingSession,
+  finalCents: number,
+  basis: "counted" | "system",
+): Promise<void> {
+  // Find the recipient through its recorded provenance, not by date: a manual session
+  // backfilled between the two weeks must not hide the auto-opened successor.
+  const carried = await tx.auditLog.findFirst({
+    where: {
+      action: "PETTY_CASH_SESSION_AUTO_OPENED",
+      resourceType: "PettyCashSession",
+      metadata: { path: ["carriedFromSessionId"], equals: closing.id },
+    },
+    orderBy: { id: "desc" },
+    select: { resourceId: true },
+  })
+  const nextId = carried?.resourceId
+  if (nextId == null) return
+  const next = await tx.pettyCashSession.findUnique({
+    where: { id: nextId },
+    select: { status: true, openingBalance: true },
+  })
+  if (next?.status !== "OPEN") return
+  const oldCents = toCents(next.openingBalance)
+  if (oldCents === finalCents) return
+  const newOpeningBalance = (finalCents / 100).toFixed(2)
+  await tx.pettyCashSession.update({ where: { id: nextId }, data: { openingBalance: newOpeningBalance } })
+  await logAuditGuardedTx(tx, userId, "PETTY_CASH_SESSION_OPENING_ROLLED_FORWARD", "PettyCashSession", nextId, {
+    fromSessionId: closing.id,
+    oldOpeningBalance: (oldCents / 100).toFixed(2),
+    newOpeningBalance,
+    basis,
+  })
+}
+
 /** Close a petty cash session. ADMIN/PASTOR only. */
 export async function closeSession(
   id: number,
@@ -299,77 +377,92 @@ export async function closeSession(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
-  const existing = await prisma.pettyCashSession.findUnique({
-    where: { id },
-    include: {
-      receipts: { select: { amount: true } },
-      expenses: { select: { amount: true } },
-      transfers: { select: { amount: true } },
-    },
-  })
+  // Fast-path checks only; the figures are re-read inside the close transaction.
+  const existing = await prisma.pettyCashSession.findUnique({ where: { id }, select: { status: true } })
   if (!existing) return { error: "Session not found" }
   if (existing.status === "CLOSED") return { error: "Session already closed" }
   const parsed = CloseSessionSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const userId = actorId(session)
 
-  // Optional physical cash count → variance vs the system balance.
-  // System balance is recomputed server-side (never trust a client value); a
-  // non-zero variance must be explained. Closed sessions are locked, so the
-  // stored snapshot can never drift from a later recompute.
-  let countedCash: string | null = null
-  let closingVariance: string | null = null
-  if (parsed.data.countedCash !== undefined) {
-    const systemCents = toCents(
-      calcRunningBalance(
-        existing.openingBalance,
-        existing.receipts,
-        existing.expenses,
-        existing.transfers
-      )
-    )
-    const varianceCents = toCents(parsed.data.countedCash) - systemCents
-    if (varianceCents !== 0 && !parsed.data.notes)
-      return { error: "Explain the variance — counted cash differs from the system balance." }
-    countedCash = parsed.data.countedCash
-    closingVariance = (varianceCents / 100).toFixed(2)
-  }
-
-  // Atomic close: only transition a still-OPEN row. Two admins closing the same
-  // session concurrently both pass the read-check above (both read OPEN); the
-  // conditional updateMany lets exactly one win — the loser matches no row and
-  // is told the session is already closed, so it can't overwrite the earlier,
-  // already-audited close (countedCash/variance/notes/closedAt).
-  let closed: boolean
+  let result: { error: string } | null
   try {
-    closed = await prisma.$transaction(async (tx) => {
-    const { count } = await tx.pettyCashSession.updateMany({
-      where: { id, status: "OPEN" },
-      data: {
-        status: "CLOSED",
-        closedAt: new Date(),
-        notes: parsed.data.notes,
+    // Serializable: the system balance (variance, roll-forward) is read in the same
+    // transaction as the close, so an entry posted concurrently either lands before
+    // the read or the close aborts and retries — the stored variance can't be stale.
+    result = await serializableWrite<{ error: string } | null>(async (tx) => {
+      const current = await tx.pettyCashSession.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          openingBalance: true,
+          receipts: { select: { amount: true } },
+          expenses: { select: { amount: true } },
+          transfers: { select: { amount: true } },
+        },
+      })
+      if (!current) return { error: "Session not found" }
+      if (current.status === "CLOSED") return { error: "Session already closed" }
+
+      // Optional physical cash count → variance vs the system balance.
+      // System balance is recomputed server-side (never trust a client value); a
+      // non-zero variance must be explained. Closed sessions are locked, so the
+      // stored snapshot can never drift from a later recompute.
+      const systemCents = toCents(
+        calcRunningBalance(current.openingBalance, current.receipts, current.expenses, current.transfers)
+      )
+      let countedCash: string | null = null
+      let closingVariance: string | null = null
+      if (parsed.data.countedCash !== undefined) {
+        const varianceCents = toCents(parsed.data.countedCash) - systemCents
+        if (varianceCents !== 0 && !parsed.data.notes)
+          return { error: "Explain the variance — counted cash differs from the system balance." }
+        countedCash = parsed.data.countedCash
+        closingVariance = (varianceCents / 100).toFixed(2)
+      }
+
+      // Atomic close: only transition a still-OPEN row. Two admins closing the same
+      // session concurrently both pass the read-check above (both read OPEN); the
+      // conditional updateMany lets exactly one win — the loser matches no row and
+      // is told the session is already closed, so it can't overwrite the earlier,
+      // already-audited close (countedCash/variance/notes/closedAt).
+      const { count } = await tx.pettyCashSession.updateMany({
+        where: { id, status: "OPEN" },
+        data: {
+          status: "CLOSED",
+          closedAt: new Date(),
+          // Free text that can name people — encrypt at rest (read via safeDecrypt).
+          notes: parsed.data.notes ? encrypt(parsed.data.notes) : undefined,
+          countedCash,
+          closingVariance,
+        },
+      })
+      if (count === 0) return { error: "Session already closed" }
+      // Always audit the close — it is a state-locking mutation (afterwards all
+      // receipts/expenses/transfers are rejected), so who closed it must be on the
+      // trail whether or not a physical count was taken. `counted` records
+      // which; countedCash/variance are null on a count-less close.
+      await logAuditGuardedTx(tx, userId, "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
+        counted: countedCash !== null,
         countedCash,
-        closingVariance,
-      },
-    })
-    if (count === 0) return false
-    // Always audit the close — it is a state-locking mutation (afterwards all
-    // receipts/expenses/transfers are rejected), so who closed it must be on the
-    // trail whether or not a physical count was taken. `counted` records
-    // which; countedCash/variance are null on a count-less close.
-    await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
-      counted: countedCash !== null,
-      countedCash,
-      variance: closingVariance,
-    })
-    return true
-  })
+        variance: closingVariance,
+      })
+      await rollOpeningForward(
+        tx,
+        userId,
+        current,
+        countedCash !== null ? toCents(countedCash) : systemCents,
+        countedCash !== null ? "counted" : "system",
+      )
+      return null
+    }, { error: "Close conflict — please try again." })
   } catch (e) {
     if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "closeSession")
-    if (isP2034(e)) return { error: "Conflict while closing the session — please try again." }
     throw e
   }
-  if (!closed) return { error: "Session already closed" }
+  if (result) return result
   revalidatePath("/accounting/petty-cash")
   revalidatePath(`/accounting/petty-cash/sessions/${id}`)
   revalidatePath("/") // dashboard open-session count

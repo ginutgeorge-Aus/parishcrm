@@ -7,7 +7,7 @@ Petty cash tracks physical cash handled outside the bank — cash offerings coll
 
 ## Using it
 
-**`/accounting/petty-cash`** lists sessions (open and closed). A session for the most recent Sunday is opened automatically the first time an ADMIN/PASTOR visits the page in a given week — under a configured default custodian — seeded with whatever cash balance the prior session closed with (not zero), so an un-banked float carries forward instead of vanishing from the books. If no default custodian is configured, the page shows a banner instead of auto-opening anything.
+**`/accounting/petty-cash`** lists sessions (open and closed). A session for the most recent Sunday is opened automatically the first time an ADMIN/PASTOR visits the page in a given week — under a configured default custodian — seeded from the prior session (not zero), so an un-banked float carries forward instead of vanishing from the books. If the prior session was closed with a physical cash count, the new session opens from that counted figure (the cash actually in the tin); otherwise from the prior session's system balance. If the prior session is still open, the new session is still created, but the page shows "Opening balance is provisional" until last week is closed: closing it then carries the final figure (counted cash if entered, else the system balance) into this week's opening balance, with an audit entry recording the old and new amounts. Sessions opened by hand (with a typed-in opening balance) are never changed this way. If no default custodian is configured, the page shows a banner instead of auto-opening anything.
 
 Inside an open session (`/accounting/petty-cash/sessions/[id]`):
 - **Receipts** — cash coming in (e.g. a cash offering), posted against an income category, optionally tagged to a donor (for giving credit) and a service type (a simple lookup list, e.g. "Sunday Service", "Wedding") and a [fund](/parishcrm/docs/accounting-overview/).
@@ -24,7 +24,9 @@ Inside an open session (`/accounting/petty-cash/sessions/[id]`):
 
 A near-identical repeat entry (same date/amount/category/donor or payee) is flagged as a likely duplicate and needs a second confirmation to post — the same double-entry guard used on the main transaction form.
 
-**Closing a session** (ADMIN/PASTOR) locks it — no further receipts/expenses/transfers. Optionally enter the counted physical cash; if it differs from the system-calculated balance, a note explaining the variance is required before the close is accepted. Once closed, the count and variance are frozen permanently.
+**Editing an entry** that would push the session's cash balance below zero (raising an expense, or lowering a receipt) shows the same "Record anyway" warning as adding a new expense.
+
+**Closing a session** (ADMIN/PASTOR) locks it — no further receipts/expenses/transfers. Optionally enter the counted physical cash; if it differs from the system-calculated balance, a note explaining the variance is required before the close is accepted. Once closed, the count and variance are frozen permanently. Close notes are stored encrypted.
 
 **Bulk CSV import** (`/accounting/petty-cash/import`, ADMIN only) lets a backlog of receipts/expenses be loaded from a spreadsheet in one pass — rows are grouped into (and auto-create) the correct weekly sessions, donors are matched by name/banking-name with an override picker for anything ambiguous, and rows matching an already-imported entry are skipped.
 
