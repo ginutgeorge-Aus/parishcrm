@@ -195,6 +195,7 @@ function stripCommentsAndStrings(src: string): string {
     let i = start
     let depth = 0
     let prev = ""
+    let before = "" // the non-space char before `prev`, to spot postfix ++/--
     let word = ""
     while (i < n) {
       const c = src[i]
@@ -242,7 +243,10 @@ function stripCommentsAndStrings(src: string): string {
         }
         if (!/\s/.test(c)) {
           word = ident.test(c) ? (ident.test(prev) ? word + c : c) : ""
-          prev = c
+          // `x++ / 2`: a postfix ++/-- ends an operand, so a following `/` is division.
+          const postfix = (c === "+" || c === "-") && prev === c && (ident.test(before) || before === ")" || before === "]")
+          before = prev
+          prev = postfix ? ")" : c
         }
         i++
       }
@@ -387,6 +391,9 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(leadingGuards("const s = `a ${!isAdmin(r)}`\nawait prisma.x.create()")).toEqual(["isAdmin"])
     // Division is not a regex.
     expect(leadingGuards("const h = a / b\nif (!isAdmin(r)) return // x'\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // Division after a postfix ++/-- is not a regex opener.
+    expect(leadingGuards("let n = 4; n++ / 2; if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("let n = 4; n-- / 2; if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
     // canX(...) === false with three or more paren levels.
     expect(leadingGuards("if (isAdmin(f(g(h(1)), (2))) === false) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
     expect(leadingGuards("if (isAdmin(f(g(1))) === true) return\nawait prisma.x.create()")).toEqual([])
