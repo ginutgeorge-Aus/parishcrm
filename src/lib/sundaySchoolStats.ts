@@ -25,19 +25,17 @@ export type AttendanceSummary = {
   rate: number | null
 }
 
-/** An exact non-negative fraction (den > 0), kept reduced. */
-type Fraction = { num: bigint; den: bigint }
-
 /** Exam results count, the exact sum of their score/total ratios, and the rounded average percent. */
 export type ExamSummary = {
   results: number
   /** Results not counted because the score or total is not a valid decimal, or the total is 0. */
   skipped: number
   /**
-   * Exact sum of each result's score/total ratio; kept so summaries can be merged without rounding.
-   * The denominator is bounded by the LCM of the distinct exam totals (a handful in practice).
+   * Sum of the counted scores (hundredths), keyed by exam total (hundredths); kept so summaries
+   * merge exactly without rounding. Size is the number of distinct totals, and no common
+   * denominator is accumulated: it is formed only when the average is computed.
    */
-  ratioSum: Fraction
+  ratioSum: ReadonlyMap<bigint, bigint>
   averagePercent: number | null
 }
 
@@ -171,8 +169,6 @@ function hundredths(s: string): bigint | null {
   return BigInt(whole) * BigInt(100) + BigInt(frac.padEnd(2, "0"))
 }
 
-const ZERO: Fraction = { num: BigInt(0), den: BigInt(1) }
-
 /**
  * Greatest common divisor of two non-negative BigInts.
  * @param a first value
@@ -184,43 +180,32 @@ function gcd(a: bigint, b: bigint): bigint {
 }
 
 /**
- * Exact sum of two fractions, reduced so repeated sums stay small.
- * @param a first fraction
- * @param b second fraction
+ * Add `score` (hundredths) to the running sum for exams out of `total` (hundredths).
+ * @param sums per-total score sums to mutate
+ * @param total the exam total, in hundredths (non-zero)
+ * @param score score sum to add, in hundredths
  */
-function addFractions(a: Fraction, b: Fraction): Fraction {
-  const num = a.num * b.den + b.num * a.den
-  const den = a.den * b.den
-  const g = gcd(num, den)
-  return g > BigInt(1) ? { num: num / g, den: den / g } : { num, den }
+function addToTotal(sums: Map<bigint, bigint>, total: bigint, score: bigint): void {
+  sums.set(total, (sums.get(total) ?? BigInt(0)) + score)
 }
 
 /**
- * A score/total ratio as an exact fraction, or null when either value is not
- * a valid decimal or the total is 0.
- * @param score the child's score
- * @param totalMarks the exam's total
- */
-function scoreRatio(score: string, totalMarks: string): Fraction | null {
-  const s = hundredths(score)
-  const t = hundredths(totalMarks)
-  if (s === null || t === null || t === BigInt(0)) return null
-  const g = gcd(s, t)
-  return g > BigInt(1) ? { num: s / g, den: t / g } : { num: s, den: t }
-}
-
-/**
- * Build an ExamSummary from the exact ratio sum; the average is rounded half
- * up once: round(sum * 100 / results).
+ * Build an ExamSummary from per-total score sums; the average is rounded half
+ * up once: round(sum(score/total) * 100 / results). The common denominator
+ * (LCM of the distinct totals) is only formed here, never stored or accumulated.
  * @param results number of results counted
- * @param ratioSum exact sum of their score/total ratios
+ * @param ratioSum score sums (hundredths) keyed by exam total (hundredths)
  * @param skipped number of results not counted (invalid score or total)
  */
-function examSummary(results: number, ratioSum: Fraction, skipped: number): ExamSummary {
+function examSummary(results: number, ratioSum: ReadonlyMap<bigint, bigint>, skipped: number): ExamSummary {
   if (results === 0) return { results, skipped, ratioSum, averagePercent: null }
+  let den = BigInt(1)
+  for (const t of ratioSum.keys()) den = (den / gcd(den, t)) * t
+  let num = BigInt(0)
+  for (const [t, s] of ratioSum) num += s * (den / t)
   const n = BigInt(results)
   // round(num * 100 / (den * n)) in integers: (2*num*100 + den*n) / (2*den*n)
-  const avg = (BigInt(200) * ratioSum.num + ratioSum.den * n) / (BigInt(2) * ratioSum.den * n)
+  const avg = (BigInt(200) * num + den * n) / (BigInt(2) * den * n)
   return { results, skipped, ratioSum, averagePercent: Number(avg) }
 }
 
@@ -230,15 +215,17 @@ function examSummary(results: number, ratioSum: Fraction, skipped: number): Exam
  * @param results one score/total pair per result
  */
 export function summariseExams(results: readonly { score: string; totalMarks: string }[]): ExamSummary {
-  let n = 0, sum = ZERO, skipped = 0
+  let n = 0, skipped = 0
+  const sum = new Map<bigint, bigint>()
   for (const r of results) {
-    const v = scoreRatio(r.score, r.totalMarks)
-    if (v === null) {
+    const s = hundredths(r.score)
+    const t = hundredths(r.totalMarks)
+    if (s === null || t === null || t === BigInt(0)) {
       skipped++
       continue
     }
     n++
-    sum = addFractions(sum, v)
+    addToTotal(sum, t, s)
   }
   return examSummary(n, sum, skipped)
 }
@@ -248,10 +235,11 @@ export function summariseExams(results: readonly { score: string; totalMarks: st
  * @param parts summaries to add up
  */
 export function mergeExams(parts: readonly ExamSummary[]): ExamSummary {
-  let n = 0, sum = ZERO, skipped = 0
+  let n = 0, skipped = 0
+  const sum = new Map<bigint, bigint>()
   for (const p of parts) {
     n += p.results
-    sum = addFractions(sum, p.ratioSum)
+    for (const [t, s] of p.ratioSum) addToTotal(sum, t, s)
     skipped += p.skipped
   }
   return examSummary(n, sum, skipped)
