@@ -261,7 +261,8 @@ describe("closeSession", () => {
     await closeSession(1, undefined, fd({ notes: "Handed to Mary" }))
     expect(mockUpdateManySession).toHaveBeenCalledWith({
       where: { id: 1, status: "OPEN" },
-      data: expect.objectContaining({ status: "CLOSED", notes: "Handed to Mary" }),
+      // Close notes are encrypted at rest (AUD-3-04).
+      data: expect.objectContaining({ status: "CLOSED", notes: "enc:Handed to Mary" }),
     })
     expect(mockRedirect).toHaveBeenCalledWith("/accounting/petty-cash")
   })

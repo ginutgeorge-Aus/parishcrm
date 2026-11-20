@@ -90,6 +90,12 @@ export default async function PettyCashPage(
             .
           </div>
         )}
+      {userCanEdit && ensured.provisional && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Opening balance is provisional: last week&rsquo;s session is still open. Closing it carries the final
+          figure into this week&rsquo;s opening balance.
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-y-2">
         <h2 className="text-2xl font-semibold text-foreground">Petty Cash</h2>
         {userCanEdit && (
