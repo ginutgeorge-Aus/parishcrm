@@ -40,10 +40,11 @@ export function GroupMessageForm({
           No member can receive this email: the group has no active members, or every member is opted out or has no usable email address.
         </p>
       )}
-      {/* aria-disabled (not disabled) keeps the button focusable so screen-reader users hear why it is off; the click is blocked below. */}
+      {/* In-flight guard uses `disabled`; the reasoned block (no recipients) uses aria-disabled so the button stays focusable and screen-reader users hear why it is off. The click is blocked below. */}
       <Button
         type="submit"
-        aria-disabled={isPending || !canSend}
+        disabled={isPending}
+        aria-disabled={!canSend}
         aria-describedby={canSend ? undefined : "send-blocked"}
         onClick={(e) => { if (isPending || !canSend) e.preventDefault() }}
         className="w-full sm:w-auto aria-disabled:pointer-events-none aria-disabled:opacity-50"
