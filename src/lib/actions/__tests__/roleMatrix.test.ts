@@ -196,6 +196,7 @@ function stripCommentsAndStrings(src: string): string {
     let depth = 0
     let prev = ""
     let before = "" // the non-space char before `prev`, to spot postfix ++/--
+    let prevPos = -1 // index of `prev`, so ++/-- needs two adjacent operator chars
     let word = ""
     while (i < n) {
       const c = src[i]
@@ -244,9 +245,10 @@ function stripCommentsAndStrings(src: string): string {
         if (!/\s/.test(c)) {
           word = ident.test(c) ? (ident.test(prev) ? word + c : c) : ""
           // `x++ / 2`: a postfix ++/-- ends an operand, so a following `/` is division.
-          const postfix = (c === "+" || c === "-") && prev === c && (ident.test(before) || before === ")" || before === "]")
+          const postfix = (c === "+" || c === "-") && prev === c && prevPos === i - 1 && (ident.test(before) || before === ")" || before === "]")
           before = prev
           prev = postfix ? ")" : c
+          prevPos = i
         }
         i++
       }
@@ -394,6 +396,9 @@ describe("role matrix: generated from src/lib/actions", () => {
     // Division after a postfix ++/-- is not a regex opener.
     expect(leadingGuards("let n = 4; n++ / 2; if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
     expect(leadingGuards("let n = 4; n-- / 2; if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // `n + +/re/` is binary plus then unary plus (not postfix ++): the slash opens a regex.
+    expect(leadingGuards("const s = n + +/prisma/.test(t); if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("const s = n - -/prisma/.test(t); if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
     // canX(...) === false with three or more paren levels.
     expect(leadingGuards("if (isAdmin(f(g(h(1)), (2))) === false) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
     expect(leadingGuards("if (isAdmin(f(g(1))) === true) return\nawait prisma.x.create()")).toEqual([])
