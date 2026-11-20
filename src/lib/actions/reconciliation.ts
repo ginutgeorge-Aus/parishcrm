@@ -12,7 +12,7 @@ import { endOfDayUTC } from "@/lib/dates"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { assertUnlocked, ACCOUNTING_LOCK_DATE_KEY } from "@/lib/accountingLock"
+import { assertUnlocked, getAccountingLockDate } from "@/lib/accountingLock"
 import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isP2034 } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
@@ -138,6 +138,7 @@ async function finalizeReconciliation(
               paymentAccountId,
               count: recon.reconciledCount,
               closingBalance,
+              lockApplied: recon.lockApplied ?? null,
             })
           }
           return { result: recon.result }
@@ -168,7 +169,7 @@ async function reconcileIfBalanced(
   paymentAccountId: number,
   statementDate: Date,
   closingBalance: string
-): Promise<{ result: ActionResultWithSuccess; reconciledCount: number | null }> {
+): Promise<{ result: ActionResultWithSuccess; reconciledCount: number | null; lockApplied?: string | null }> {
   const opening = await tx.accountOpeningBalance.findUnique({
     where: { paymentAccountId },
   })
@@ -184,9 +185,18 @@ async function reconcileIfBalanced(
   // change can't race between that pre-check and this commit. The lock only
   // narrows which rows get marked reconciled (below); the book-balance
   // equation still spans the full range so it matches the reconciliation page.
-  const lockRow = await tx.appSetting.findUnique({ where: { key: ACCOUNTING_LOCK_DATE_KEY } })
-  const parsedLock = lockRow?.value ? new Date(lockRow.value) : null
-  const lockDate = parsedLock && !Number.isNaN(parsedLock.getTime()) ? parsedLock : null
+  const lockDate = await getAccountingLockDate(tx)
+  const lockEnd = lockDate ? endOfDayUTC(lockDate) : null
+  // A lock change between the saveStatementBalance pre-check and this commit can
+  // put the statement date itself in a locked period. Nothing is reconcilable then.
+  if (lockDate && lockEnd !== null && lockEnd >= lte) {
+    return {
+      result: {
+        success: `Saved. The statement date falls in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}) — transactions not reconciled.`,
+      },
+      reconciledCount: null,
+    }
+  }
 
   const range = { gte: opening.asOfDate, lte }
   // Sequential awaits, not Promise.all — an interactive transaction runs on one
@@ -215,23 +225,32 @@ async function reconcileIfBalanced(
     }
   }
 
-  // Only rows strictly after the lock day may be marked reconciled; locked
-  // periods stay frozen. No lock, or a lock before the range starts → the
-  // whole range (keeps `gte` so rows stamped exactly at the opening date count).
-  const lockEnd = lockDate ? endOfDayUTC(lockDate) : null
+  // Only rows strictly after the lock day may be marked reconciled. Locked rows
+  // are read-only (even the reconciled flag: toggleReconciled/reconcileMany
+  // reject them), so they stay as they are and we report how many were skipped.
+  // No lock, or a lock before the range starts → the whole range (keeps `gte`
+  // so rows stamped exactly at the opening date count).
   const lockInRange = lockEnd !== null && lockEnd >= opening.asOfDate
   const markRange = lockInRange ? { gt: lockEnd, lte } : range
   const updated = await tx.transaction.updateMany({
     where: { paymentAccountId, reconciled: false, date: markRange },
     data: { reconciled: true },
   })
-  const lockNote = lockDate && lockInRange
-    ? ` (transactions on or before ${lockDate.toISOString().slice(0, 10)} left unchanged)`
-    : ""
+  const skipped =
+    lockInRange && lockDate
+      ? await tx.transaction.count({
+          where: { paymentAccountId, reconciled: false, date: { gte: opening.asOfDate, lte: lockEnd } },
+        })
+      : 0
+  const lockNote =
+    lockDate && skipped > 0
+      ? ` (${skipped} unreconciled transaction${skipped === 1 ? "" : "s"} on or before ${lockDate.toISOString().slice(0, 10)} left unchanged — locked period)`
+      : ""
   return {
     result: {
       success: `Balanced — ${updated.count} transaction${updated.count === 1 ? "" : "s"} reconciled.${lockNote}`,
     },
     reconciledCount: updated.count,
+    lockApplied: lockInRange ? lockDate!.toISOString().slice(0, 10) : null,
   }
 }
