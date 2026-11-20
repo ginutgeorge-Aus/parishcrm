@@ -51,9 +51,7 @@ describe("enrolCandidateWhere", () => {
   it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN])("%s: no extra filter", (role) => {
     expect(enrolCandidateWhere(role, 2026)).toEqual({})
   })
-  it.each([UserRole.HEADMASTER, UserRole.TEACHER, undefined])("%s: children or already enrolled this year", (role) => {
-    expect(enrolCandidateWhere(role, 2026)).toEqual({
-      OR: [{ role: "CHILD" }, { sundaySchoolEnrolments: { some: { year: 2026, class: { archivedAt: null } } } }],
-    })
+  it.each([UserRole.HEADMASTER, UserRole.TEACHER, undefined])("%s: children only", (role) => {
+    expect(enrolCandidateWhere(role, 2026)).toEqual({ role: "CHILD" })
   })
 })
