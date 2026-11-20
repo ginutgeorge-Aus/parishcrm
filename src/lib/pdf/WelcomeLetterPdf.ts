@@ -1,9 +1,8 @@
 // PDF renderer for the new-member welcome letter. Mirrors MembershipPdf.ts:
 // same letterhead banner + gold rule, pdfkit imperative layout, base64 crest
 // so only pdfkit's .afm fonts need on-disk tracing (see next.config.mjs).
-import PDFDocument from "pdfkit"
 import type { WelcomeLetterModel } from "@/lib/welcomeLetter"
-import { getLetterheadAsset } from "@/lib/branding"
+import { renderPdfBuffer, type LetterheadAsset } from "@/lib/pdf/renderPdf"
 import { drawTextLetterhead } from "@/lib/pdf/textLetterhead"
 import { PRIMARY_HEX, ACCENT_HEX, SLATE_700, SLATE_500 } from "@/lib/theme/palette"
 
@@ -13,8 +12,12 @@ const LETTERHEAD_TOP = 40
 // Cap the banner height so a tall uploaded letterhead can't overflow the page ( review).
 const LETTERHEAD_MAX_H = 160
 
-type LetterheadAsset = Awaited<ReturnType<typeof getLetterheadAsset>>
-
+/**
+ * Draw the welcome letter onto an open document.
+ * @param doc pdfkit document (A4)
+ * @param m letter content
+ * @param letterhead uploaded letterhead image, or null for the text header
+ */
 function draw(doc: PDFKit.PDFDocument, m: WelcomeLetterModel, letterhead: LetterheadAsset): void {
   const margin = doc.page.margins.left
   const contentW = doc.page.width - margin * 2
@@ -136,15 +139,11 @@ function draw(doc: PDFKit.PDFDocument, m: WelcomeLetterModel, letterhead: Letter
   }
 }
 
+/**
+ * Render the welcome letter as a PDF.
+ * @param model letter content
+ * @returns PDF bytes
+ */
 export async function renderWelcomeLetterPdf(model: WelcomeLetterModel): Promise<Buffer> {
-  const letterhead = await getLetterheadAsset()
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 48 })
-    const chunks: Buffer[] = []
-    doc.on("data", (c: Buffer) => chunks.push(c))
-    doc.on("end", () => resolve(Buffer.concat(chunks)))
-    doc.on("error", reject)
-    draw(doc, model, letterhead)
-    doc.end()
-  })
+  return renderPdfBuffer({ size: "A4", margin: 48 }, (doc, letterhead) => draw(doc, model, letterhead))
 }

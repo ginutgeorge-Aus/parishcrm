@@ -102,6 +102,16 @@ describe("getBookingRequestPreview", () => {
   })
 })
 
+describe("booking request candidates (#3360)", () => {
+  it("only asks for REQUESTED rows dated today or later (Sydney)", async () => {
+    asRole("PASTOR")
+    mockPreviewRows()
+    await getBookingRequestPreview()
+    const where = (prisma.venueUsage.findMany as jest.Mock).mock.calls[0][0].where
+    expect(where).toMatchObject({ status: "REQUESTED", bookingRequestedAt: null, date: { gte: new Date("2026-10-25T00:00:00Z") } })
+  })
+})
+
 describe("sendBookingRequest", () => {
   it("gates role, demo, ids and venue contact", async () => {
     asRole("VIEWER")

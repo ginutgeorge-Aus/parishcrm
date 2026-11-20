@@ -22,6 +22,7 @@ export function TransferForm({
   importedTruncated = false,
   importedFiltered = false,
   isAdmin = false,
+  transfer,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
@@ -33,6 +34,8 @@ export function TransferForm({
   importedFiltered?: boolean
   /** Viewer is ADMIN: may override the cross-day window guard (server re-checks the role). */
   isAdmin?: boolean
+  /** Edit mode (AUD-3-04): only date, amount and notes can be corrected; no deposit picker. */
+  transfer?: { date: string; amount: string; notes: string }
 }>) {
   const router = useRouter()
   // Idempotency token (#491), stable per mounted form — see useSubmissionToken.
@@ -41,8 +44,13 @@ export function TransferForm({
   // Controlled (not an uncontrolled field) so it survives React's post-action form reset.
   const [override, setOverride] = useState(false)
   const [importedId, setImportedId] = useState("")
-  const [date, setDate] = useState(() => sydneyTodayYMD())
-  const [amount, setAmount] = useState("")
+  const [date, setDate] = useState(() => transfer?.date ?? sydneyTodayYMD())
+  const [amount, setAmount] = useState(transfer?.amount ?? "")
+  // Controlled so a failed correction keeps the edited note (React resets uncontrolled fields).
+  const [notes, setNotes] = useState(transfer?.notes ?? "")
+  // The date + amount the admin confirmed the override for: a different pair is a new check.
+  const [overrideFor, setOverrideFor] = useState("")
+  const overrideActive = override && overrideFor === `${date}|${amount}`
   // Manual date/amount stashed before the first imported pick, restored on "None".
   const [manual, setManual] = useState<{ date: string; amount: string } | null>(null)
   // Cents computed once so option comparisons are exact (no float drift).
@@ -75,20 +83,30 @@ export function TransferForm({
         <label className="flex items-start gap-2 text-sm">
           <input
             type="checkbox"
-            checked={override}
-            onChange={(e) => setOverride(e.target.checked)}
+            checked={overrideActive}
+            onChange={(e) => {
+              setOverride(e.target.checked)
+              setOverrideFor(`${date}|${amount}`)
+            }}
             className="mt-1 size-4 shrink-0"
           />
           <span>Admin: record anyway (separate deposit)</span>
         </label>
       )}
-      <input type="hidden" name="overrideWindowGuard" value={override ? "true" : ""} />
+      <input type="hidden" name="overrideWindowGuard" value={overrideActive ? "true" : ""} />
+      {transfer && (
+        <>
+          <input type="hidden" name="expectedAmount" value={transfer.amount} />
+          <input type="hidden" name="expectedDate" value={transfer.date} />
+        </>
+      )}
 
       <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-        Current cash in hand: <span className="font-semibold">{fmtAUD(maxAmount)}</span>
+        {transfer ? "Cash available for this transfer" : "Current cash in hand"}:{" "}
+        <span className="font-semibold">{fmtAUD(maxAmount)}</span>
       </div>
 
-      {(imported.length > 0 || importedTruncated || importedFiltered) && (
+      {!transfer && (imported.length > 0 || importedTruncated || importedFiltered) && (
         <div className="space-y-1">
           <Label htmlFor="importedTransactionId">
             Imported bank deposit{" "}
@@ -172,44 +190,49 @@ export function TransferForm({
         </div>
       </div>
 
-      <div className="space-y-1">
-        <Label htmlFor="retainedFloat">
-          Retained float ({APP_CURRENCY}){" "}
-          <span className="text-muted-foreground text-xs">(informational — amount kept back)</span>
-        </Label>
-        <Input
-          id="retainedFloat"
-          name="retainedFloat"
-          type="number"
-          step="0.01"
-          min="0"
-          defaultValue="0.00"
-          placeholder="0.00"
-        />
-      </div>
+      {/* Deposit details are not part of a correction (AUD-3-04 edits amount/date/notes only). */}
+      {!transfer && (
+        <>
+          <div className="space-y-1">
+            <Label htmlFor="retainedFloat">
+              Retained float ({APP_CURRENCY}){" "}
+              <span className="text-muted-foreground text-xs">(informational — amount kept back)</span>
+            </Label>
+            <Input
+              id="retainedFloat"
+              name="retainedFloat"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue="0.00"
+              placeholder="0.00"
+            />
+          </div>
 
-      <div className="space-y-1">
-        <Label htmlFor="depositedByName">Deposited by</Label>
-        <Input id="depositedByName" name="depositedByName" required />
-      </div>
+          <div className="space-y-1">
+            <Label htmlFor="depositedByName">Deposited by</Label>
+            <Input id="depositedByName" name="depositedByName" required />
+          </div>
 
-      <div className="space-y-1">
-        <Label htmlFor="depositSlipRef">
-          Deposit slip ref{" "}
-          <span className="text-muted-foreground text-xs">(optional)</span>
-        </Label>
-        <Input id="depositSlipRef" name="depositSlipRef" />
-      </div>
+          <div className="space-y-1">
+            <Label htmlFor="depositSlipRef">
+              Deposit slip ref{" "}
+              <span className="text-muted-foreground text-xs">(optional)</span>
+            </Label>
+            <Input id="depositSlipRef" name="depositSlipRef" />
+          </div>
+        </>
+      )}
 
       <div className="space-y-1">
         <Label htmlFor="notes">
           Notes <span className="text-muted-foreground text-xs">(optional)</span>
         </Label>
-        <Textarea id="notes" name="notes" rows={2} />
+        <Textarea id="notes" name="notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
 
       <div className="flex gap-3 pt-2">
-        <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Record transfer"}</Button>
+        <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : transfer ? "Save changes" : "Record transfer"}</Button>
         <Button type="button" variant="outline" onClick={() => router.back()}>
           Cancel
         </Button>

@@ -193,3 +193,29 @@ it("spends the per-IP DB quota only after validation and Turnstile", async () =>
   expect(result).toEqual({ error: "Signature is required" })
   expect(dbRateLimit).not.toHaveBeenCalled()
 })
+
+describe("field-level validation errors", () => {
+  const withPersonal = (patch: object) => ({ ...validPayload, personal: { ...validPayload.personal, ...patch } })
+  const withSpouse = (patch: object) => ({ ...validPayload, spouse: { ...validPayload.spouse, ...patch } })
+
+  it("names the email field for an address like mary@bad", async () => {
+    const r = await submitMembershipApplication({ payload: withPersonal({ email: "mary@bad" }), signature: sig })
+    expect(r).toEqual({ error: "Email: Enter a valid email address", field: "personal.email" })
+    expect(JSON.stringify(r)).not.toContain("mary@bad")
+    expect(prisma.membershipApplication.create).not.toHaveBeenCalled()
+  })
+  it("names the spouse date for a bad spouse date", async () => {
+    const r = await submitMembershipApplication({ payload: withSpouse({ dateOfBirth: "1982-02-31" }), signature: sig })
+    expect(r).toEqual({ error: "Spouse date of birth: Enter a valid date", field: "spouse.dateOfBirth" })
+    expect(JSON.stringify(r)).not.toContain("1982-02-31")
+  })
+  it("names the spouse email", async () => {
+    const r = await submitMembershipApplication({ payload: withSpouse({ email: "x@y" }), signature: sig })
+    expect(r).toEqual({ error: "Spouse email: Enter a valid email address", field: "spouse.email" })
+  })
+  it("uses a 1-based row number for child rows", async () => {
+    const payload = { ...validPayload, children: [validPayload.children[0], { ...validPayload.children[0], name: "" }] }
+    const r = await submitMembershipApplication({ payload, signature: sig })
+    expect(r).toEqual({ error: "Child 2 name: This field is required", field: "children.1.name" })
+  })
+})

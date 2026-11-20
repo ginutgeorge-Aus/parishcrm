@@ -43,6 +43,8 @@ type Props = Readonly<{
   defaultType?: SacramentType
   /** Present on edit: the rite and person are then fixed. */
   record?: SacramentFormValues
+  /** Where Cancel goes: the entry page on edit, the register on create (not history, which may leave the app). */
+  cancelHref?: string
   action:
     | ((prev: SacramentCreateResult | undefined, formData: FormData) => Promise<SacramentCreateResult>)
     | ((prev: ActionResultWithSuccess, formData: FormData) => Promise<ActionResultWithSuccess>)
@@ -61,7 +63,7 @@ type Props = Readonly<{
  * create succeeds, so a double click cannot number a second entry. Fields are
  * locked while a save is pending, and a thrown action error becomes a form error.
  */
-export function SacramentForm({ personId, defaultType, record, action }: Props) {
+export function SacramentForm({ personId, defaultType, record, cancelHref = "/sacraments", action }: Props) {
   const router = useRouter()
   const run = async (_prev: Outcome | undefined, formData: FormData): Promise<Outcome> => {
     const values: Record<string, string> = {}
@@ -177,7 +179,7 @@ export function SacramentForm({ personId, defaultType, record, action }: Props) 
         <Button type="submit" disabled={isPending || createdId !== null}>
           {isPending ? "Saving…" : record ? "Save changes" : "Add to register"}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
+        <Button type="button" variant="outline" onClick={() => router.push(cancelHref)}>Cancel</Button>
       </div>
     </form>
   )

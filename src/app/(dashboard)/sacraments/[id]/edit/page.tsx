@@ -37,7 +37,7 @@ export default async function EditSacramentPage(props: Readonly<{ params: Promis
         <h2 className="text-2xl font-semibold text-foreground">Edit {r.registerNo}</h2>
         <p className="text-sm text-muted-foreground">{r.person.firstName} {r.person.lastName}</p>
       </div>
-      <SacramentForm record={r} action={updateSacramentRecord.bind(null, r.id)} />
+      <SacramentForm record={r} cancelHref={`/sacraments/${r.id}`}action={updateSacramentRecord.bind(null, r.id)} />
     </div>
   )
 }

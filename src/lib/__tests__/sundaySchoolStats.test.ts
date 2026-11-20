@@ -117,7 +117,8 @@ describe("summariseExams / mergeExams", () => {
     const rows = [{ score: "1", totalMarks: "3" }, { score: "2", totalMarks: "3" }, { score: "1", totalMarks: "6" }]
     const whole = summariseExams(rows)
     expect(mergeExams(rows.map((r) => summariseExams([r])))).toEqual(whole)
-    expect(whole.ratioSum).toEqual({ num: BigInt(7), den: BigInt(6) }) // 1/3 + 2/3 + 1/6, reduced
+    // score sums (hundredths) per total (hundredths): 1+2 out of 3, 1 out of 6; no common denominator stored
+    expect(whole.ratioSum).toEqual(new Map([[BigInt(300), BigInt(300)], [BigInt(600), BigInt(100)]]))
     expect(whole.averagePercent).toBe(39) // 7/18 = 38.89%
   })
   it("rounds once over exact ratios, not per result", () => {

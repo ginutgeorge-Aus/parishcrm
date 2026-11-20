@@ -16,6 +16,19 @@ export function isTwoDecimalMoney(n: number): boolean {
   return Number.isFinite(n) && Number(n.toFixed(2)) === n
 }
 
+/**
+ * Normalise a typed money string: strips whitespace, well-formed thousands commas and a leading "$"
+ * (optionally after a "-"), so "1,000.00", " 1 000.5 " and "$12" become
+ * "1000.00", "1000.5" and "12". Does NOT validate: test the result against
+ * MONEY_DECIMAL_RE / SIGNED_MONEY_DECIMAL_RE. Never parseFloat the raw text.
+ */
+export function normaliseMoneyInput(raw: string): string {
+  const t = raw.replace(/\s/g, "").replace(/^(-?)\$/, "$1")
+  // Strip commas only when they are well-formed thousands separators. Otherwise
+  // keep them so the money regex rejects: "1,00" must not silently become 100.
+  return /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t) ? t.replace(/,/g, "") : t
+}
+
 // True if `ymd` (a YYYY-MM-DD string) is a real calendar date — it must
 // round-trip through a UTC Date without the day or month rolling over. A regex
 // alone accepts impossible dates like 2025-02-30 or 2025-04-31, which JS then
@@ -142,3 +155,5 @@ export function isP2003(e: unknown): boolean {
   const err = e as { code?: string; cause?: { kind?: string } }
   return err.code === "P2003" || err.cause?.kind === "ForeignKeyConstraintViolation"
 }
+
+export const EMAIL_MSG = "Enter a valid email address"
