@@ -88,7 +88,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
   // Headline stats come from a DB rollup over ALL registrations, not the capped
   // list above — so total/paid/cancelled/revenue stay exact even when the table
   // is truncated.
-  const { total: totalRegistrations, paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } = rollup
+  const { total: totalRegistrations, paid: paidCount, cancelled, free: freeCount, revenue, cardRevenue, transferRevenue } = rollup
 
   const ticketsSold = event.ticketTypes.map(tt => ({
     name: tt.name,
@@ -177,6 +177,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
         total={totalRegistrations}
         paid={paidCount}
         cancelled={cancelled}
+        free={freeCount}
         revenue={revenue}
         cardRevenue={cardRevenue}
         transferRevenue={transferRevenue}
