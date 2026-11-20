@@ -289,6 +289,24 @@ describe("confirmBankImport — notes encryption petty cash", () => {
   })
 })
 
+describe("confirmBankImport — petty-cash deposit with a matched member (AUD-3-02)", () => {
+  it("writes the deposit with isGiving false and no family/person; the XFER_OUT leg carries none either", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    mockFamilyFindMany.mockResolvedValue([{ id: 7 }])
+    mockPersonFindMany.mockResolvedValue([{ id: 8, familyId: 7 }])
+    const result = await confirmBankImport([
+      { ...baseRow, accountId: null, fromPettyCash: true, paymentAccountId: 1, familyId: 7, personId: 8 },
+    ])
+    expect(result.ok).toBe(true)
+    expect(mockCreate).toHaveBeenCalledTimes(2)
+    for (const [{ data }] of mockCreate.mock.calls) {
+      expect(data).toMatchObject({ accountId: 99, isGiving: false })
+      expect(data.familyId ?? null).toBeNull()
+      expect(data.personId ?? null).toBeNull()
+    }
+  })
+})
+
 describe("confirmBankImport — legacy petty-cash pair detection (#459)", () => {
   it("treats an existing legacy full-number XFER_OUT_ leg as already paired: deposit imports, no second cash-out leg", async () => {
     mockGetXferAccountId.mockResolvedValue(99)

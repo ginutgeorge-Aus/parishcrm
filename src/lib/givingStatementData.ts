@@ -4,6 +4,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { fyDateRange } from "@/lib/fiscalYear"
 import { isValidEmail } from "@/lib/validation"
 import { toCents } from "@/lib/formatting"
+import { NOT_XFER } from "@/lib/xferAccount"
 import { buildStatements, type FamilyStatement } from "@/lib/givingStatement"
 
 // Bound the per-FY scan so a runaway ledger can't load unbounded rows. A parish
@@ -21,6 +22,7 @@ function giftWhere(fyStartYear: number, familyIds?: number[]) {
     type: "INCOME" as const,
     date: { gte: start, lt: end },
     familyId: familyIds ? { in: familyIds } : { not: null },
+    ...NOT_XFER,
   }
 }
 

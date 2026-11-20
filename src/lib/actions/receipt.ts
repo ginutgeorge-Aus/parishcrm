@@ -16,6 +16,7 @@ import type { ReceiptData } from "@/lib/emails/ReceiptEmail"
 import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { isValidEmail } from "@/lib/validation"
 import { featureGuard } from "@/lib/featureFlags"
+import { NOT_XFER } from "@/lib/xferAccount"
 
 // Double-click debounce window: a repeat send of the same receipt to the
 // same recipient inside this window is treated as a no-op so a donor never gets
@@ -425,6 +426,7 @@ export async function fetchTransactionsForReceipt(
   const rows = await prisma.transaction.findMany({
     where: {
       date: { gte: fromDate, lte: endOfDayUTC(toDate) },
+      ...NOT_XFER,
       ...(accountId ? { accountId } : {}),
     },
     orderBy: { date: "desc" },

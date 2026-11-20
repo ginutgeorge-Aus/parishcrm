@@ -435,6 +435,30 @@ describe("updateTransaction", () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
+  describe("XFER account (AUD-3-02)", () => {
+    const row = { id: 1, bankRef: null, date: new Date("2026-05-17"), amount: { toString: () => "500" }, type: "INCOME", accountId: 4001, fundId: null, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, invoiceId: null }
+    beforeEach(() => {
+      mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+      mockPaymentAccountFindUnique.mockResolvedValue({ kind: "BANK", isActive: true })
+      mockUpdateMany.mockResolvedValue({ count: 1 })
+    })
+
+    it("rejects moving a row onto the XFER account", async () => {
+      mockFindUnique.mockResolvedValue(row)
+      mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true, code: "XFER" })
+      const result = await updateTransaction(1, undefined, fd({ ...validTx, accountId: "99" }))
+      expect(result).toEqual({ error: "Transactions cannot be moved onto the internal transfer account" })
+      expect(mockUpdateMany).not.toHaveBeenCalled()
+    })
+
+    it("allows editing a row already on the XFER account", async () => {
+      mockFindUnique.mockResolvedValue({ ...row, accountId: 99 })
+      mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true, code: "XFER" })
+      await updateTransaction(1, undefined, fd({ ...validTx, accountId: "99" }))
+      expect(mockUpdateMany).toHaveBeenCalled()
+    })
+  })
+
   describe("imported deposit adopted by a petty cash transfer", () => {
     const deposit = { id: 1, bankRef: "ANZ_1", date: new Date("2026-05-17"), amount: { toString: () => "500" }, type: "INCOME", accountId: 4001, fundId: null, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null }
     beforeEach(() => {

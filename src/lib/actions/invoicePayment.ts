@@ -16,6 +16,7 @@ import { getChurchSettingsFresh } from "@/lib/churchSettings"
 import { buildInvoicePaidEmail } from "@/lib/invoiceEmail"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { featureGuard } from "@/lib/featureFlags"
+import { NOT_XFER, XFER_CODE } from "@/lib/xferAccount"
 
 const CHANGED = { error: "This invoice has changed. Reload and try again." }
 const BEFORE_ISSUE = { error: "The payment can't be dated before the invoice was issued" }
@@ -26,8 +27,8 @@ export type MarkPaidInput =
   | { mode: "create"; date: string; paymentAccountId: number; sendReceipt: boolean }
 export type PaymentCandidate = { id: number; date: string; amount: string; reference: string | null; paymentAccountName: string | null; accountName: string }
 
-/** Rows a payment link may claim: unlinked, non-giving, unreconciled, and not a petty-cash mirror (edited via its session). */
-const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null }
+/** Rows a payment link may claim: unlinked, non-giving, unreconciled, not a petty-cash mirror (edited via its session) and not an internal-transfer leg. */
+const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, ...NOT_XFER }
 
 /** Thrown inside a DB transaction to roll back when a guarded write matched no rows (a concurrent change). */
 class Conflict extends Error {}
@@ -72,8 +73,8 @@ async function guarded<T>(fn: () => Promise<T>): Promise<T | { error: string }> 
  */
 async function linkExisting(inv: SentInvoice, transactionId: number): Promise<{ txId: number; paidAt: Date; moved: { accountId: number; fundId: number | null } | null } | { error: string }> {
   if (!isValidPgId(transactionId)) return { error: "Invalid transaction" }
-  const t = await prisma.transaction.findUnique({ where: { id: transactionId } })
-  if (t?.type !== "INCOME" || t.invoiceId !== null || t.isGiving) return { error: "Pick an income transaction that is not linked to another invoice" }
+  const t = await prisma.transaction.findUnique({ where: { id: transactionId }, include: { account: { select: { code: true } } } })
+  if (t?.type !== "INCOME" || t.invoiceId !== null || t.isGiving || t.account?.code === XFER_CODE) return { error: "Pick an income transaction that is not linked to another invoice" }
   if (t.pettyCashReceiptId !== null || t.pettyCashExpenseId !== null || t.pettyCashTransferId !== null)
     return { error: "Petty cash transactions can't be linked to an invoice" }
   if (t.reconciled) return { error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before linking." }
