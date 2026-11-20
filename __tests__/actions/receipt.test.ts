@@ -610,6 +610,17 @@ describe("fetchTransactionsForReceipt", () => {
     }
   })
 
+  it("excludes the internal-transfer account from the candidate list (AUD-3-02)", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    mockFindMany.mockResolvedValue([])
+    await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ account: { code: { not: "XFER" } } }),
+      })
+    )
+  })
+
   it("rejects a regex-valid but calendar-invalid date without a 500", async () => {
     mockSession.mockResolvedValue(adminSession)
     const result = await fetchTransactionsForReceipt("2026-13-45", "2026-02-30")

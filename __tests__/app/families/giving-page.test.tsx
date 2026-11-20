@@ -101,6 +101,14 @@ describe("FamilyGivingPage", () => {
     expect(html.includes("/accounting/transactions/10/edit")).toBe(linked)
   })
 
+  it("excludes the internal-transfer account from the giving query (AUD-3-02)", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFamilyFindUnique.mockResolvedValue({ id: 1, name: "Smith Family" })
+    mockTransactionFindMany.mockResolvedValue([])
+    await FamilyGivingPage(makeProps())
+    expect(mockTransactionFindMany.mock.calls[0][0].where).toMatchObject({ isGiving: true, ...{ account: { code: { not: "XFER" } } } })
+  })
+
   it("resolves with empty state for PASTOR with no transactions", async () => {
     mockAuth.mockResolvedValue({ user: { role: "PASTOR", id: "2" } })
     mockFamilyFindUnique.mockResolvedValue({ id: 1, name: "Smith Family" })

@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { BalanceTile } from "@/components/accounting/BalanceTile"
 import { APP_LOCALE } from "@/lib/appConfig"
+import { NOT_XFER } from "@/lib/xferAccount"
 
 /**
  * Accounting overview: current-FY income/expense/net, per-payment-account
@@ -28,11 +29,11 @@ export default async function AccountingPage() {
 
   const [incomeResult, expenseResult, txCount, accountCount, balanceRows, accounts] = await Promise.all([
     prisma.transaction.aggregate({
-      where: { type: "INCOME", date: { gte: startOfFY, lt: endOfFY } },
+      where: { type: "INCOME", date: { gte: startOfFY, lt: endOfFY }, ...NOT_XFER },
       _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
-      where: { type: "EXPENSE", date: { gte: startOfFY, lt: endOfFY } },
+      where: { type: "EXPENSE", date: { gte: startOfFY, lt: endOfFY }, ...NOT_XFER },
       _sum: { amount: true },
     }),
     prisma.transaction.count({ where: { date: { gte: startOfFY, lt: endOfFY } } }),

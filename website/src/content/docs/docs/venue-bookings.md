@@ -35,6 +35,7 @@ Open **Venue bookings** in the sidebar and pick a month. Each date has a status:
 - Tick several rows to **Mark confirmed** or cancel them together.
 - **Cancel** asks "Email venue about this cancellation?". Choose to email the venue, or keep the booking change without emailing. The cancellation notice wording is fixed.
 - Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Once the day has passed, the start and end times (but not the date) can still be corrected to the hours actually used, even if the date was sent. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told. If that month's invoice request was already sent, the hours are still saved but a warning tells you the sent invoice request won't be updated (see below).
+- If a booking request goes to the venue at the same moment you save a change to a date's date or times, the save is refused with a message asking you to refresh, and the email lists the dates as saved. This protects date and time edits only: a past-day hours correction made while the email is being sent is saved but may not be in that email, so tell the venue separately if it matters.
 - After the day, **Edit** the booking so it shows the times you actually used. The total hours for the month is shown above the list.
 
 ## Asking the venue to book
@@ -61,6 +62,7 @@ You can approve the **current month** so the app sends the request for you.
 
 Details:
 
+- **A month you sent by hand** is finished for the automatic job: it does not send again or remind the editors for that month.
 - **Any change clears the approval.** Adding, editing, deleting, confirming or cancelling a date in that month removes the approval and shows "Approval cleared — dates changed, please re-approve." Approve again once the month is complete.
 - **Withdraw approval** removes it at any time before the request is sent.
 - **A manual send in progress at that moment** makes the automatic send refuse, with nothing emailed, and try again later. If this is still happening on the 7th, the last day of the window, it is logged as an error: check the month and click **Send request** yourself.

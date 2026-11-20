@@ -106,6 +106,7 @@ export const REMINDER_MAX_PER_RUN = 200
 
 /** Counts for the confirm dialog. */
 export type ReminderPlan = {
+  /** Upper bound: ignores the send time budget, so a slow run may defer some of these too. */
   sendable: number
   skippedPaid: number
   skippedNoEmail: number

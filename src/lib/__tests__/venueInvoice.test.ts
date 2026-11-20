@@ -286,6 +286,24 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { month: "2026-09", sentAt: call.update.sentAt }, data: { staleAt: expect.any(Date) } })
   })
 
+  it("a manual SUCCESS closes the month for the monthly job (reminderSentAt); the job's own send and a FAILED send do not (OSS-318)", async () => {
+    const p = await prepare()
+    await deliverInvoiceRequest(p, { ...ctx, autoSent: false })
+    expect(upsert().mock.calls.at(-1)[0].update.reminderSentAt).toEqual(expect.any(Date))
+    upsert().mockClear()
+    await deliverInvoiceRequest(await prepare(), { ...ctx, autoSent: true })
+    expect(upsert().mock.calls.at(-1)[0].update).not.toHaveProperty("reminderSentAt")
+    // A FAILED manual send must not close the month.
+    upsert().mockClear()
+    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp down"))
+    const failed = await deliverInvoiceRequest(await prepare(), { ...ctx, autoSent: false })
+    expect(failed.status).toBe("FAILED")
+    for (const c of upsert().mock.calls) {
+      expect(c[0].update).not.toHaveProperty("reminderSentAt")
+      expect(c[0].create).not.toHaveProperty("reminderSentAt")
+    }
+  })
+
   it("no staleAt update when the send was not stale", async () => {
     const p = await prepare()
     await deliverInvoiceRequest(p, ctx)

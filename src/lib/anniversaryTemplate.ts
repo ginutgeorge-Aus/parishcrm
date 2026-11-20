@@ -1,3 +1,5 @@
+import { escapeHtml } from "@/lib/escapeHtml"
+
 export type AnniversaryTemplate = { subject: string; body: string }
 
 export const DEFAULT_ANNIVERSARY_TEMPLATE: AnniversaryTemplate = {
@@ -14,9 +16,6 @@ export const DEFAULT_ANNIVERSARY_TEMPLATE: AnniversaryTemplate = {
     "With love and blessings,\n{churchName}",
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
-}
 type Vars = { names: string; years: string; churchName: string }
 function substitute(tpl: string, vars: Vars): string {
   return tpl.replace(/\{(names|years|churchName)\}/g, (_, k: keyof Vars) => vars[k])

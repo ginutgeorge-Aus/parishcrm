@@ -21,6 +21,7 @@ import { getChurchName } from "@/lib/emailTemplateStore"
 import { logger } from "@/lib/logger"
 import { rateKeyFromHeaders } from "@/lib/clientIp"
 import { assertNotDemo, isDemoMode } from "@/lib/demoMode"
+import { escapeHtml } from "@/lib/escapeHtml"
 import {
   MAX_PASSKEYS_PER_USER, consumeChallenge, createChallenge, getRelyingParty, normalisePasskeyName,
 } from "@/lib/webauthn"
@@ -67,9 +68,6 @@ async function notifyPasskeyChange(userId: number, to: string | null | undefined
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
-}
 
 export async function getPasskeyStatus(): Promise<PasskeyStatus> {
   const userId = await sessionUserId()

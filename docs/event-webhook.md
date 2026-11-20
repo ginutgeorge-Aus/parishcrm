@@ -41,7 +41,7 @@ Body is one of:
 { "action": "upsert", "event": { /* payload below */ }, "nonce": "<uuid>" }
 
 // Event deleted in the CRM
-{ "action": "delete", "crmId": 42, "nonce": "<uuid>" }
+{ "action": "delete", "crmId": 42, "revision": "<ISO 8601, deletion time>", "nonce": "<uuid>" }
 ```
 
 `event` payload (`WebsiteEventPayload`):
@@ -86,5 +86,22 @@ ticket-type edits, written in the same transaction as the event row) advances
 the same millisecond could share a revision; that is an accepted residual risk
 (staff edits, and the event editor already rejects a save made over a newer
 version). Treat a missing stored
-revision (or a payload without one, from an older CRM) as "apply". Deletes carry
-no revision; running **Resync website** restores the current state.
+revision as "apply". A payload without a `revision` (from an older CRM) is
+also "apply", **unless a tombstone exists for that `crmId`**: reject it then,
+since it has no authoritative timestamp to order against the delete.
+
+Deletes carry a `revision` too (the CRM's send time after the delete committed,
+same format as an upsert `revision`). On delete, remove the event **and keep a
+tombstone** (`crmId` + delete `revision`); skip any later upsert for that `crmId`
+whose `revision` is not strictly newer than the tombstone. Without a tombstone,
+an upsert that was in flight when the event was deleted (or a **Resync website**
+snapshot taken before the delete) can arrive after the delete and resurrect it.
+Make the tombstone check and the event write one atomic step (a transaction or
+a lock serialised per `crmId`), so a concurrent upsert and delete cannot
+interleave and resurrect the event. A receiver without tombstones still works but stays exposed to this race. A
+delete from an older CRM has no `revision`: treat it as "now".
+
+Caveats: revisions come from the CRM's clock, so keep replica clocks in sync.
+`crmId`s restart after a database restore or demo reseed, so purge tombstones
+when the CRM database is restored or reset, and expire them after a retention
+period (30 days is plenty; a stale upsert never lingers that long).

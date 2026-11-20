@@ -29,6 +29,14 @@ function makeRow(overrides: Partial<GivingSummaryRow> = {}): GivingSummaryRow {
   }
 }
 
+describe("getGivingSummary — XFER exclusion (AUD-3-02)", () => {
+  it("excludes the internal-transfer account from the groupBy", async () => {
+    mockGroupBy.mockResolvedValue([])
+    await getGivingSummary(2026)
+    expect(mockGroupBy.mock.calls[0][0].where).toMatchObject({ account: { code: { not: "XFER" } } })
+  })
+})
+
 describe("generateGivingSummaryCsv", () => {
   it("emits the header row", () => {
     expect(generateGivingSummaryCsv([]).split("\n")[0]).toBe(

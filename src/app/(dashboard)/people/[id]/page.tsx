@@ -3,6 +3,7 @@ import Link from "next/link"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
+import { NOT_XFER } from "@/lib/xferAccount"
 import { canEdit, canManageRoster, isAdmin, canSeePastoralNotes, canAccessAccounting, canViewPeople, canManageClearances, canViewClearanceStatus, canViewSacraments, canEditSacraments } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { safeDecrypt } from "@/lib/crypto"
@@ -328,7 +329,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
     canManage ? getWwccVerifyUrl() : Promise.resolve(DEFAULT_WWCC_VERIFY_URL),
     userCanSeeGiving
       ? prisma.transaction.findMany({
-          where: { personId: person.id, isGiving: true },
+          where: { personId: person.id, isGiving: true, ...NOT_XFER },
           orderBy: { date: "desc" },
           // KNOWN SCALING BOUND: shows the 2000 most recent giving rows. A decades-
           // active weekly donor could exceed this; reducing the cap is deliberately

@@ -5,6 +5,7 @@ import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGro
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { toCents } from "@/lib/formatting"
 import { accountTotal } from "@/components/accounting/plFormat"
+import { XFER_CODE } from "@/lib/xferAccount"
 
 /** Row shape the P&L page renders — its own subset of the fetched account. */
 export type PLAccountRow = {
@@ -72,7 +73,7 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
         // legs from petty-cash→bank transfers are not real income/expense, and
         // the `transactions: { some }` clause below would otherwise pull the
         // inactive XFER account back into Total Expenses. See xferAccount.ts.
-        code: { not: "XFER" },
+        code: { not: XFER_CODE },
         OR: [
           { isActive: true },
           { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } },
