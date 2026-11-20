@@ -18,6 +18,7 @@ import {
 } from "@/lib/totp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { assertNotDemo } from "@/lib/demoMode"
+import { escapeHtml } from "@/lib/escapeHtml"
 
 export type TotpStatus = { enabled: boolean; backupCodesRemaining: number }
 
@@ -51,9 +52,6 @@ async function notifyTotpChange(userId: number, to: string | null | undefined, o
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
-}
 
 const REPLAY = { error: "That code was already used — wait for the next code" } as const
 

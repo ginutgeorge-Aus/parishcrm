@@ -193,6 +193,23 @@ describe("redactUrlAttributes — venue calendar token", () => {
     expect(attrs[key]).toBe(expected)
   })
 
+  it.each([
+    ["/api/venue/abc123"],
+    ["/admin/venue/abc123"],
+    ["https://crm.example.com/api/venue/abc123"],
+    ["/venue-usage/venue/x"],
+  ])("does not redact a nested /venue/ segment: %s", (value) => {
+    const attrs: Record<string, unknown> = { "url.path": value }
+    redactUrlAttributes(attrs)
+    expect(attrs["url.path"]).toBe(value)
+  })
+
+  it("redacts only the token segment and keeps a trailing path or case-variant host", () => {
+    const attrs: Record<string, unknown> = { "url.full": "HTTPS://crm.example.com:3000/venue/abc123/ics" }
+    redactUrlAttributes(attrs)
+    expect(attrs["url.full"]).toBe("HTTPS://crm.example.com:3000/venue/[token]/ics")
+  })
+
   it("does not touch the authenticated /venue-usage page", () => {
     const attrs: Record<string, unknown> = { "url.path": "/venue-usage" }
     redactUrlAttributes(attrs)

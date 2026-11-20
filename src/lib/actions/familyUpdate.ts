@@ -6,7 +6,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
-import { encrypt, safeDecrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
+import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { encryptPersonFields } from "@/lib/personFields"
 import { logAudit } from "@/lib/audit"
 import { generateInviteToken, hashInviteToken } from "@/lib/familyUpdateToken"
 import { FamilyUpdatePayloadSchema, type FamilyUpdateMember, type FamilyUpdatePayload } from "@/lib/familyUpdatePayload"
@@ -184,19 +185,6 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
   return { success: "submitted" }
 }
 
-// Encrypt-on-write for member PII (mirrors person.ts encryptPersonFields, scoped
-// to the family-editable fields only). Mutates in place.
-function encryptMemberFields(d: Record<string, unknown>) {
-  // blind index from the plaintext email before it is encrypted; null
-  // clears it when the email is removed.
-  d.emailHash = d.email ? hmacEmail(d.email as string) : null
-  // same before-encrypt blind-index pattern for mobile.
-  d.mobileHash = d.mobile ? hmacMobile(d.mobile as string) : null
-  for (const k of ["email", "dateOfBirth", "mobile", "workPhone", "homePhone"]) {
-    if (d[k]) d[k] = encrypt(d[k] as string)
-  }
-}
-
 // Map an allowlisted member to a Prisma person payload — disallowed fields are
 // already absent (schema dropped them), but we build the object explicitly so
 // nothing extra can slip through even if the schema changes.
@@ -207,7 +195,7 @@ function memberToPersonData(m: FamilyUpdateMember) {
     dateOfBirth: m.dateOfBirth ?? null, email: m.email ?? null, mobile: m.mobile ?? null,
     workPhone: m.workPhone ?? null, homePhone: m.homePhone ?? null,
   }
-  encryptMemberFields(d)
+  encryptPersonFields(d)
   return d
 }
 

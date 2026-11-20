@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger"
 import { canEdit } from "@/lib/roleGuard"
 import { actorId } from "@/lib/actor"
 import { encrypt, safeDecrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
+import { encryptPersonFields } from "@/lib/personFields"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { rateLimit } from "@/lib/rateLimit"
@@ -227,23 +228,23 @@ function personSeeds(p: MembershipPayload): PersonSeed[] {
 }
 
 // Build a Person create payload, encrypting the at-rest fields (email + blind
-// index, dateOfBirth, mobile, homePhone) exactly as person.ts does. profession /
+// index, dateOfBirth, mobile, homePhone) via the shared encryptPersonFields (src/lib/personFields.ts). profession /
 // maritalStatus are encrypted at rest (audit AUD-1-17); motherParish stays plaintext.
 function personCreateData(familyId: number, s: PersonSeed) {
   const data: Record<string, unknown> = {
     familyId, firstName: s.firstName, lastName: s.lastName, role: s.role, classification: "MEMBER",
   }
   if (s.gender) data.gender = s.gender
-  if (s.dateOfBirth) data.dateOfBirth = encrypt(s.dateOfBirth)
-  if (s.email) { data.email = encrypt(s.email); data.emailHash = hmacEmail(s.email) }
-  // mobileHash blind index: every mobile write path must set it or
-  // findMembershipMatches can never equality-match this person by mobile —
-  // same contract as emailHash above.
-  if (s.mobile) { data.mobile = encrypt(s.mobile); data.mobileHash = hmacMobile(s.mobile) }
-  if (s.homePhone) data.homePhone = encrypt(s.homePhone)
-  if (s.profession) data.profession = encrypt(s.profession)
+  if (s.dateOfBirth) data.dateOfBirth = s.dateOfBirth
+  if (s.email) data.email = s.email
+  if (s.mobile) data.mobile = s.mobile
+  if (s.homePhone) data.homePhone = s.homePhone
+  if (s.profession) data.profession = s.profession
   if (s.motherParish) data.motherParish = s.motherParish
-  if (s.maritalStatus) data.maritalStatus = encrypt(s.maritalStatus)
+  if (s.maritalStatus) data.maritalStatus = s.maritalStatus
+  // Shared helper encrypts the at-rest fields and sets both blind indexes
+  // (findMembershipMatches relies on emailHash/mobileHash).
+  encryptPersonFields(data)
   return data
 }
 

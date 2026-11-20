@@ -12,7 +12,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { sendVenueUsageRequestEmail } from "@/lib/email"
 import type { VenueUsageSettings } from "@/lib/venueUsageSettings"
 import { assertNotDemo } from "@/lib/demoMode"
-import { isValidEmail, isValidPgId } from "@/lib/validation"
+import { isP2025, isValidEmail, isValidPgId } from "@/lib/validation"
 import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, MONTH_FULL_ERROR, prepareInvoiceRequest } from "@/lib/venueInvoice"
 import { autoSendLabel } from "@/lib/venueSchedule"
 import { sydneyTodayYMD } from "@/lib/dates"
@@ -151,6 +151,9 @@ function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>):
 const VENUE_KNOWS_LOCK_ERROR =
   "The venue has already been asked about this date. To change it, cancel it (emailing the venue) and add a new booking."
 
+/** Refusal when a booking request claimed the row while its date or times were being edited. */
+const VENUE_CLAIMED_ERROR = "A booking request for this date was just sent to the venue, so its date and times can no longer be changed. Refresh the page."
+
 const VENUE_KNOWS_CANCEL_ERROR =
   "The venue has already been asked about this date. Cancel it from the bookings list so you can email the venue."
 
@@ -206,6 +209,8 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
  * When a change alters what a month's invoice counts (CONFIRMED rows: date, hours or status; old and new month both
  * checked, whether or not the venue knows the row) and that month's invoice request was already sent or is being
  * sent right now, the result carries a warning because the send is not redone.
+ * A timing change to a row the venue did not yet know is written conditionally (still unclaimed); when a booking
+ * request claimed it meanwhile the edit is refused ({@link VENUE_CLAIMED_ERROR}).
  * Moving the row into another month refuses when that month is already full ({@link MAX_ROWS_PER_MONTH}).
  * @param id VenueUsage id
  * @param input new field values
@@ -243,11 +248,23 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     // Reopening a venue-known row (back to REQUESTED) clears its asked-on stamp so the booking request goes out again;
     // otherwise the asked-on stamp is kept (an hours correction must not clear it or relock the row).
     const reopened = statusChanged && rest.status === "REQUESTED"
-    await tx.venueUsage.update({
-      where: { id },
-      data: { ...rest, date: ymdToUtcDate(date), ...(reopened ? { bookingRequestedAt: null } : {}) },
-      select: { id: true },
-    })
+    // A timing change on a row the venue did not know at read time is applied only while it is still unclaimed:
+    // a booking request claiming it in between would otherwise email the old date or times.
+    const guardUnclaimed = timingChanged && !venueKnows
+    try {
+      await tx.venueUsage.update({
+        where: { id, ...(guardUnclaimed ? { bookingRequestedAt: null, venueNotifiedAt: null } : {}) },
+        data: { ...rest, date: ymdToUtcDate(date), ...(reopened ? { bookingRequestedAt: null } : {}) },
+        select: { id: true },
+      })
+    } catch (e) {
+      if (isP2025(e)) {
+        // Deleted since the read, or claimed by a booking request meanwhile: tell the editor which.
+        const still = await tx.venueUsage.findUnique({ where: { id }, select: { id: true } })
+        return still ? ({ claimed: true } as const) : ({ notFound: true } as const)
+      }
+      throw e
+    }
     const oldMonth = monthOfDate(existing.date)
     const months = await clearApprovalTx(tx, [oldMonth, date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, {
@@ -267,6 +284,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   if ("error" in outcome) return outcome
   if ("notFound" in outcome) return { error: "Booking not found" }
   if ("locked" in outcome) return { error: VENUE_KNOWS_LOCK_ERROR }
+  if ("claimed" in outcome) return { error: VENUE_CLAIMED_ERROR }
   if ("cancelViaList" in outcome) return { error: VENUE_KNOWS_CANCEL_ERROR }
   if ("full" in outcome) return { error: MOVE_MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")

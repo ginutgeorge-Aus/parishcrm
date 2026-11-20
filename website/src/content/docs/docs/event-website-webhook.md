@@ -55,7 +55,7 @@ Body is one of:
 { "action": "upsert", "event": { /* payload below */ }, "nonce": "<uuid>" }
 
 // Event deleted in the CRM
-{ "action": "delete", "crmId": 42, "nonce": "<uuid>" }
+{ "action": "delete", "crmId": 42, "revision": "2026-01-01T00:00:00.000Z", "nonce": "<uuid>" }
 ```
 
 `event` payload (`WebsiteEventPayload`):
@@ -100,5 +100,13 @@ ticket-type edits, written in the same transaction as the event row) advances
 the same millisecond could share a revision; that is an accepted residual risk
 (staff edits, and the event editor already rejects a save made over a newer
 version). Treat a missing stored
-revision (or a payload without one, from an older CRM) as "apply". Deletes carry
-no revision; running **Resync website** restores the current state.
+revision as "apply". A payload without a `revision` (from an older CRM) is also
+"apply", unless a tombstone exists for that `crmId`: reject it then.
+
+Deletes carry a `revision` too (the CRM's send time after the delete committed).
+On delete, remove the event and keep a tombstone (`crmId` + delete `revision`);
+skip any later upsert whose `revision` is not strictly newer. Do the tombstone
+check and the event write atomically (a transaction or lock per `crmId`).
+Purge tombstones when the CRM database is restored or reset, since `crmId`s
+restart, and expire them after about 30 days. A delete whose webhook failed is
+only logged; running **Resync website** does not remove it from the website.

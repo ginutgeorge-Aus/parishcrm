@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { isValidPgId } from "@/lib/validation"
@@ -23,9 +23,21 @@ export async function voidInvoice(id: number, reason: string): Promise<{ success
   if (!inv) return { error: "Invoice not found" }
   if (inv.status === InvoiceStatus.PAID) return { error: "Unmark the payment before voiding" }
   if (inv.status !== InvoiceStatus.SENT) return { error: "Only sent invoices can be voided — delete the draft instead" }
-  const res = await prisma.invoice.updateMany({ where: { id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.VOID, voidedAt: new Date(), voidReason: r } })
-  if (res.count === 0) return { error: "This invoice has changed. Reload and try again." }
-  await logAudit(actorId(session), "INVOICE_VOIDED", "Invoice", id, { invoiceNo: inv.invoiceNo })
+  const uid = actorId(session)
+  let changed: boolean
+  try {
+    changed = await prisma.$transaction(async (tx) => {
+      const res = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.VOID, voidedAt: new Date(), voidReason: r } })
+      if (res.count === 0) return false
+      await logAuditGuardedTx(tx, uid, "INVOICE_VOIDED", "Invoice", id, { invoiceNo: inv.invoiceNo })
+      return true
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "voidInvoice", "Couldn't void the invoice. Try again.")
+    if (mapped) return mapped
+    throw e
+  }
+  if (!changed) return { error: "This invoice has changed. Reload and try again." }
   revalidatePath("/accounting/invoices")
   revalidatePath(`/accounting/invoices/${id}`)
   return { success: `${inv.invoiceNo} voided` }

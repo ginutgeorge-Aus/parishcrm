@@ -209,8 +209,8 @@ describe("TransactionsPage", () => {
     // overriding `type` by spread — otherwise the income tile shows unfiltered income.
     const incomeWhere = mockTxAggregate.mock.calls[0][0].where
     const expenseWhere = mockTxAggregate.mock.calls[1][0].where
-    expect(incomeWhere.AND).toEqual([expect.objectContaining({ type: "EXPENSE" }), { type: "INCOME" }])
-    expect(expenseWhere.AND).toEqual([expect.objectContaining({ type: "EXPENSE" }), { type: "EXPENSE" }])
+    expect(incomeWhere.AND).toEqual([expect.objectContaining({ type: "EXPENSE" }), { type: "INCOME" }, { account: { code: { not: "XFER" } } }])
+    expect(expenseWhere.AND).toEqual([expect.objectContaining({ type: "EXPENSE" }), { type: "EXPENSE" }, { account: { code: { not: "XFER" } } }])
   })
 
   it("maps reconciled=false into where", async () => {

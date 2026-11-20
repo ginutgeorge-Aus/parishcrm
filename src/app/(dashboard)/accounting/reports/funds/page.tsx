@@ -9,6 +9,7 @@ import { YearSelector } from "@/components/accounting/YearSelector"
 import { currentFYYear, fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
 import { centsToNumber, fmtAUDAccounting } from "@/lib/formatting"
 import { aggregateByFund } from "@/lib/reports/fundHelpers"
+import { NOT_XFER } from "@/lib/xferAccount"
 
 type Props = { searchParams: Promise<{ year?: string }> }
 
@@ -38,7 +39,8 @@ export default async function FundReportPage(props: Readonly<Props>) {
     // transaction into JS — same shape every other FY report uses.
     prisma.transaction.groupBy({
       by: ["fundId", "type"],
-      where: { date: { gte: fyStart, lt: fyEnd } },
+      // Internal-transfer legs are neither income nor expense.
+      where: { date: { gte: fyStart, lt: fyEnd }, ...NOT_XFER },
       _sum: { amount: true },
     }),
     prisma.fund.findMany({ select: { id: true, name: true } }),

@@ -449,6 +449,40 @@ describe("syncEventDeletion", () => {
     expect(parsed.action).toBe("delete")
     expect(parsed.crmId).toBe(42)
   })
+
+  it("stamps the delete with a revision so the receiver can tombstone it", async () => {
+    process.env.WEBSITE_SYNC_URL = "https://example.org/api/crm-sync.php"
+    process.env.WEBSITE_SYNC_SECRET = "shared-secret"
+    const fetchSpy = jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
+    const before = Date.now()
+    await syncEventDeletion(42)
+    const [, opts] = fetchSpy.mock.calls[0] as [string, { body: string }]
+    const { revision } = JSON.parse(opts.body)
+    expect(new Date(revision).toISOString()).toBe(revision)
+    expect(new Date(revision).getTime()).toBeGreaterThanOrEqual(before)
+  })
+})
+
+describe("late upsert after delete (resurrection)", () => {
+  const OLD = { url: process.env.WEBSITE_SYNC_URL, secret: process.env.WEBSITE_SYNC_SECRET }
+  afterEach(() => {
+    process.env.WEBSITE_SYNC_URL = OLD.url
+    process.env.WEBSITE_SYNC_SECRET = OLD.secret
+    jest.restoreAllMocks()
+  })
+
+  // Receiver rule (docs/event-webhook.md): drop an upsert whose revision is not
+  // strictly newer than the delete's tombstone revision.
+  it("delete revision is newer than the last upsert revision, so a late upsert loses to the tombstone", async () => {
+    process.env.WEBSITE_SYNC_URL = "https://example.org/api/crm-sync.php"
+    process.env.WEBSITE_SYNC_SECRET = "shared-secret"
+    const upsertRevision = buildEventPayload(baseEvent).revision
+    const fetchSpy = jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
+    await syncEventDeletion(42)
+    const [, opts] = fetchSpy.mock.calls[0] as [string, { body: string }]
+    const { revision: tombstone } = JSON.parse(opts.body)
+    expect(upsertRevision <= tombstone).toBe(true)
+  })
 })
 
 describe("isWebsiteSyncConfigured", () => {

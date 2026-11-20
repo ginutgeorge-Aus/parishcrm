@@ -197,8 +197,8 @@ export async function removeTeacher(classId: number, personId: number): Promise<
  * moved: their enrolment is re-pointed and `enrolledAt` restarts, which bounds
  * what their progress page lists for this class. Re-enrolling a child already
  * here changes nothing. canManageSundaySchool-gated; ids deduped and capped.
- * Roles without people access (HEADMASTER) may only enrol children or people
- * already enrolled this year (`enrolCandidateWhere`); others get PERSON_GONE.
+ * Roles without people access (HEADMASTER) may only enrol children
+ * (`enrolCandidateWhere`); other ids get PERSON_GONE.
  */
 export async function enrolChildren(classId: number, personIds: number[]): Promise<ActionResultWithSuccess> {
   const g = await editableClass(classId)
@@ -230,18 +230,14 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       const people = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "Person" WHERE id = ANY(${ids}) AND "archivedAt" IS NULL FOR SHARE`
       if (people.length !== ids.length) throw new Error(PERSON_GONE)
-      // Scope recheck (AUD-5-01): the pre-transaction lookup can go stale if an
-      // unenrol commits meanwhile. FOR SHARE on these enrolment rows makes a
-      // concurrent unenrol's DELETE wait until we commit (or already be visible
-      // here), so the eligibility read below holds at commit time.
-      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
-      await tx.$queryRaw`
-        SELECT id FROM "SundaySchoolEnrolment" WHERE "personId" = ANY(${ids}) AND year = ${year} FOR SHARE`
-      const stillEligible = await tx.person.findMany({
-        where: { id: { in: ids }, archivedAt: null, ...enrolCandidateWhere(g.session?.user?.role, year) },
-        select: { id: true },
-      })
-      if (stillEligible.length !== ids.length) throw new Error(PERSON_GONE)
+      // Scope recheck (AUD-5-01), restricted roles only: the Person rows are
+      // FOR SHARE locked above, so a role change (UPDATE) can't slip in before
+      // commit and this read holds at commit time.
+      const scope = enrolCandidateWhere(g.session?.user?.role, year)
+      if (Object.keys(scope).length > 0) {
+        const stillEligible = await tx.person.count({ where: { id: { in: ids }, archivedAt: null, ...scope } })
+        if (stillEligible !== ids.length) throw new Error(PERSON_GONE)
+      }
       // Read inside the transaction (after the locks) so the audit count and the
       // revalidated paths reflect what this write actually moved.
       // Only a live class counts as a "move"; a row left in an archived class is

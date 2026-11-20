@@ -8,7 +8,9 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { isValidPgId, isP2002, isP2003, isP2034 } from "@/lib/validation"
+import { XFER_CODE } from "@/lib/xferAccount"
 
+const XFER_LOCKED_ERROR = "The internal transfer account cannot be changed"
 const CONFLICT_ERROR = "This account was changed at the same time by someone else — try again."
 
 const AccountSchema = z.object({
@@ -99,6 +101,7 @@ export async function updateAccount(
 
   const target = await prisma.account.findUnique({ where: { id } })
   if (!target) return { error: "Account not found" }
+  if (target.code === XFER_CODE) return { error: XFER_LOCKED_ERROR }
 
   // Same FK guard as create — the update writes groupId too.
   const group = await prisma.accountGroup.findUnique({ where: { id: parsed.data.groupId }, select: { id: true, type: true } })
@@ -171,8 +174,9 @@ export async function deleteAccount(id: number): Promise<ActionResult> {
   try {
     blocked = await prisma.$transaction(async (tx) => {
       // Not-found check up front: a concurrent delete would otherwise make tx.account.delete throw P2025 (500).
-      const current = await tx.account.findUnique({ where: { id }, select: { id: true } })
+      const current = await tx.account.findUnique({ where: { id }, select: { id: true, code: true } })
       if (!current) return { error: "Account not found" }
+      if (current.code === XFER_CODE) return { error: XFER_LOCKED_ERROR }
       const [txCount, budgetCount, pcReceiptCount, pcExpenseCount, invoiceCount] = await Promise.all([
         tx.transaction.count({ where: { accountId: id } }),
         tx.budget.count({ where: { accountId: id } }),

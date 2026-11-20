@@ -35,3 +35,9 @@ it("rethrows an upsert failure", async () => {
   } as any
   await expect(getXferAccountId(client)).rejects.toEqual({ code: "P2003" })
 })
+
+it("exports the XFER code and a transaction where-fragment that excludes it", () => {
+  const { XFER_CODE, NOT_XFER } = jest.requireActual("@/lib/xferAccount")
+  expect(XFER_CODE).toBe("XFER")
+  expect(NOT_XFER).toEqual({ account: { code: { not: "XFER" } } })
+})
