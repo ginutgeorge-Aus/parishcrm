@@ -3,8 +3,7 @@
 // a GroupLeaderAccess row) edits only roles tied to their group. Shared by the
 // staff actions now and the organiser portal (#630) later.
 
-import { isGroupLeaderLogin } from "@/lib/groupAccess"
-import { prisma } from "@/lib/prisma"
+import { isGroupLeaderLogin, leadsGroupWithMember } from "@/lib/groupAccess"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { canManageRoster } from "@/lib/roleGuard"
 
@@ -35,9 +34,5 @@ export async function canEditRosterRole(userId: number, groupId: number, role: U
 export async function canEditPersonUnavailability(userId: number, personId: number, role: UserRole | undefined): Promise<boolean> {
   if (canManageRoster(role)) return true
   if (role !== UserRole.EVENT_ORGANISER) return false
-  const row = await prisma.groupLeaderAccess.findFirst({
-    where: { userId, group: { archivedAt: null, members: { some: { personId } } } },
-    select: { id: true },
-  })
-  return row !== null
+  return leadsGroupWithMember(userId, personId)
 }

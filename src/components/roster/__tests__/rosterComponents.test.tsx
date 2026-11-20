@@ -28,7 +28,19 @@ beforeEach(() => jest.clearAllMocks())
 describe("SlotCell", () => {
   const people = [{ id: 11, name: "Ann Lee", status: "CONFIRMED" as const }]
 
-  it("loads conflict-free suggestions on focus and assigns the pick", async () => {
+  it("loads suggestions on mount, before the dropdown is opened", async () => {
+    r.suggestRosterAssignees.mockResolvedValue({ suggestions: [{ personId: 7, firstName: "Bo", lastName: "Kim", lastServedYMD: null }] })
+    render(<SlotCell slotId={5} assignments={[]} open={1} />)
+    expect(await screen.findByRole("option", { name: "Bo Kim (never served)" })).toBeInTheDocument()
+    expect(r.suggestRosterAssignees).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not load suggestions when the slot is full", () => {
+    render(<SlotCell slotId={5} assignments={people} open={0} />)
+    expect(r.suggestRosterAssignees).not.toHaveBeenCalled()
+  })
+
+  it("loads conflict-free suggestions and assigns the pick", async () => {
     r.suggestRosterAssignees.mockResolvedValue({ suggestions: [
       { personId: 7, firstName: "Bo", lastName: "Kim", lastServedYMD: null },
       { personId: 8, firstName: "Cy", lastName: "Ng", lastServedYMD: "2026-11-01" },
@@ -95,7 +107,7 @@ describe("PersonRosterCard", () => {
 
   it("lists ranges, removes one, and adds a new one via the action", async () => {
     u.removePersonUnavailability.mockResolvedValue({ success: "Unavailable dates removed" })
-    u.addPersonUnavailability.mockResolvedValue({ success: "Saved. Warning: already rostered at X" })
+    u.addPersonUnavailability.mockResolvedValue({ success: "Unavailable dates saved", warning: "Already rostered at X" })
     render(<PersonRosterCard personId={7} rows={rows} hasFeed={false} />)
     expect(screen.getByText("2026-12-06 to 2026-12-13")).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Remove" }))
@@ -106,7 +118,7 @@ describe("PersonRosterCard", () => {
     await waitFor(() => expect(u.addPersonUnavailability).toHaveBeenCalled())
     expect(u.addPersonUnavailability.mock.calls[0][0]).toBe(7)
     expect((u.addPersonUnavailability.mock.calls[0][2] as FormData).get("from")).toBe("2026-12-20")
-    expect(await screen.findByText(/Warning: already rostered/)).toBeInTheDocument()
+    expect(await screen.findByRole("alert")).toHaveTextContent("Already rostered at X")
   })
 
   it("shows the new calendar link once, or the error", async () => {
