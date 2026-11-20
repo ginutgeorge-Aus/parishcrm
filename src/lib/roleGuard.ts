@@ -31,16 +31,11 @@ export function canManageUsers(role: UserRole | undefined): boolean {
   return role === UserRole.ADMIN || role === UserRole.OFFICE_ADMIN
 }
 
-// ADMIN and PASTOR are "elevated": PASTOR carries canAccessAccounting
-// (accounting mutations) + canSeePastoralNotes (member PII), both denied to
-// OFFICE_ADMIN. Only an ADMIN may assign either role or modify an account that
-// already holds one — otherwise an OFFICE_ADMIN could grant themselves PASTOR
-// (self-escalation) or take over a PASTOR account by resetting its password
-//. Enforced server-side in user.ts createUser/updateUser.
 /**
  * Whether the actor may create an account with, or manage an account holding,
  * `targetRole`. ADMIN may do anything. A non-ADMIN manager (OFFICE_ADMIN) may
- * not touch an elevated role (ADMIN, PASTOR) nor its own role: otherwise one
+ * not touch an elevated role (ADMIN, or PASTOR, which carries accounting
+ * mutations and pastoral notes) nor its own role: otherwise one
  * OFFICE_ADMIN could reset a peer's email, password and 2FA and sign in as
  * them (AUD-1-02). So only an ADMIN creates or manages OFFICE_ADMIN accounts.
  * @param actorRole the signed-in user's role

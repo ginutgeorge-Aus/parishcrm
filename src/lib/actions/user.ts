@@ -70,6 +70,10 @@ async function auditUserTx(
   try {
     await logAuditTx(tx, userId, action, "User", targetId, metadata, ip)
   } catch (e) {
+    // A Serializable conflict (P2034) or unique clash (P2002) surfacing here is a
+    // transaction-level error the callers already map (retry prompt / duplicate),
+    // not an audit failure — pass it through unwrapped.
+    if (isP2034(e) || isP2002(e)) throw e
     logger.error("user action audit write failed", { action, targetId, error: e instanceof Error ? e.message : String(e) })
     throw new AuditWriteError()
   }
@@ -673,7 +677,11 @@ export async function deleteUser(id: number): Promise<ActionResult> {
 /**
  * Re-issues the set-password invite for a user who has never signed in.
  * Someone who has signed in uses "Forgot password" instead, so this cannot
- * mint a fresh 7-day reset link for an account already in use.
+ * mint a fresh 7-day reset link for an account already in use. Best effort:
+ * "has signed in" is read from USER_LOGIN audit rows, which login writes
+ * fire-and-forget (User has no durable last-login column), so a login whose
+ * audit write failed still allows a re-invite. The re-invite is itself
+ * role-guarded and audited (WELCOME_EMAIL_SENT).
  * @param id the user to re-invite
  * @returns success, or an error message
  */

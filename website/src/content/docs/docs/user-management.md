@@ -41,7 +41,9 @@ sign in with their password and code, and add new passkeys from **My Account**.
 **Resending the welcome invite:** if the original invite email never arrived or expired, use
 **Resend invite** on the user's row — it issues a fresh 7-day token and re-sends the email.
 It works only for someone who has never signed in; anyone who has signed in uses
-**Forgot password** on the sign-in page instead.
+**Forgot password** on the sign-in page instead. ("Has signed in" comes from the audit log's
+login entries, so this check is best effort: if a login's audit entry failed to save, a
+re-invite is still allowed.)
 
 **Unlocking an account:** if a staff member is locked out after repeated failed
 password/code attempts, an admin/office-admin can click **Unlock** on their row — this clears

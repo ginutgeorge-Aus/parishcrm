@@ -479,6 +479,17 @@ describe("AUD-1-02 peer takeover, in-transaction audit, credential invalidation"
     expect(sendWelcomeEmail).not.toHaveBeenCalled()
   })
 
+  it("passes a Serializable conflict from the audit write through to the retry prompt", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", archivedAt: null })
+    txReturning({ role: "VIEWER", email: "v@example.com", archivedAt: null })
+    ;(logAuditTx as jest.Mock).mockRejectedValue(p2034)
+    expect(await updateUser(3, undefined, form({ name: "V", email: "v@example.com", role: "VIEWER" }))).toEqual({
+      error: expect.stringMatching(/try again/),
+    })
+    expect(await deleteUser(3)).toEqual({ error: expect.stringMatching(/try again/) })
+  })
+
   it("an email change voids reset links and OTP codes and ends sessions", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "old@example.com", archivedAt: null })
