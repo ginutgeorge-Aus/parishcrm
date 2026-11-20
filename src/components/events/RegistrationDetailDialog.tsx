@@ -1,19 +1,13 @@
 "use client"
 
-import { paymentStatusLabel } from "@/lib/registrationPayment"
 import { useEffect, useState } from "react"
 import { getRegistrationDetail, type RegistrationDetailDTO } from "@/lib/actions/registration"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { fmtAUD } from "@/lib/formatting"
+import { paymentStatusColour, paymentStatusLabel } from "@/lib/registrationPayment"
 
 type Props = { registrationId: number; open: boolean; onOpenChange: (open: boolean) => void }
-
-const STATUS_COLOURS: Record<string, string> = {
-  PAID: "bg-income/10 text-income",
-  PENDING: "bg-gold/10 text-gold-foreground",
-  CANCELLED: "bg-expense/10 text-expense",
-}
 
 function AnswerList({ answers }: Readonly<{ answers: { label: string; value: string }[] }>) {
   if (answers.length === 0) return null
@@ -70,7 +64,7 @@ export function RegistrationDetailDialog({ registrationId, open, onOpenChange }:
         {data && (
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Badge className={STATUS_COLOURS[data.paymentStatus] ?? ""}>
+              <Badge className={paymentStatusColour(data)}>
                 {paymentStatusLabel(data)}
               </Badge>
               <span className="font-semibold text-foreground">{fmtAUD(data.totalAmount)}</span>

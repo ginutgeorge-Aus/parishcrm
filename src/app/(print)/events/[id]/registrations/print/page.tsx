@@ -7,6 +7,7 @@ import { auditIpFromHeaders } from "@/lib/clientIp"
 import { safeDecrypt } from "@/lib/crypto"
 import { toAnswerMap } from "@/lib/eventAnswers"
 import { fmtAUD } from "@/lib/formatting"
+import { paymentStatusLabel } from "@/lib/registrationPayment"
 import { formatAnswerForCsv } from "@/lib/eventQuestions"
 import { redirect, notFound } from "next/navigation"
 import { headers } from "next/headers"
@@ -61,6 +62,7 @@ export default async function PrintPage(props: Readonly<Props>) {
         ticketType: item.ticketType.name,
         bookedBy: `${r.firstName} ${r.lastName}`,
         paymentStatus: r.paymentStatus,
+        totalAmount: r.totalAmount,
       }))
     })
   )
@@ -115,7 +117,7 @@ export default async function PrintPage(props: Readonly<Props>) {
                 ))}
               </td>
               <td>{fmtAUD(Number(r.totalAmount))}</td>
-              <td className={r.paymentStatus.toLowerCase()}>{r.paymentStatus}</td>
+              <td className={r.paymentStatus.toLowerCase()}>{paymentStatusLabel(r)}</td>
             </tr>
           ))}
         </tbody>
@@ -137,7 +139,7 @@ export default async function PrintPage(props: Readonly<Props>) {
               <td>{a.name}</td>
               <td>{a.ticketType}</td>
               <td>{a.bookedBy}</td>
-              <td className={a.paymentStatus.toLowerCase()}>{a.paymentStatus}</td>
+              <td className={a.paymentStatus.toLowerCase()}>{paymentStatusLabel(a)}</td>
             </tr>
           ))}
         </tbody>

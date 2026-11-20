@@ -1,4 +1,4 @@
-import { owesPayment, paymentStatusLabel } from "@/lib/registrationPayment"
+import { owesPayment, paymentStatusColour, paymentStatusLabel } from "@/lib/registrationPayment"
 
 describe("owesPayment", () => {
   test.each([
@@ -8,7 +8,7 @@ describe("owesPayment", () => {
     ["PENDING", 0, false],
     ["PAID", "10.00", false],
     ["CANCELLED", "10.00", false],
-    ["PENDING", "abc", false],
+    ["PENDING", "abc", true],
   ])("%s / %s -> %s", (paymentStatus, totalAmount, expected) => {
     expect(owesPayment({ paymentStatus, totalAmount })).toBe(expected)
   })
@@ -23,5 +23,13 @@ describe("paymentStatusLabel", () => {
   })
   test("paid reads Paid", () => {
     expect(paymentStatusLabel({ paymentStatus: "PAID", totalAmount: "0.00" })).toBe("Paid")
+  })
+})
+
+describe("paymentStatusColour", () => {
+  test("free pending is neutral, owing pending is amber", () => {
+    expect(paymentStatusColour({ paymentStatus: "PENDING", totalAmount: 0 })).toContain("bg-muted")
+    expect(paymentStatusColour({ paymentStatus: "PENDING", totalAmount: 5 })).toContain("bg-gold")
+    expect(paymentStatusColour({ paymentStatus: "PAID", totalAmount: 0 })).toContain("bg-income")
   })
 })

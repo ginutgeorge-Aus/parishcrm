@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { fmtAUD } from "@/lib/formatting"
-import { owesPayment, paymentStatusLabel } from "@/lib/registrationPayment"
+import { owesPayment, paymentStatusColour, paymentStatusLabel } from "@/lib/registrationPayment"
 import { format } from "date-fns"
 
 type Item = { quantity: number; ticketType: { name: string }; attendees: { name: string }[] }
@@ -35,12 +35,6 @@ type Reg = {
 
 type Props = { registrations: Reg[]; eventId: number; canEdit: boolean; total?: number }
 
-const STATUS_COLOURS: Record<string, string> = {
-  PAID: "bg-income/10 text-income",
-  PENDING: "bg-gold/10 text-gold-foreground",
-  CANCELLED: "bg-expense/10 text-expense",
-}
-
 // Per-row actions own their pending/error state so acting on one row never
 // disables the buttons on every other row.
 function RegistrationRowActions({ reg, eventId }: Readonly<{ reg: Reg; eventId: number }>) {
@@ -50,7 +44,7 @@ function RegistrationRowActions({ reg, eventId }: Readonly<{ reg: Reg; eventId: 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex gap-1">
-        {owesPayment(reg) && (
+        {reg.paymentStatus === "PENDING" && (
           <Button
             size="xs"
             variant="ghost"
@@ -175,8 +169,8 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                   <TableCell className="text-muted-foreground">{a.ticketType}</TableCell>
                   <TableCell className="text-muted-foreground">{a.bookedBy}</TableCell>
                   <TableCell>
-                    <Badge className={STATUS_COLOURS[a.paymentStatus] ?? ""}>
-                      {paymentStatusLabel({ paymentStatus: a.paymentStatus, totalAmount: a.totalAmount })}
+                    <Badge className={paymentStatusColour(a)}>
+                      {paymentStatusLabel(a)}
                     </Badge>
                   </TableCell>
                 </TableRow>
@@ -200,8 +194,8 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                   <p className="mt-0.5 text-xs text-muted-foreground truncate">{a.ticketType}</p>
                   <p className="text-xs text-muted-foreground truncate">{a.bookedBy}</p>
                 </div>
-                <Badge className={STATUS_COLOURS[a.paymentStatus] ?? ""}>
-                  {paymentStatusLabel({ paymentStatus: a.paymentStatus, totalAmount: a.totalAmount })}
+                <Badge className={paymentStatusColour(a)}>
+                  {paymentStatusLabel(a)}
                 </Badge>
               </div>
             </li>
@@ -261,7 +255,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                   {paymentMethodOf(reg.paymentRef)}
                 </TableCell>
                 <TableCell>
-                  <Badge className={STATUS_COLOURS[reg.paymentStatus] ?? ""}>
+                  <Badge className={paymentStatusColour(reg)}>
                     {paymentStatusLabel(reg)}
                   </Badge>
                 </TableCell>
@@ -313,7 +307,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
               ))}
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
-              <Badge className={STATUS_COLOURS[reg.paymentStatus] ?? ""}>
+              <Badge className={paymentStatusColour(reg)}>
                 {paymentStatusLabel(reg)}
               </Badge>
               <span className="text-xs text-muted-foreground">
