@@ -68,7 +68,8 @@ export async function exportEventCsv(req: NextRequest, session: Session & { user
   const eventStub = await prisma.event.findUnique({ where, select: { id: true } })
   if (!eventStub) return NextResponse.json({ error: "Not found" }, { status: 404 })
   if (!isEditor && !(await isEventManager(Number.parseInt(session.user.id, 10), eventStub.id))) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    // 404 (same as a missing event) so an organiser can't probe which events exist.
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
   // Draft events are exportable: editors and assigned organisers (checked above)
   // may export an event they manage even before it is published.
