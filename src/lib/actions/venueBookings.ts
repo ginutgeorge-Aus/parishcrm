@@ -173,13 +173,13 @@ export async function sendBookingRequest(ids: number[]): Promise<{ success: stri
   if (ids.length > MAX_ROWS_PER_MONTH || !ids.every(isValidPgId)) return { error: "Invalid booking" }
   if (!g.settings.contactEmail) return { error: "Set the venue contact email in Settings first" }
 
-  const [candidates, booked, actor, church, template] = await Promise.all([
+  const [candidates, actor, church, template] = await Promise.all([
     prisma.venueUsage.findMany({
       where: { id: { in: ids }, status: "REQUESTED", bookingRequestedAt: null },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
       select: { id: true, date: true, startTime: true, endTime: true, status: true },
     }),
-    loadBooked(), loadActor(g.userId), getChurchSettings(), getEmailTemplate("venueBookingRequest"),
+    loadActor(g.userId), getChurchSettings(), getEmailTemplate("venueBookingRequest"),
   ])
   if (candidates.length === 0) return { error: "Those dates were already requested. Refresh the page." }
   const claimedIds = candidates.map((c) => c.id)
@@ -201,6 +201,8 @@ export async function sendBookingRequest(ids: number[]): Promise<{ success: stri
       select: { id: true, date: true, startTime: true, endTime: true, status: true },
     })
     if (claimed.length !== claimedIds.length) throw new Error("claimed rows changed")
+    // Reference list of confirmed bookings is read after the claim so it is as fresh as the requested rows.
+    const booked = await loadBooked()
     const { to, cc, replyTo } = bookingRecipients(g.settings, actor)
     const mail = buildBookingRequestEmail({
       churchName: church.name, venueName: g.settings.venueName, contactName: g.settings.contactName,

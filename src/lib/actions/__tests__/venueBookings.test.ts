@@ -118,7 +118,7 @@ describe("sendBookingRequest", () => {
 
   it("claims the rows, sends once with booking CCs, audits", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(candidateRows)
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValue({ count: 2 })
     expect(await sendBookingRequest([1, 2])).toEqual({ success: "Booking request sent for 2 dates" })
     const claim = (prisma.venueUsage.updateMany as jest.Mock).mock.calls[0][0]
@@ -131,7 +131,7 @@ describe("sendBookingRequest", () => {
 
   it("stamps venueNotifiedAt after a successful send, only where it is still null (never on claim)", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(candidateRows)
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValue({ count: 2 })
     await sendBookingRequest([1, 2])
     const calls = (prisma.venueUsage.updateMany as jest.Mock).mock.calls.map((c) => c[0])
@@ -145,7 +145,7 @@ describe("sendBookingRequest", () => {
 
   it("still reports success when the venueNotifiedAt stamp fails after a send", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(candidateRows)
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValueOnce({ count: 2 }).mockRejectedValueOnce(new Error("db"))
     const spy = jest.spyOn(console, "error").mockImplementation(() => {})
     expect(await sendBookingRequest([1, 2])).toEqual({ success: "Booking request sent for 2 dates" })
@@ -154,7 +154,7 @@ describe("sendBookingRequest", () => {
 
   it("retries the venueNotifiedAt stamp once before logging", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(candidateRows)
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock)
       .mockResolvedValueOnce({ count: 2 }).mockRejectedValueOnce(new Error("db")).mockResolvedValueOnce({ count: 2 })
     const spy = jest.spyOn(console, "error").mockImplementation(() => {})
@@ -166,7 +166,7 @@ describe("sendBookingRequest", () => {
 
   it("still reports success when the audit write fails after a send", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(candidateRows)
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValue({ count: 2 })
     ;(logAudit as jest.Mock).mockRejectedValue(new Error("db"))
     const spy = jest.spyOn(console, "error").mockImplementation(() => {})
@@ -177,10 +177,10 @@ describe("sendBookingRequest", () => {
   it("builds the email from the rows re-read after the claim, not the pre-claim read (OSS-318)", async () => {
     asRole("PASTOR")
     const edited = candidateRows.map((r, i) => (i === 0 ? { ...r, startTime: "09:15", endTime: "11:45" } : r))
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(edited)
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(edited).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValue({ count: 2 })
     expect(await sendBookingRequest([1, 2])).toEqual({ success: "Booking request sent for 2 dates" })
-    const reread = (prisma.venueUsage.findMany as jest.Mock).mock.calls[2][0]
+    const reread = (prisma.venueUsage.findMany as jest.Mock).mock.calls[1][0]
     expect(reread.where).toMatchObject({ id: { in: [1, 2] }, bookingRequestedAt: expect.any(Date) })
     const mail = (sendVenueUsageRequestEmail as jest.Mock).mock.calls[0][0]
     expect(mail.text).toContain("9:15 AM")
@@ -189,7 +189,7 @@ describe("sendBookingRequest", () => {
 
   it("releases the claim and sends nothing when a claimed row vanished before the re-read", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(candidateRows.slice(0, 1))
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(candidateRows.slice(0, 1)).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValue({ count: 2 })
     expect(await sendBookingRequest([1, 2])).toEqual({ error: "Could not send the email. Check email settings and try again." })
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
@@ -206,7 +206,7 @@ describe("sendBookingRequest", () => {
 
   it("releases the claim and reports an error when the send fails", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows).mockResolvedValueOnce(candidateRows)
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
     ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValue({ count: 2 })
     ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
     expect(await sendBookingRequest([1, 2])).toEqual({ error: "Could not send the email. Check email settings and try again." })

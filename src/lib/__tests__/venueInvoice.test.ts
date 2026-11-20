@@ -293,6 +293,15 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     upsert().mockClear()
     await deliverInvoiceRequest(await prepare(), { ...ctx, autoSent: true })
     expect(upsert().mock.calls.at(-1)[0].update).not.toHaveProperty("reminderSentAt")
+    // A FAILED manual send must not close the month.
+    upsert().mockClear()
+    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp down"))
+    const failed = await deliverInvoiceRequest(await prepare(), { ...ctx, autoSent: false })
+    expect(failed.status).toBe("FAILED")
+    for (const c of upsert().mock.calls) {
+      expect(c[0].update).not.toHaveProperty("reminderSentAt")
+      expect(c[0].create).not.toHaveProperty("reminderSentAt")
+    }
   })
 
   it("no staleAt update when the send was not stale", async () => {

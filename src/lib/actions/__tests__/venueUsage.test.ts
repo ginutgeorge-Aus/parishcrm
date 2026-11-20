@@ -162,10 +162,15 @@ describe("usage row CRUD", () => {
 
     ;(prisma.venueUsage.update as jest.Mock).mockClear()
     ;(logAuditTx as jest.Mock).mockClear()
-    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(unclaimed)
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(unclaimed).mockResolvedValueOnce({ id: 5 })
     ;(prisma.venueUsage.update as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("not found"), { code: "P2025" }))
     const r = await updateVenueUsage(5, { ...validInput, date: "2099-09-06", startTime: "18:00", endTime: "21:00", status: "REQUESTED" })
     expect(r).toEqual({ error: expect.stringContaining("booking request for this date was just sent") })
+
+    // Row deleted between the read and the update: say so, not "claimed".
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(unclaimed).mockResolvedValueOnce(null)
+    ;(prisma.venueUsage.update as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("not found"), { code: "P2025" }))
+    expect(await updateVenueUsage(5, { ...validInput, date: "2099-09-06", startTime: "18:00", endTime: "21:00", status: "REQUESTED" })).toEqual({ error: "Booking not found" })
     expect(logAuditTx).not.toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5, expect.anything())
   })
 

@@ -258,7 +258,11 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
         select: { id: true },
       })
     } catch (e) {
-      if (isP2025(e)) return { claimed: true } as const
+      if (isP2025(e)) {
+        // Deleted since the read, or claimed by a booking request meanwhile: tell the editor which.
+        const still = await tx.venueUsage.findUnique({ where: { id }, select: { id: true } })
+        return still ? ({ claimed: true } as const) : ({ notFound: true } as const)
+      }
       throw e
     }
     const oldMonth = monthOfDate(existing.date)

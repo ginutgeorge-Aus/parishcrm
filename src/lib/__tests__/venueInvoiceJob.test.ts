@@ -109,6 +109,13 @@ it("approved + complete: sends with autoSent, notifies staff, then sets reminder
   expect((sendEmail as jest.Mock).mock.invocationCallOrder[1]).toBeLessThan(updateMany().mock.invocationCallOrder[doneIdx])
 })
 
+it("a completion write that matches no row (claim replaced) is not treated as recorded", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: "SUCCESS", autoSent: false, approvedAt: new Date() })
+  updateMany().mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
+  expect(await runVenueInvoiceJob(OPEN)).toEqual(ZERO)
+  expect(releases().length).toBe(1) // claim released after the failed close
+})
+
 it("an audit failure after a successful send does not fail the run", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
   ;(logAudit as jest.Mock).mockRejectedValue(new Error("audit down"))
