@@ -57,3 +57,17 @@ export async function logAuditGuardedTx(
     throw new AuditWriteError(e)
   }
 }
+
+/**
+ * Maps an error thrown out of a write transaction that used `logAuditGuardedTx` to an action
+ * result: a failed audit write becomes `AUDIT_FAILED_ERROR`, a serialization conflict (P2034)
+ * becomes `busyMessage`. Anything else returns null so the caller can map or rethrow it.
+ * @param e the caught error
+ * @param label action name for the server log
+ * @param busyMessage user-facing "try again" text for a P2034 conflict
+ */
+export function auditTxErrorResult(e: unknown, label: string, busyMessage: string): { error: string } | null {
+  if (e instanceof AuditWriteError) return auditWriteFailedResult(e, label)
+  if (isP2034(e)) return { error: busyMessage }
+  return null
+}

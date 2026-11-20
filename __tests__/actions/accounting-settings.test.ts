@@ -14,22 +14,25 @@ jest.mock("@/lib/prisma", () => ({
     appSetting: {
       upsert: jest.fn(),
     },
+    // Interactive transactions run their callback against the same mocks (the tx client mirrors prisma).
+    $transaction: jest.fn(),
   },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined), logAuditTx: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import { upsertOpeningBalance, setAccountingLockDate } from "@/lib/actions/accountingSettings"
 
 const mockAuth = auth as jest.Mock
 const mockUpsert = prisma.accountOpeningBalance.upsert as jest.Mock
 const mockAppSettingUpsert = prisma.appSetting.upsert as jest.Mock
 const mockRevalidate = revalidatePath as jest.Mock
-const mockLogAudit = logAudit as jest.Mock
+const mockLogAudit = logAuditTx as jest.Mock
 
 function fd(fields: Record<string, string>) {
   const f = new FormData()
@@ -43,7 +46,10 @@ const validInput = {
   asOfDate: "2026-01-01",
 }
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  ;(prisma.$transaction as jest.Mock).mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
+})
 
 describe("upsertOpeningBalance", () => {
   it("blocks unauthenticated", async () => {
@@ -120,6 +126,14 @@ describe("upsertOpeningBalance", () => {
     expect(mockUpsert).not.toHaveBeenCalled()
   })
 
+  it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockUpsert.mockResolvedValue({})
+    mockLogAudit.mockRejectedValueOnce(new Error("audit down"))
+    expect(await upsertOpeningBalance(undefined, fd(validInput))).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
   it("returns error on DB failure", async () => {
     mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockUpsert.mockRejectedValue(new Error("DB error"))
@@ -152,9 +166,16 @@ describe("setAccountingLockDate", () => {
         update: { value: "2026-06-30" },
       })
     )
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "ACCOUNTING_LOCK_DATE_SET", "AppSetting", undefined, {
+    expect(mockLogAudit).toHaveBeenCalledWith(prisma, 1, "ACCOUNTING_LOCK_DATE_SET", "AppSetting", undefined, {
       lockDate: "2026-06-30",
     })
+  })
+
+  it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockAppSettingUpsert.mockResolvedValue({})
+    mockLogAudit.mockRejectedValueOnce(new Error("audit down"))
+    expect(await setAccountingLockDate(undefined, fd({ date: "2026-06-30" }))).toEqual({ error: AUDIT_FAILED_ERROR })
   })
 
   it("clears the lock date with an empty string", async () => {
@@ -162,7 +183,7 @@ describe("setAccountingLockDate", () => {
     mockAppSettingUpsert.mockResolvedValue({})
     const result = await setAccountingLockDate(undefined, fd({ date: "" }))
     expect(result).toEqual({ success: "Saved" })
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "ACCOUNTING_LOCK_DATE_SET", "AppSetting", undefined, {
+    expect(mockLogAudit).toHaveBeenCalledWith(prisma, 1, "ACCOUNTING_LOCK_DATE_SET", "AppSetting", undefined, {
       lockDate: null,
     })
   })
