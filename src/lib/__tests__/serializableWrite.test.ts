@@ -1,3 +1,4 @@
+/** @jest-environment node */
 const transaction = jest.fn()
 jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: (...a: unknown[]) => transaction(...a) } }))
 
@@ -36,7 +37,26 @@ describe("serializableWrite backoff", () => {
     expect(timeoutSpy).not.toHaveBeenCalled()
   })
 
-  it("backoff stays within the cap", () => {
-    for (let a = 1; a <= 10; a++) expect(serializationBackoffMs(a)).toBeLessThan(Math.min(200, 25 * 2 ** (a - 1)) + 1)
+  it("each P2034 retry sleeps within [0, cap) for its attempt", async () => {
+    transaction.mockRejectedValueOnce(p2034()).mockRejectedValueOnce(p2034()).mockResolvedValueOnce("ok")
+    await serializableWrite(async () => "ok", { error: "busy" })
+    const delays = timeoutSpy.mock.calls.map((c) => c[1] as number)
+    expect(delays).toHaveLength(2)
+    delays.forEach((d, i) => {
+      expect(d).toBeGreaterThanOrEqual(0)
+      expect(d).toBeLessThan(25 * 2 ** i)
+    })
+  })
+
+  it("backoff stays within [0, cap) and the cap saturates at 200ms", () => {
+    const cap = (a: number) => Math.min(200, 25 * 2 ** (a - 1))
+    expect([cap(1), cap(2), cap(3), cap(4), cap(5), cap(10)]).toEqual([25, 50, 100, 200, 200, 200])
+    for (let a = 1; a <= 10; a++) {
+      for (let n = 0; n < 50; n++) {
+        const d = serializationBackoffMs(a)
+        expect(d).toBeGreaterThanOrEqual(0)
+        expect(d).toBeLessThan(cap(a))
+      }
+    }
   })
 })
