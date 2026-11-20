@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { NOT_XFER } from "@/lib/xferAccount"
 import { canViewAccounting, canAccessAccounting } from "@/lib/roleGuard"
 import { safeDecrypt } from "@/lib/crypto"
 import { Badge } from "@/components/ui/badge"
@@ -54,6 +55,7 @@ export default async function FamilyGivingPage(props: Readonly<Props>) {
     where: {
       familyId: id,
       isGiving: true,
+      ...NOT_XFER,
       date: { gte: fyStart, lt: fyEnd },
     },
     orderBy: { date: "desc" },
