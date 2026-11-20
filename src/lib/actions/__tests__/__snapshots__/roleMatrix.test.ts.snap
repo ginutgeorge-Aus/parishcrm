@@ -121,6 +121,7 @@ exports[`role matrix: pinned discovery (a dropped or rewritten guard must fail h
   "pettyCashSession.updateSessionCustodian": "canAccessAccounting",
   "pettyCashTransfer.createTransfer": "canAccessAccounting",
   "pettyCashTransfer.deleteTransfer": "isAdmin",
+  "pettyCashTransfer.updateTransfer": "canAccessAccounting",
   "prayerRequest.createPrayerRequest": "canManagePrayerRequests",
   "prayerRequest.getPrayerRequest": "canManagePrayerRequests",
   "prayerRequest.listPrayerRequests": "canManagePrayerRequests",

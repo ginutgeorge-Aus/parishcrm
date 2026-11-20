@@ -153,8 +153,10 @@ export default async function SessionDetailPage(
       />
 
       <SessionTransfersTable
+        sessionId={pcSession.id}
         transfers={pcSession.transfers}
         totalTransfers={totalTransfers}
+        userCanEdit={userCanEdit}
         userIsAdmin={userIsAdmin}
         isOpen={isOpen}
         lockDate={lockDate}

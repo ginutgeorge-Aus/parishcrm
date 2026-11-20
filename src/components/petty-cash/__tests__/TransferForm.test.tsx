@@ -160,3 +160,20 @@ describe("admin window-guard override", () => {
     expect(screen.queryByLabelText(/admin: record anyway/i)).not.toBeInTheDocument()
   })
 })
+
+test("edit mode prefills date/amount/notes and shows only the correctable fields", () => {
+  render(
+    <TransferForm
+      action={noop}
+      maxAmount={2000}
+      imported={imported}
+      transfer={{ date: "2026-07-31", amount: "1500.00", notes: "slip 12" }}
+    />,
+  )
+  expect((screen.getByLabelText(/transfer date/i) as HTMLInputElement).value).toBe("2026-07-31")
+  expect((screen.getByLabelText(/amount deposited/i) as HTMLInputElement).value).toBe("1500.00")
+  expect((screen.getByLabelText(/notes/i) as HTMLTextAreaElement).value).toBe("slip 12")
+  expect(screen.queryByLabelText(/imported bank deposit/i)).not.toBeInTheDocument()
+  expect(screen.queryByLabelText(/deposited by/i)).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument()
+})
