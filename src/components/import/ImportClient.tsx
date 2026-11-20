@@ -25,6 +25,37 @@ const SAMPLE_CSV = `family_name,member_no,address,suburb,state,postcode,first_na
 Smith,C90/91,12 High St,Sampletown,NSW,2150,John,Smith,1980-01-15,MALE,HEAD,MEMBER,john@example.com,0400000001
 Smith,,,,,,Jane,Smith,1983-06-20,FEMALE,SPOUSE,MEMBER,jane@example.com,0400000002`
 
+const MAX_VISIBLE_ERRORS = 20
+
+// Messages can quote cell text: always rendered as React text nodes.
+function ErrorList({ errors }: { errors: Array<{ row: number; message: string }> }) {
+  const visible = errors.slice(0, MAX_VISIBLE_ERRORS)
+  const hidden = errors.length - visible.length
+  return (
+    <div className="space-y-2">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Row</TableHead>
+            <TableHead>Issue</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {visible.map((err, i) => (
+            <TableRow key={`${err.row}-${i}`}>
+              <TableCell>
+                <Badge variant="destructive">{err.row}</Badge>
+              </TableCell>
+              <TableCell className="text-sm text-destructive">{err.message}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {hidden > 0 && <p className="text-sm text-muted-foreground">and {hidden} more</p>}
+    </div>
+  )
+}
+
 export function ImportClient() {
   const [file, setFile] = useState<File | null>(null)
   // The exact File that produced the current preview — confirmation submits this,
@@ -194,9 +225,17 @@ export function ImportClient() {
         <div className="space-y-4">
           {preview.errors.length > 0 && (
             <div className="rounded-md bg-warning/10 border border-warning/40 px-4 py-3 text-sm text-warning">
-              {preview.errors.length} row{preview.errors.length !== 1 ? "s" : ""} have parse errors and will be skipped.
+              {preview.errors.length === 1
+                ? "1 row has a parse error and will be skipped."
+                : `${preview.errors.length} rows have parse errors and will be skipped.`}
             </div>
           )}
+          {preview.errors.length > 0 && previewRows.length === 0 && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              The column headings do not match the expected format. Use the Download sample CSV button above to see the expected columns.
+            </div>
+          )}
+          {preview.errors.length > 0 && <ErrorList errors={preview.errors} />}
 
           <div className="overflow-x-auto">
           <Table>
@@ -235,7 +274,7 @@ export function ImportClient() {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Button onClick={handleConfirm} disabled={loading || newFamilyCount === 0}>
               {loading
                 ? "Importing..."
@@ -258,26 +297,7 @@ export function ImportClient() {
             )}
           </div>
 
-          {result.errors.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Row</TableHead>
-                  <TableHead>Issue</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {result.errors.map((err, i) => (
-                  <TableRow key={`${err.row}-${i}`}>
-                    <TableCell>
-                      <Badge variant="destructive">{err.row}</Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-destructive">{err.message}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          {result.errors.length > 0 && <ErrorList errors={result.errors} />}
 
           <div className="flex flex-wrap gap-3">
             <Button onClick={() => router.push("/families")}>
