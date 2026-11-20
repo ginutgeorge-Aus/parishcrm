@@ -1971,7 +1971,7 @@ describe("createSession — duplicate title", () => {
 
   it("returns a friendly error on P2002 instead of throwing", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
     ;(prisma.pettyCashSession.create as jest.Mock).mockRejectedValue(
       Object.assign(new Error("Unique constraint"), { code: "P2002" })
     )
@@ -1985,7 +1985,7 @@ describe("createSession — duplicate title", () => {
 
   it("returns a retry error on a serialization conflict (P2034) instead of throwing", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
     ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
     const fd = new FormData()
     fd.set("sessionDate", "2026-06-14")
