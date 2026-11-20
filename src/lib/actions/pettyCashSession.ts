@@ -173,31 +173,6 @@ function findPriorSessionId(
   return priorId
 }
 
-// Mirror of findPriorSessionId: the session dated earliest but strictly after
-// `thisDate` (earliest openedAt breaks a tie). This is the session whose
-// auto-open would have carried its opening balance from the one at `thisDate`.
-function findNextSessionId(
-  candidates: { id: number; title: string; openedAt: Date }[],
-  thisDate: number
-): number | null {
-  let nextId: number | null = null
-  let bestDate = Infinity
-  let bestOpenedAt = Infinity
-  for (const c of candidates) {
-    const d = sessionDateFromTitle(c.title)
-    if (!d) continue
-    const t = d.getTime()
-    if (t <= thisDate) continue // only sessions dated after the closing one
-    const o = c.openedAt.getTime()
-    if (t < bestDate || (t === bestDate && o < bestOpenedAt)) {
-      bestDate = t
-      bestOpenedAt = o
-      nextId = c.id
-    }
-  }
-  return nextId
-}
-
 // Prisma's unique-violation code — used where a check-then-create/upsert race
 // is resolved by treating a concurrent winner's P2002 as "already exists".
 function isUniqueViolation(e: unknown): boolean {
@@ -362,26 +337,24 @@ async function rollOpeningForward(
   finalCents: number,
   basis: "counted" | "system",
 ): Promise<void> {
-  const closingDate = sessionDateFromTitle(closing.title)
-  if (!closingDate) return
-  const candidates = await tx.pettyCashSession.findMany({ select: { id: true, title: true, openedAt: true } })
-  const nextId = findNextSessionId(candidates, closingDate.getTime())
-  if (nextId === null) return
+  // Find the recipient through its recorded provenance, not by date: a manual session
+  // backfilled between the two weeks must not hide the auto-opened successor.
+  const carried = await tx.auditLog.findFirst({
+    where: {
+      action: "PETTY_CASH_SESSION_AUTO_OPENED",
+      resourceType: "PettyCashSession",
+      metadata: { path: ["carriedFromSessionId"], equals: closing.id },
+    },
+    orderBy: { id: "desc" },
+    select: { resourceId: true },
+  })
+  const nextId = carried?.resourceId
+  if (nextId == null) return
   const next = await tx.pettyCashSession.findUnique({
     where: { id: nextId },
     select: { status: true, openingBalance: true },
   })
   if (next?.status !== "OPEN") return
-  const carried = await tx.auditLog.findFirst({
-    where: {
-      action: "PETTY_CASH_SESSION_AUTO_OPENED",
-      resourceType: "PettyCashSession",
-      resourceId: nextId,
-      metadata: { path: ["carriedFromSessionId"], equals: closing.id },
-    },
-    select: { id: true },
-  })
-  if (!carried) return
   const oldCents = toCents(next.openingBalance)
   if (oldCents === finalCents) return
   const newOpeningBalance = (finalCents / 100).toFixed(2)
