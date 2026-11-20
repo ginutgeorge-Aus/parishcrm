@@ -8,6 +8,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import type { ActionResultWithSuccess } from "@/lib/actions/types"
 import { deleteFollowUpTask, setFollowUpStatus, type FollowUpTaskView } from "@/lib/actions/followUp"
+import { APP_LOCALE } from "@/lib/appConfig"
 import { FOLLOW_UP_STATUS_LABEL } from "@/lib/pastoralLabels"
 
 type Props = Readonly<{
@@ -59,7 +60,7 @@ export function FollowUpList({ tasks, canManage, showTarget = false }: Props) {
             </div>
             <p className="text-muted-foreground">
               {showTarget && <TargetLink task={t} />}
-              {t.dueDate ? `Due ${t.dueDate}` : "No due date"}
+              {t.dueDate ? `Due ${formatDueDate(t.dueDate)}` : "No due date"}
               {` · ${t.assigneeName ? `Assigned to ${t.assigneeName}` : "Unassigned"}`}
             </p>
             {t.notes && <p className="whitespace-pre-wrap">{t.notes}</p>}
@@ -71,6 +72,18 @@ export function FollowUpList({ tasks, canManage, showTarget = false }: Props) {
       </ul>
     </div>
   )
+}
+
+/**
+ * Format a calendar-day string (YYYY-MM-DD) with the app locale, matching the
+ * prayer list. Parsed and rendered in UTC so the day never shifts.
+ * @param ymd the due date as YYYY-MM-DD
+ * @returns the formatted date, or the input unchanged if it is not a valid date
+ */
+export function formatDueDate(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return ymd
+  return d.toLocaleDateString(APP_LOCALE, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
 }
 
 /** "Person name · " or "Family name · " prefix linking to the profile. */
