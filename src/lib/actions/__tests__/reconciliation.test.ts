@@ -130,6 +130,13 @@ test("reconciles rows after the lock date when the lock is later than the openin
     undefined,
     expect.objectContaining({ count: 4, lockApplied: "2026-06-30" }),
   )
+  expect(tx.transaction.count).toHaveBeenCalledWith({
+    where: {
+      paymentAccountId: ANZ_CHURCH_ID,
+      reconciled: false,
+      date: { gte: new Date("2024-07-01T00:00:00Z"), lte: new Date("2026-06-30T23:59:59.999Z") },
+    },
+  })
   expect((r as { success: string }).success).toBe(
     "Balanced — 4 transactions reconciled. (2 unreconciled transactions on or before 2026-06-30 left unchanged — locked period)",
   )
@@ -152,15 +159,15 @@ test("does not touch rows on or before the lock date", async () => {
   expect(where.date.gte).toBeUndefined()
 })
 
-test("saves without reconciling when the lock covers the statement date (concurrent lock change)", async () => {
+test("rejects the save when the lock covers the statement date (concurrent lock change)", async () => {
   const tx = withTx({
     opening: { amount: "100.00", asOfDate: new Date("2026-01-01T00:00:00Z") },
     lockDate: "2026-07-31",
   })
   const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
+  expect(r).toEqual({ error: expect.stringMatching(/locked accounting period/i) })
   expect(tx.transaction.updateMany).not.toHaveBeenCalled()
-  expect(logAuditTx).not.toHaveBeenCalledWith(tx, 1, "RECON_AUTO_RECONCILED", expect.anything(), undefined, expect.anything())
-  expect((r as { success: string }).success).toMatch(/locked accounting period/i)
+  expect(logAuditTx).not.toHaveBeenCalled()
 })
 
 test("lock on the opening day: only rows after it are reconciled", async () => {
@@ -187,6 +194,11 @@ test("still reconciles when the lock date predates the opening balance", async (
   expect(tx.transaction.updateMany.mock.calls[0][0].where.date.gte).toEqual(
     new Date("2026-01-01T00:00:00Z"),
   )
+  expect(tx.transaction.count).not.toHaveBeenCalled()
+  expect(tx.transaction.aggregate.mock.calls[0][0].where.date).toEqual({
+    gte: new Date("2026-01-01T00:00:00Z"),
+    lte: new Date("2026-07-31T23:59:59.999Z"),
+  })
   expect((r as { success: string }).success).toMatch(/reconciled/i)
 })
 

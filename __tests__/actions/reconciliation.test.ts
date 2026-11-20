@@ -66,6 +66,8 @@ const mockLoggerError = logger.error as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // Reset lock setting (clearAllMocks keeps implementations) so a lock never leaks across tests.
+  mockLockAppSetting.mockReset().mockResolvedValue(null)
   // Restore the default pass-through impl (tx === prisma) after any per-test override.
   mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
 })
@@ -254,7 +256,7 @@ describe("saveStatementBalance", () => {
     expect(result && "success" in result ? result.success : "").toMatch(/3 unreconciled transactions.*left unchanged/i)
   })
 
-  it("does not reconcile when a concurrent lock change puts the statement date in a locked period", async () => {
+  it("rejects the save (rolls back) when a concurrent lock change puts the statement date in a locked period", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
@@ -264,7 +266,7 @@ describe("saveStatementBalance", () => {
 
     expect(mockAggregate).not.toHaveBeenCalled()
     expect(mockUpdateMany).not.toHaveBeenCalled()
-    expect(result && "success" in result ? result.success : "").toMatch(/locked accounting period/i)
+    expect(result).toEqual({ error: expect.stringMatching(/locked accounting period/i) })
   })
 
   it("lock on the opening day: rows after it are reconciled, opening-day rows are skipped", async () => {
