@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { createInvoice, updateInvoice, getRecipientContact, type InvoiceView } from "@/lib/actions/invoice"
 import { computeInvoiceTotals, INVOICE_MAX_LINES } from "@/lib/invoice"
 import { toCents, fmtAUD, centsToNumber } from "@/lib/formatting"
-import { normaliseMoneyInput } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, normaliseMoneyInput } from "@/lib/validation"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { RecipientPicker, type RecipientOption } from "./RecipientPicker"
 
@@ -141,6 +141,9 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
             )}
             <Button type="button" variant="ghost" size="sm" className="col-span-1" aria-label={`Remove line ${i + 1}`}
               disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>✕</Button>
+            {l.unitPrice.trim() !== "" && !MONEY_DECIMAL_RE.test(normaliseMoneyInput(l.unitPrice)) && (
+              <p className="col-span-12 text-xs text-destructive">Line {i + 1}: enter a price such as 1000.00</p>
+            )}
           </div>
         ))}
         <Button type="button" variant="outline" size="sm" disabled={lines.length >= INVOICE_MAX_LINES}
