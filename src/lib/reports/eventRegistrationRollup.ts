@@ -8,6 +8,8 @@ export type EventRegistrationRollup = {
   total: number
   paid: number
   cancelled: number
+  /** PENDING registrations with a $0 total: nothing owing, so not "unpaid". */
+  free: number
   /** Paid revenue in dollars, then split by payment method. */
   revenue: number
   cardRevenue: number
@@ -23,7 +25,7 @@ export type EventRegistrationRollup = {
  * snapshot so a concurrent payment change can't push card above total.
  */
 export async function getEventRegistrationRollup(eventId: number): Promise<EventRegistrationRollup> {
-  const [statusRollup, cardRollup] = await prisma.$transaction([
+  const [statusRollup, cardRollup, freeCount] = await prisma.$transaction([
     prisma.registration.groupBy({
       by: ["paymentStatus"],
       where: { eventId },
@@ -34,6 +36,7 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
       where: { eventId, paymentStatus: "PAID", ...CARD_PAYMENT_WHERE },
       _sum: { totalAmount: true },
     }),
+    prisma.registration.count({ where: { eventId, paymentStatus: "PENDING", totalAmount: 0 } }),
   ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
   /** The status rollup group for one payment status, if any registrations have it. */
   const row = (status: string) => statusRollup.find((r) => r.paymentStatus === status)
@@ -48,6 +51,7 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
     total: statusRollup.reduce((n, r) => n + r._count._all, 0),
     paid: row("PAID")?._count._all ?? 0,
     cancelled: row("CANCELLED")?._count._all ?? 0,
+    free: freeCount,
     revenue: centsToNumber(revenueCents),
     cardRevenue: centsToNumber(cardCents),
     transferRevenue: centsToNumber(revenueCents - cardCents),

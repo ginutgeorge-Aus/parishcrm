@@ -9,6 +9,7 @@ import { formatSydneyDate } from "@/lib/dates"
 import { lastRemindedAtByRegistration } from "@/lib/actions/registration"
 import { RegistrationStats } from "@/components/events/RegistrationStats"
 import { getEventRegistrationRollup } from "@/lib/reports/eventRegistrationRollup"
+import { owesPayment } from "@/lib/registrationPayment"
 import { RegistrationsTable } from "@/components/events/RegistrationsTable"
 import { ExportButtons } from "@/components/events/ExportButtons"
 import { SendPaymentRemindersClient } from "@/components/events/SendPaymentRemindersClient"
@@ -75,14 +76,14 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
   // Headline stats come from a DB rollup over ALL registrations, not the
   // capped list above — so total/paid/cancelled/revenue stay exact even when
   // the table is truncated, matching the admin twin.
-  const { total: totalRegistrations, paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } = rollup
+  const { total: totalRegistrations, paid: paidCount, cancelled, free: freeCount, revenue, cardRevenue, transferRevenue } = rollup
   const ticketsSold = event.ticketTypes.map((tt) => ({
     name: tt.name,
     count: tt.registrationItems.reduce((s, i) => s + i.quantity, 0),
   }))
 
   const reminderRows: PendingReminderRow[] = event.registrations
-    .filter((r) => r.paymentStatus === "PENDING")
+    .filter((r) => owesPayment(r))
     .map((r) => ({
       registrationId: r.id,
       name: `${r.firstName} ${r.lastName}`.trim(),
@@ -117,6 +118,7 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
         total={totalRegistrations}
         paid={paidCount}
         cancelled={cancelled}
+        free={freeCount}
         revenue={revenue}
         cardRevenue={cardRevenue}
         transferRevenue={transferRevenue}

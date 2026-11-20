@@ -87,6 +87,7 @@ export function generateCsv(
         r.email,
         r.phone ?? "",
         first ? toFloat(r.totalAmount).toFixed(2) : "",
+        // Raw enum kept on purpose: the CSV is machine-readable (filters, imports).
         r.paymentStatus,
         registered,
       ]
