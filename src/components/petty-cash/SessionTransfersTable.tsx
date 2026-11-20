@@ -1,3 +1,5 @@
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
 import { fmtAUD as fmt } from "@/lib/formatting"
 import { isDateLocked } from "@/lib/accountingLock"
 import { safeDecrypt } from "@/lib/crypto"
@@ -6,15 +8,33 @@ import type { SessionTransfer } from "@/app/(dashboard)/accounting/petty-cash/se
 import { APP_LOCALE } from "@/lib/appConfig"
 
 interface Props {
+  sessionId: number
   transfers: SessionTransfer[]
   totalTransfers: number
+  /** ADMIN/PASTOR: may correct a transfer (Edit). Delete stays ADMIN only. */
+  userCanEdit: boolean
   userIsAdmin: boolean
   isOpen: boolean
   lockDate: Date | null
 }
 
 /** Bank transfers section of the session detail page — mobile cards + desktop table. */
-export function SessionTransfersTable({ transfers, totalTransfers, userIsAdmin, isOpen, lockDate }: Readonly<Props>) {
+export function SessionTransfersTable({ sessionId, transfers, totalTransfers, userCanEdit, userIsAdmin, isOpen, lockDate }: Readonly<Props>) {
+  const showActions = (userCanEdit || userIsAdmin) && isOpen
+  /** Edit beside Delete; disabled inside a locked period (the action refuses it too). */
+  const actions = (id: number, locked: boolean) => (
+    <>
+      {userCanEdit &&
+        (locked ? (
+          <Button variant="ghost" size="sm" disabled aria-label="Edit — period locked">Edit</Button>
+        ) : (
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/accounting/petty-cash/sessions/${sessionId}/transfer/${id}/edit`}>Edit</Link>
+          </Button>
+        ))}
+      {userIsAdmin && <DeleteTransferButton id={id} locked={locked} />}
+    </>
+  )
   return (
     <div>
       <h3 className="text-lg font-semibold mb-3">Bank transfers ({transfers.length})</h3>
@@ -43,9 +63,9 @@ export function SessionTransfersTable({ transfers, totalTransfers, userIsAdmin, 
                   {fmt(Number(t.amount))}
                 </span>
               </div>
-              {userIsAdmin && isOpen && (
+              {showActions && (
                 <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">
-                  <DeleteTransferButton id={t.id} locked={locked} />
+                  {actions(t.id, locked)}
                 </div>
               )}
             </li>
@@ -70,13 +90,17 @@ export function SessionTransfersTable({ transfers, totalTransfers, userIsAdmin, 
             <th scope="col" className="pb-2 font-medium">Deposit slip</th>
             <th scope="col" className="pb-2 font-medium">Retained float</th>
             <th scope="col" className="pb-2 font-medium text-right">Amount</th>
-            {userIsAdmin && isOpen && <th scope="col" className="pb-2" />}
+            {showActions && (
+              <th scope="col" className="pb-2">
+                <span className="sr-only">Actions</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
           {transfers.length === 0 && (
             <tr>
-              <td colSpan={userIsAdmin && isOpen ? 6 : 5} className="py-4 text-center text-muted-foreground">
+              <td colSpan={showActions ? 6 : 5} className="py-4 text-center text-muted-foreground">
                 No transfers
               </td>
             </tr>
@@ -98,9 +122,9 @@ export function SessionTransfersTable({ transfers, totalTransfers, userIsAdmin, 
               <td className="py-2 pr-4 text-right tabular font-medium">
                 {fmt(Number(t.amount))}
               </td>
-              {userIsAdmin && isOpen && (
+              {showActions && (
                 <td className="py-2 whitespace-nowrap">
-                  <DeleteTransferButton id={t.id} locked={locked} />
+                  {actions(t.id, locked)}
                 </td>
               )}
             </tr>
@@ -112,7 +136,7 @@ export function SessionTransfersTable({ transfers, totalTransfers, userIsAdmin, 
                 Total transferred
               </td>
               <td className="pt-3 text-right tabular">{fmt(totalTransfers)}</td>
-              {userIsAdmin && isOpen && <td />}
+              {showActions && <td />}
             </tr>
           )}
         </tbody>
