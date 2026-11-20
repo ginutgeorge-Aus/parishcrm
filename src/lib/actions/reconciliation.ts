@@ -197,16 +197,7 @@ async function reconcileIfBalanced(
   statementDate: Date,
   closingBalance: string
 ): Promise<{ result: ActionResultWithSuccess; reconciledCount: number | null; lockApplied?: string | null }> {
-  const opening = await tx.accountOpeningBalance.findUnique({
-    where: { paymentAccountId },
-  })
-  if (!opening) return { result: { success: "Saved" }, reconciledCount: null }
-
   const lte = endOfDayUTC(statementDate)
-  // Statement predates the opening balance: nothing in range to reconcile, and a
-  // book balance over an inverted range is meaningless. Record the statement only.
-  if (lte < opening.asOfDate) return { result: { success: "Saved" }, reconciledCount: null }
-
   // Read the lock date via `tx` (not the outer prisma singleton used by the
   // assertUnlocked pre-check in saveStatementBalance) so a concurrent lock-date
   // change can't race between that pre-check and this commit. The lock only
@@ -216,9 +207,20 @@ async function reconcileIfBalanced(
   const lockEnd = lockDate ? endOfDayUTC(lockDate) : null
   // A lock change between the saveStatementBalance pre-check and this commit can
   // put the statement date itself in a locked period: abort so the upsert rolls back.
+  // Checked before the early returns below so a save with no opening balance, or
+  // one that predates it, is rolled back too.
   if (lockDate && lockEnd && lockEnd >= lte) {
     throw new StatementDateLockedError(lockDate.toISOString().slice(0, 10))
   }
+
+  const opening = await tx.accountOpeningBalance.findUnique({
+    where: { paymentAccountId },
+  })
+  if (!opening) return { result: { success: "Saved" }, reconciledCount: null }
+
+  // Statement predates the opening balance: nothing in range to reconcile, and a
+  // book balance over an inverted range is meaningless. Record the statement only.
+  if (lte < opening.asOfDate) return { result: { success: "Saved" }, reconciledCount: null }
 
   const range = { gte: opening.asOfDate, lte }
   // Sequential awaits, not Promise.all — an interactive transaction runs on one

@@ -170,6 +170,20 @@ test("rejects the save when the lock covers the statement date (concurrent lock 
   expect(logAuditTx).not.toHaveBeenCalled()
 })
 
+// Regression (AUD-3-01 review): the early returns for "no opening balance" and
+// "statement predates opening" used to run before the lock re-check, so a racing
+// lock change let the statement upsert commit inside a locked period.
+test.each([
+  ["no opening balance is set", null],
+  ["the statement predates the opening balance", { amount: "100.00", asOfDate: new Date("2026-08-01T00:00:00Z") }],
+])("rejects the save on a concurrent lock change when %s", async (_label, opening) => {
+  const tx = withTx({ opening, lockDate: "2026-07-31" })
+  const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
+  expect(r).toEqual({ error: expect.stringMatching(/locked accounting period/i) })
+  expect(tx.transaction.updateMany).not.toHaveBeenCalled()
+  expect(logAuditTx).not.toHaveBeenCalled()
+})
+
 test("lock on the opening day: only rows after it are reconciled", async () => {
   const tx = withTx({
     opening: { amount: "100.00", asOfDate: new Date("2026-01-01T00:00:00Z") },
