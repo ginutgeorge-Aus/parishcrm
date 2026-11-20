@@ -219,6 +219,19 @@ describe("deliverGroupMessage", () => {
     expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(false)
   })
 
+  it("a delivered-but-unrecorded send (UNKNOWN) beside a clean failure keeps the alert ambiguous", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2].map((i) => ({ id: i, personId: i })))
+    send.mockRejectedValueOnce(new Error("535 auth")).mockResolvedValueOnce(undefined)
+    // recipient 1: FAILED write ok; recipient 2: SENT write fails, then UNKNOWN write ok
+    p.groupMessageRecipient.update.mockImplementation(async (a: { where: { id: number }; data: { status: string } }) => {
+      if (a.where.id === 2 && a.data.status === "SENT") throw new Error("db blip")
+      return {}
+    })
+    const c = await deliverGroupMessage(1)
+    expect(c).toMatchObject({ failed: 1, unknown: 1 })
+    expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(true)
+  })
+
   it("skip-path terminal write failure releases the claim as retryable FAILED, then rethrows", async () => {
     setPerson({ emailConsent: false })
     p.groupMessageRecipient.update.mockRejectedValueOnce(new Error("db blip")).mockResolvedValue({})

@@ -259,7 +259,7 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
       if (outcome === "STALE") { counts.unknown++; continue }
       if (outcome === "INFLIGHT") { counts.inFlight++; continue }
       if (outcome === "SENT") counts.sent++
-      else if (outcome === "UNKNOWN") counts.unknown++
+      else if (outcome === "UNKNOWN") { counts.unknown++; sawAmbiguous = true } // a send happened (ambiguous error or unrecorded SENT)
       else counts.failed++
       // Only a real send failure counts toward the streak (a skipped, no-longer-mailable person is not an SMTP problem).
       streak = outcome === "FAILED" ? streak + 1 : outcome === "SKIPPED" ? streak : 0
