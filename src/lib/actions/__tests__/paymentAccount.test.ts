@@ -10,7 +10,7 @@ import {
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
@@ -28,7 +28,8 @@ jest.mock("@/lib/prisma", () => ({
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const mockAuth = auth as jest.Mock
 
@@ -45,6 +46,25 @@ function mockRole(role: string): void {
 beforeEach(() => {
   jest.clearAllMocks()
   mockRole("ADMIN")
+  // Interactive transactions run their callback against the same mocks (the tx client mirrors prisma).
+  ;(prisma.$transaction as jest.Mock).mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
+})
+
+describe("audit atomicity", () => {
+  it("returns AUDIT_FAILED_ERROR (mutation rolled back) when the audit write fails", async () => {
+    ;(prisma.paymentAccount.create as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(prisma.paymentAccount.update as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.paymentAccount.findUnique as jest.Mock).mockResolvedValue({ id: 2, kind: "BANK", isActive: true, isDefault: false })
+    for (const run of [
+      () => createPaymentAccount(undefined, fd({ name: "ANZ", kind: "BANK" })),
+      () => renamePaymentAccount(1, undefined, fd({ name: "New" })),
+      () => setDefaultAccount(2),
+      () => setAccountActive(2, false),
+    ]) {
+      ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+      expect(await run()).toEqual({ error: AUDIT_FAILED_ERROR })
+    }
+  })
 })
 
 describe("createPaymentAccount", () => {
@@ -62,7 +82,7 @@ describe("createPaymentAccount", () => {
     expect(prisma.paymentAccount.create).toHaveBeenCalledWith({
       data: { name: "ANZ Church", kind: "BANK" },
     })
-    expect(logAudit).toHaveBeenCalledWith(1, "SETTING_UPDATED", "PaymentAccount", 5, {
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "SETTING_UPDATED", "PaymentAccount", 5, {
       name: "ANZ Church",
       kind: "BANK",
     })
@@ -98,7 +118,7 @@ describe("renamePaymentAccount", () => {
       where: { id: 1 },
       data: { name: "New Name" },
     })
-    expect(logAudit).toHaveBeenCalledWith(1, "SETTING_UPDATED", "PaymentAccount", 1, {
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "SETTING_UPDATED", "PaymentAccount", 1, {
       name: "New Name",
     })
   })
@@ -128,11 +148,10 @@ describe("setDefaultAccount", () => {
 
   it("sets the default in a single transaction, unsetting the prior default", async () => {
     ;(prisma.paymentAccount.findUnique as jest.Mock).mockResolvedValue({ id: 2, kind: "BANK", isActive: true })
-    ;(prisma.$transaction as jest.Mock).mockResolvedValue(undefined)
     const res = await setDefaultAccount(2)
     expect(res).toEqual({ success: "Default set" })
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
-    expect(logAudit).toHaveBeenCalledWith(1, "SETTING_UPDATED", "PaymentAccount", 2, {
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "SETTING_UPDATED", "PaymentAccount", 2, {
       isDefault: true,
     })
   })
@@ -193,7 +212,7 @@ describe("setAccountActive", () => {
     ;(prisma.paymentAccount.update as jest.Mock).mockResolvedValue({ id: 2 })
     const res = await setAccountActive(2, false)
     expect(res).toEqual({ success: "Deactivated" })
-    expect(logAudit).toHaveBeenCalledWith(1, "SETTING_UPDATED", "PaymentAccount", 2, {
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "SETTING_UPDATED", "PaymentAccount", 2, {
       isActive: false,
     })
   })

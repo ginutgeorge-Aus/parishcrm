@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { assertNotDemo } from "@/lib/demoMode"
@@ -30,10 +30,17 @@ export async function updateInvoiceSettings(input: {
     [INVOICE_SETTING_KEYS.gstRegistered, String(input.gstRegistered)],
     [INVOICE_SETTING_KEYS.paymentDetails, paymentDetails],
   ]
-  await prisma.$transaction(
-    entries.map(([key, value]) => prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } })),
-  )
-  await logAudit(actorId(session), "INVOICE_SETTINGS_UPDATED", "AppSetting", undefined, { gstRegistered: input.gstRegistered })
+  const uid = actorId(session)
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const [key, value] of entries) await tx.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } })
+      await logAuditGuardedTx(tx, uid, "INVOICE_SETTINGS_UPDATED", "AppSetting", undefined, { gstRegistered: input.gstRegistered })
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "updateInvoiceSettings", "Couldn't save the settings. Try again.")
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath("/accounting/settings")
   revalidatePath("/accounting/invoices")
   return { ok: true }

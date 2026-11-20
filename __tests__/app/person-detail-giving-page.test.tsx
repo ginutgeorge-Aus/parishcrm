@@ -110,6 +110,14 @@ describe("PersonDetailPage giving total", () => {
     expect(html).not.toContain("font-mono")
   })
 
+  it("excludes the internal-transfer account from the giving query (AUD-3-02)", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "99" } })
+    mockPersonFindUnique.mockResolvedValue(makePerson())
+    mockTxFindMany.mockResolvedValue([])
+    await PersonDetailPage(makeProps())
+    expect(mockTxFindMany.mock.calls[0][0].where).toMatchObject({ isGiving: true, ...{ account: { code: { not: "XFER" } } } })
+  })
+
   it("shows the correct year total for multiple donations", async () => {
     // 4 donations in 2025: $250.00 + $250.00 + $500.00 + $750.00 = $1750.00
     mockAuth.mockResolvedValue({ user: { role: "PASTOR", id: "5" } })

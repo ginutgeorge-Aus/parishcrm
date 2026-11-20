@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -15,6 +15,8 @@ const NameKindSchema = z.object({
   kind: z.enum(["BANK", "CASH"]),
 })
 const NameSchema = z.object({ name: z.string().trim().min(1, "Name is required").max(60) })
+
+const BUSY = "Couldn't save the account. Try again."
 
 function revalidate() {
   revalidatePath("/accounting/settings")
@@ -42,11 +44,14 @@ export async function createPaymentAccount(
     const existingCash = await prisma.paymentAccount.findFirst({ where: { kind: "CASH", isActive: true } })
     if (existingCash) return { error: "Only one active cash account is allowed" }
   }
+  const uid = actorId(session)
   try {
-    const created = await prisma.paymentAccount.create({ data: { name, kind } })
-    void logAudit(actorId(session), "SETTING_UPDATED", "PaymentAccount", created.id, { name, kind })
-  } catch {
-    return { error: "Failed to save (name may already exist)" }
+    await prisma.$transaction(async (tx) => {
+      const created = await tx.paymentAccount.create({ data: { name, kind } })
+      await logAuditGuardedTx(tx, uid, "SETTING_UPDATED", "PaymentAccount", created.id, { name, kind })
+    })
+  } catch (e) {
+    return auditTxErrorResult(e, "createPaymentAccount", BUSY) ?? { error: "Failed to save (name may already exist)" }
   }
   revalidate()
   return { success: "Account added" }
@@ -65,11 +70,14 @@ export async function renamePaymentAccount(
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
   const parsed = NameSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const uid = actorId(session)
   try {
-    await prisma.paymentAccount.update({ where: { id }, data: { name: parsed.data.name } })
-    void logAudit(actorId(session), "SETTING_UPDATED", "PaymentAccount", id, { name: parsed.data.name })
-  } catch {
-    return { error: "Failed to save (name may already exist)" }
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentAccount.update({ where: { id }, data: { name: parsed.data.name } })
+      await logAuditGuardedTx(tx, uid, "SETTING_UPDATED", "PaymentAccount", id, { name: parsed.data.name })
+    })
+  } catch (e) {
+    return auditTxErrorResult(e, "renamePaymentAccount", BUSY) ?? { error: "Failed to save (name may already exist)" }
   }
   revalidate()
   return { success: "Renamed" }
@@ -87,15 +95,16 @@ export async function setDefaultAccount(id: number): Promise<ActionResultWithSuc
   if (acct.kind !== "BANK") return { error: "The default account must be a bank account" }
   if (!acct.isActive) return { error: "Activate the account before making it the default" }
   // Unset the prior default and set the new one atomically (partial-unique index forbids two).
+  const uid = actorId(session)
   try {
-    await prisma.$transaction([
-      prisma.paymentAccount.updateMany({ where: { isDefault: true }, data: { isDefault: false } }),
-      prisma.paymentAccount.update({ where: { id }, data: { isDefault: true } }),
-    ])
-  } catch {
-    return { error: "Failed to save" }
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentAccount.updateMany({ where: { isDefault: true }, data: { isDefault: false } })
+      await tx.paymentAccount.update({ where: { id }, data: { isDefault: true } })
+      await logAuditGuardedTx(tx, uid, "SETTING_UPDATED", "PaymentAccount", id, { isDefault: true })
+    })
+  } catch (e) {
+    return auditTxErrorResult(e, "setDefaultAccount", BUSY) ?? { error: "Failed to save" }
   }
-  void logAudit(actorId(session), "SETTING_UPDATED", "PaymentAccount", id, { isDefault: true })
   revalidate()
   return { success: "Default set" }
 }
@@ -132,12 +141,15 @@ export async function setAccountActive(id: number, active: boolean): Promise<Act
   if (!acct) return { error: "Account not found" }
   const activeChangeError = await checkAccountActiveChange(acct, active)
   if (activeChangeError) return { error: activeChangeError }
+  const uid = actorId(session)
   try {
-    await prisma.paymentAccount.update({ where: { id }, data: { isActive: active } })
-  } catch {
-    return { error: "Failed to save" }
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentAccount.update({ where: { id }, data: { isActive: active } })
+      await logAuditGuardedTx(tx, uid, "SETTING_UPDATED", "PaymentAccount", id, { isActive: active })
+    })
+  } catch (e) {
+    return auditTxErrorResult(e, "setAccountActive", BUSY) ?? { error: "Failed to save" }
   }
-  void logAudit(actorId(session), "SETTING_UPDATED", "PaymentAccount", id, { isActive: active })
   revalidate()
   return { success: active ? "Activated" : "Deactivated" }
 }

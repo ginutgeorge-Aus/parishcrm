@@ -20,6 +20,7 @@ import { TransactionSchema, validateParties } from "./transactionValidation"
 import { transactionListHref } from "@/lib/transactionFilters"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { accountMatches } from "@/lib/accountMatches"
+import { XFER_CODE } from "@/lib/xferAccount"
 import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
@@ -323,6 +324,11 @@ export async function updateTransaction(
       select: { date: true, amount: true, type: true, accountId: true, bankRef: true, pettyCashTransferId: true },
     })
     if (!current) return { error: "Not found" }
+    // The internal-transfer account is a clearing account: rows may stay on it but nothing may be moved onto it.
+    if (rest.accountId !== current.accountId) {
+      const target = await tx.account.findUnique({ where: { id: rest.accountId }, select: { code: true } })
+      if (target?.code === XFER_CODE) return { error: "Transactions cannot be moved onto the internal transfer account" }
+    }
     // A petty cash link that landed after the pre-read (incl. an adopted XFER_OUT leg) blocks the edit: such rows are edited via the session.
     if (current.pettyCashTransferId != null) return { error: PETTY_CASH_EDIT_ERROR }
     if (current.bankRef && adoptionFieldsChanged(current, parsed.data) && (await depositLinkedToTransfer(tx, current.bankRef)))

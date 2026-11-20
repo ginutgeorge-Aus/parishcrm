@@ -41,15 +41,15 @@ export async function canMarkExam(userId: number, classId: number, role: UserRol
 
 /**
  * Extra `Person` filter for who this role may enrol into a class (AUD-5-01).
- * HEADMASTER has no people access, so only children, or people already enrolled
- * in a live class this year (their name is already visible; moving must keep
- * working). Other editors: no extra filter. Shared by the action so the rule
- * lives in one place, not just in the picker.
+ * Roles without people access (HEADMASTER) may only enrol children, matching
+ * the picker, which never sends them adults. Other editors: no extra filter.
+ * Shared by the action so the rule lives in one place, not just in the picker.
+ * Fails closed: keyed on `canViewPeople`, so any future role without people
+ * access is limited too.
  * @param role the caller's role
- * @param year the target class's school year
+ * @param _year the target class's school year (unused; kept for call-site stability)
  */
-export function enrolCandidateWhere(role: UserRole | undefined, year: number): Prisma.PersonWhereInput {
-  // Fail closed: any role without people access is limited, not just HEADMASTER.
+export function enrolCandidateWhere(role: UserRole | undefined, _year?: number): Prisma.PersonWhereInput {
   if (canViewPeople(role)) return {}
-  return { OR: [{ role: "CHILD" }, { sundaySchoolEnrolments: { some: { year, class: { archivedAt: null } } } }] }
+  return { role: "CHILD" }
 }
