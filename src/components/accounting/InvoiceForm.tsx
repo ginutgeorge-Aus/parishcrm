@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { createInvoice, updateInvoice, getRecipientContact, type InvoiceView } from "@/lib/actions/invoice"
 import { computeInvoiceTotals, INVOICE_MAX_LINES } from "@/lib/invoice"
 import { toCents, fmtAUD, centsToNumber } from "@/lib/formatting"
+import { normaliseMoneyInput } from "@/lib/validation"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { RecipientPicker, type RecipientOption } from "./RecipientPicker"
 
@@ -66,7 +67,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
   const totals = useMemo(() => {
     const parsed = lines.map((l) => {
       const qty = /^\d{1,4}$/.test(l.qty) ? Number.parseInt(l.qty, 10) : 0
-      const c = toCents(l.unitPrice)
+      const c = toCents(normaliseMoneyInput(l.unitPrice))
       return { description: l.description, qty, unitPriceCents: Number.isFinite(c) && c >= 0 ? c : 0, gst: l.gst }
     })
     return computeInvoiceTotals(parsed, gstEnabled)
@@ -75,7 +76,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
   const setLine = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
   // Send each line's stored GST flag as-is: while GST is off the server ignores it, and
   // keeping it means re-enabling GST restores the draft's tax classification.
-  const serialized = JSON.stringify(lines)
+  const serialized = JSON.stringify(lines.map((l) => ({ ...l, unitPrice: normaliseMoneyInput(l.unitPrice) })))
 
   return (
     <form
