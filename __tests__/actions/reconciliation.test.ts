@@ -231,19 +231,25 @@ describe("saveStatementBalance", () => {
   })
 
   // --- locked-period range guard ---
-  it("does not reconcile when the range [opening.asOfDate, statementDate] crosses a locked accounting period", async () => {
+  it("reconciles only rows after the lock date when the lock falls inside the range", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
-    // Opening balance predates the lock date — part of the range about to be
-    // reconciled is locked, even though the statement date itself is not.
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
     mockLockAppSetting.mockResolvedValue({ value: "2026-03-31" })
+    mockAggregate
+      .mockResolvedValueOnce({ _sum: { amount: 2000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 180 } })
+    mockUpdateMany.mockResolvedValue({ count: 2 })
 
     const result = await saveStatementBalance(1, "2026-05-31", "2820.00")
 
-    expect(mockAggregate).not.toHaveBeenCalled()
-    expect(mockUpdateMany).not.toHaveBeenCalled()
-    expect(result && "success" in result ? result.success : "").toMatch(/locked accounting period/i)
+    // Balance check spans the full range; only the update is narrowed.
+    expect(mockAggregate.mock.calls[0][0].where.date.gte).toEqual(new Date("2026-01-01"))
+    expect(mockUpdateMany.mock.calls[0][0].where.date).toEqual({
+      gt: new Date("2026-03-31T23:59:59.999Z"),
+      lte: new Date("2026-05-31T23:59:59.999Z"),
+    })
+    expect(result && "success" in result ? result.success : "").toMatch(/left unchanged/i)
   })
 
   it("still reconciles when the lock date predates the opening balance (no part of the range is locked)", async () => {

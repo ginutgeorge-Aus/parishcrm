@@ -12,7 +12,7 @@ import { endOfDayUTC } from "@/lib/dates"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { assertUnlocked, ACCOUNTING_LOCK_DATE_KEY, isDateLocked } from "@/lib/accountingLock"
+import { assertUnlocked, ACCOUNTING_LOCK_DATE_KEY } from "@/lib/accountingLock"
 import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isP2034 } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
@@ -179,28 +179,14 @@ async function reconcileIfBalanced(
   // book balance over an inverted range is meaningless. Record the statement only.
   if (lte < opening.asOfDate) return { result: { success: "Saved" }, reconciledCount: null }
 
-  // this reconcile is about to touch every unreconciled transaction from
-  // opening.asOfDate through statementDate. saveStatementBalance only checked
-  // statementDate itself — if the lock date falls anywhere in
-  // [opening.asOfDate, statementDate], part of that range is a locked
-  // accounting period, and marking those transactions reconciled would let a
-  // later statement silently un-freeze them. opening.asOfDate is the earliest
-  // date this reconcile would touch, so it alone determines whether the range
-  // crosses the lock (the range's upper bound, statementDate, is already
-  // guaranteed >= opening.asOfDate by the early return above). Read the lock
-  // date via `tx` (not the outer prisma singleton assertUnlocked pre-check in
-  // saveStatementBalance) so a concurrent lock-date change can't race between
-  // that pre-check and this commit.
+  // Read the lock date via `tx` (not the outer prisma singleton used by the
+  // assertUnlocked pre-check in saveStatementBalance) so a concurrent lock-date
+  // change can't race between that pre-check and this commit. The lock only
+  // narrows which rows get marked reconciled (below); the book-balance
+  // equation still spans the full range so it matches the reconciliation page.
   const lockRow = await tx.appSetting.findUnique({ where: { key: ACCOUNTING_LOCK_DATE_KEY } })
-  const lockDate = lockRow?.value ? new Date(lockRow.value) : null
-  if (lockDate && !Number.isNaN(lockDate.getTime()) && isDateLocked(opening.asOfDate, lockDate)) {
-    return {
-      result: {
-        success: `Saved. Part of this reconciliation (from ${opening.asOfDate.toISOString().slice(0, 10)}) falls in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}) — transactions not reconciled.`,
-      },
-      reconciledCount: null,
-    }
-  }
+  const parsedLock = lockRow?.value ? new Date(lockRow.value) : null
+  const lockDate = parsedLock && !Number.isNaN(parsedLock.getTime()) ? parsedLock : null
 
   const range = { gte: opening.asOfDate, lte }
   // Sequential awaits, not Promise.all — an interactive transaction runs on one
@@ -229,13 +215,22 @@ async function reconcileIfBalanced(
     }
   }
 
+  // Only rows strictly after the lock day may be marked reconciled; locked
+  // periods stay frozen. No lock, or a lock before the range starts → the
+  // whole range (keeps `gte` so rows stamped exactly at the opening date count).
+  const lockEnd = lockDate ? endOfDayUTC(lockDate) : null
+  const lockInRange = lockEnd !== null && lockEnd >= opening.asOfDate
+  const markRange = lockInRange ? { gt: lockEnd, lte } : range
   const updated = await tx.transaction.updateMany({
-    where: { paymentAccountId, reconciled: false, date: range },
+    where: { paymentAccountId, reconciled: false, date: markRange },
     data: { reconciled: true },
   })
+  const lockNote = lockDate && lockInRange
+    ? ` (transactions on or before ${lockDate.toISOString().slice(0, 10)} left unchanged)`
+    : ""
   return {
     result: {
-      success: `Balanced — ${updated.count} transaction${updated.count === 1 ? "" : "s"} reconciled.`,
+      success: `Balanced — ${updated.count} transaction${updated.count === 1 ? "" : "s"} reconciled.${lockNote}`,
     },
     reconciledCount: updated.count,
   }
