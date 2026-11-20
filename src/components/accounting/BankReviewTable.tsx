@@ -486,7 +486,7 @@ export function BankReviewTable({
                           aria-label="Mark as petty cash transfer"
                           checked={row.fromPettyCash}
                           disabled={row.skip}
-                          onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, { fromPettyCash: c === true })}
+                          onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, c === true ? { fromPettyCash: true, familyId: null, personId: null } : { fromPettyCash: false })}
                         />
                       </label>
                       {row.fromPettyCash && (
@@ -858,7 +858,7 @@ export function BankReviewTable({
                       aria-label="Mark as petty cash transfer"
                       checked={row.fromPettyCash}
                       disabled={row.skip}
-                      onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, { fromPettyCash: c === true })}
+                      onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, c === true ? { fromPettyCash: true, familyId: null, personId: null } : { fromPettyCash: false })}
                     />
                     <span className="text-sm">
                       Cash transfer

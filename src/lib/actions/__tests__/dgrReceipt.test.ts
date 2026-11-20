@@ -9,12 +9,13 @@ import {
 } from "@/lib/actions/dgrReceipt"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import { sendDgrReceiptEmail } from "@/lib/email"
 import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
@@ -68,6 +69,7 @@ jest.mock("@/lib/prisma", () => ({
 
 const mockAuth = auth as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditTx = logAuditTx as jest.Mock
 const mockSendEmail = sendDgrReceiptEmail as jest.Mock
 const mockRenderPdf = renderDgrReceiptPdf as jest.Mock
 
@@ -288,7 +290,8 @@ describe("createDgrReceipt", () => {
         }),
       })
     )
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      prisma,
       1,
       "DGR_RECEIPT_CREATED",
       "DgrReceipt",
@@ -313,6 +316,15 @@ describe("createDgrReceipt", () => {
     expect(prisma.dgrReceipt.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ seq: 1, totalAmount: "75.75" }) })
     )
+  })
+
+  it("returns AUDIT_FAILED_ERROR (no retry, no redirect) when the in-transaction audit write fails", async () => {
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ id: 7, firstName: "Alex", lastName: "Sample" })
+    ;(prisma.dgrReceipt.aggregate as jest.Mock).mockResolvedValue({ _max: { seq: 2 } })
+    ;(prisma.dgrReceipt.create as jest.Mock).mockResolvedValue({ id: 10 })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    expect(await createDgrReceipt(undefined, formDataWithLines())).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(prisma.dgrReceipt.create).toHaveBeenCalledTimes(1)
   })
 
   it("retries once on a unique-constraint race and succeeds", async () => {
@@ -470,7 +482,14 @@ describe("updateDgrReceipt", () => {
         }),
       })
     )
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "DGR_RECEIPT_UPDATED", "DgrReceipt", 1, expect.anything())
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "DGR_RECEIPT_UPDATED", "DgrReceipt", 1, expect.anything())
+  })
+
+  it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "DRAFT", fyEndYear: 2025 })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ id: 8, firstName: "Anna", lastName: "Taylor" })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    expect(await updateDgrReceipt(1, undefined, formDataWithLines({ personId: "8" }))).toEqual({ error: AUDIT_FAILED_ERROR })
   })
 })
 
@@ -517,7 +536,13 @@ describe("deleteDgrReceipt", () => {
     ;(prisma.dgrReceipt.deleteMany as jest.Mock).mockResolvedValue({ count: 1 })
     const res = await deleteDgrReceipt(1)
     expect(res).toEqual({ success: expect.any(String) })
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "DGR_RECEIPT_DELETED", "DgrReceipt", 1, expect.anything())
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "DGR_RECEIPT_DELETED", "DgrReceipt", 1, expect.anything())
+  })
+
+  it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "DRAFT", receiptNo: "DGR-2025-001" })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    expect(await deleteDgrReceipt(1)).toEqual({ error: AUDIT_FAILED_ERROR })
   })
 })
 
@@ -645,6 +670,46 @@ describe("sendDgrReceipt", () => {
         data: expect.objectContaining({ status: "FAILED", sentAt: null }),
       })
     )
+  })
+
+  it("still marks FAILED and returns the could-not-email error when the best-effort audit write fails (row never wedged in SENDING)", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockRejectedValue(new Error("SMTP down"))
+    // Real logAudit swallows insert errors and resolves false; model that contract.
+    mockLogAudit.mockResolvedValueOnce(false)
+    const res = await sendDgrReceipt(5)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 5, status: "SENDING" }, data: expect.objectContaining({ status: "FAILED" }) })
+    )
+    expect(mockLogAudit).toHaveBeenCalledWith(1, "DGR_RECEIPT_FAILED", "DgrReceipt", 5, { receiptNo: "DGR-2025-003" })
+    expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("a definite failure on a resend of an UNKNOWN receipt keeps it UNKNOWN (still frozen)", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "UNKNOWN", sentAt: new Date() })
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockRejectedValue(Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" }))
+    const res = await sendDgrReceipt(5)
+    expect(res).toEqual({ error: expect.stringMatching(/earlier attempt may have been delivered/i) })
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 5, status: "SENDING" }, data: expect.objectContaining({ status: "UNKNOWN" }) })
+    )
+    expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) })
+    )
+  })
+
+  it("does not report success when the SENT write matches no row", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    ;(prisma.dgrReceipt.updateMany as jest.Mock)
+      .mockResolvedValueOnce({ count: 1 }) // claim
+      .mockResolvedValueOnce({ count: 0 }) // SENT write lost the row
+    const res = await sendDgrReceipt(5)
+    expect(res).toEqual({ error: expect.stringMatching(/status could not be updated/i) })
   })
 
   it("rejects a concurrent send whose claim loses the race, without emailing", async () => {

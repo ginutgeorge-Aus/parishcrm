@@ -3,6 +3,7 @@ import { logger } from "@/lib/logger"
 import { sendEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import { escapeHtml } from "@/lib/escapeHtml"
 
 // Repeated Stripe webhook signature failures mean the signing secret is stale or
 // wrong: every delivery 400s and paid registrations stay unpaid. Alert admins once
@@ -56,15 +57,6 @@ export function createWebhookFailureTracker(deps: WebhookAlertDeps) {
       logger.error("[stripeWebhookAlert] alert failed", { error: err instanceof Error ? err.message : String(err) })
     }
   }
-}
-
-/**
- * Escapes the characters that are significant in HTML text content.
- * @param s Raw text.
- * @returns Text safe to embed in an HTML element body.
- */
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
 /**

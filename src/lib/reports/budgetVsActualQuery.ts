@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { toCents, centsToNumber, sumCents, type Money } from "@/lib/formatting"
+import { XFER_CODE } from "@/lib/xferAccount"
 
 /** One account line the Budget vs Actual report renders. */
 export type BudgetActualRow = {
@@ -59,7 +60,7 @@ export async function getBudgetVsActualData(year: number): Promise<BudgetVsActua
         // no budget row, so showing its transfer-leg actuals is noise, and the
         // type-grouped `_sum.amount` here would otherwise inflate Total
         // Expenses actual the same way it inflated P&L. See xferAccount.ts.
-        code: { not: "XFER" },
+        code: { not: XFER_CODE },
         OR: [
           { isActive: true },
           { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } },

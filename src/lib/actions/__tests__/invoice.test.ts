@@ -3,6 +3,7 @@ import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipi
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import { redirect } from "next/navigation"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
@@ -181,13 +182,26 @@ describe("updateInvoice", () => {
     await updateInvoice(11, undefined, fd())
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_UPDATED", "Invoice", 11, { total: "330.00" })
   })
-  it("propagates an in-transaction audit write failure (tx callback rejects)", async () => {
+  it("maps an in-transaction audit write failure to AUDIT_FAILED_ERROR (write rolled back)", async () => {
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
-    await expect(updateInvoice(11, undefined, fd())).rejects.toThrow("audit down")
+    expect(await updateInvoice(11, undefined, fd())).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(redirect).not.toHaveBeenCalled()
   })
 })
 
 describe("deleteDraftInvoice", () => {
+  it("audits in the transaction and rolls back on audit failure", async () => {
+    ;(prisma.invoice.deleteMany as jest.Mock).mockResolvedValue({ count: 1 })
+    expect(await deleteDraftInvoice(11)).toEqual({ success: "Draft deleted" })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_DELETED", "Invoice", 11, {})
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await deleteDraftInvoice(11)).toEqual({ error: AUDIT_FAILED_ERROR })
+  })
+  it("skips the audit when nothing was deleted", async () => {
+    ;(prisma.invoice.deleteMany as jest.Mock).mockResolvedValue({ count: 0 })
+    await deleteDraftInvoice(11)
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
   it("deletes only drafts", async () => {
     ;(prisma.invoice.deleteMany as jest.Mock).mockResolvedValue({ count: 0 })
     expect(await deleteDraftInvoice(11)).toEqual({ error: "Only unnumbered draft invoices can be deleted" })

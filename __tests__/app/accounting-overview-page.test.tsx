@@ -36,6 +36,13 @@ test("renders the FY stat cards as h3 headings", async () => {
   expect(screen.getByText("No transactions yet.")).toBeInTheDocument()
 })
 
+test("FY income and expense aggregates exclude the internal-transfer account (AUD-3-02)", async () => {
+  await AccountingPage()
+  const agg = (prisma.transaction.aggregate as jest.Mock).mock.calls
+  expect(agg).toHaveLength(2)
+  for (const [{ where }] of agg) expect(where).toMatchObject({ account: { code: { not: "XFER" } } })
+})
+
 test("redirects roles that cannot view accounting", async () => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { role: "VIEWER", id: "1" } })
   await expect(AccountingPage()).rejects.toThrow("REDIRECT:/")

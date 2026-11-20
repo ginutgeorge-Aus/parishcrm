@@ -3,6 +3,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { fyDateRange } from "@/lib/fiscalYear"
 import { toCents, centsToNumber, formatDMY } from "@/lib/formatting"
 import { escapeCsv } from "@/lib/csvUtils"
+import { NOT_XFER } from "@/lib/xferAccount"
 
 export type GivingSummaryRow = {
   familyId: number
@@ -37,7 +38,7 @@ export async function getGivingSummary(
     // `isGiving` is always `!!familyId` regardless of type, so a family-linked
     // EXPENSE (e.g. a benevolence payment) would otherwise be summed INTO the
     // family's giving total. Giving is income-only — filter on type.
-    where: { type: "INCOME", isGiving: true, familyId: { not: null }, date: { gte: start, lt: end } },
+    where: { type: "INCOME", isGiving: true, familyId: { not: null }, date: { gte: start, lt: end }, ...NOT_XFER },
     _sum: { amount: true },
     _count: { _all: true },
     _max: { date: true },

@@ -385,6 +385,8 @@ export async function deliverInvoiceRequest(
     sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null,
     // A SUCCESS send replaces the stale flag and the sent snapshot; a FAILED one leaves them alone.
     ...(status === "SUCCESS" ? { staleAt: null, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours } : {}),
+    // A month sent by hand is closed for the monthly job too, so it stops re-claiming it on days 1-7.
+    ...(status === "SUCCESS" && !ctx.autoSent ? { reminderSentAt: new Date() } : {}),
   }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
   let recorded = false
