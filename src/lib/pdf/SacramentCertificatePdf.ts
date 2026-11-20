@@ -2,8 +2,7 @@
 // letterhead handling as WelcomeLetterPdf.ts (no new dependency); landscape A4
 // with a single gold frame. The wording comes from certificateText() so the
 // layout stays free of rite-specific logic.
-import PDFDocument from "pdfkit"
-import { getLetterheadAsset } from "@/lib/branding"
+import { renderPdfBuffer, type LetterheadAsset } from "@/lib/pdf/renderPdf"
 import { drawTextLetterhead } from "@/lib/pdf/textLetterhead"
 import { certificateText, type CertificateSource } from "@/lib/sacraments"
 import { PRIMARY_HEX, ACCENT_HEX, SLATE_700, SLATE_500 } from "@/lib/theme/palette"
@@ -15,8 +14,6 @@ const FRAME_INSET = 20
 // Text-header limits (the settings form's own limits: name 200, address 500).
 const HEADER_NAME_MAX = 200
 const HEADER_ADDRESS_MAX = 500
-
-type LetterheadAsset = Awaited<ReturnType<typeof getLetterheadAsset>>
 
 /** Church name and address printed in the header when no letterhead image is uploaded. */
 export type CertificateChurch = { name: string; address: string }
@@ -123,14 +120,7 @@ export async function renderSacramentCertificatePdf(
   record: CertificateSource,
   church: CertificateChurch,
 ): Promise<Buffer> {
-  const letterhead = await getLetterheadAsset()
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 48 })
-    const chunks: Buffer[] = []
-    doc.on("data", (c: Buffer) => chunks.push(c))
-    doc.on("end", () => resolve(Buffer.concat(chunks)))
-    doc.on("error", reject)
-    draw(doc, record, church, letterhead)
-    doc.end()
-  })
+  return renderPdfBuffer({ size: "A4", layout: "landscape", margin: 48 }, (doc, letterhead) =>
+    draw(doc, record, church, letterhead),
+  )
 }
