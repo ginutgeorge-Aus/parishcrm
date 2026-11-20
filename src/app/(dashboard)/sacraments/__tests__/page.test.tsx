@@ -94,6 +94,24 @@ describe("SacramentsPage", () => {
     expect(html).not.toContain("Next")
   })
 
+  it("an out-of-range page says so and links to the first page", async () => {
+    findMany.mockResolvedValue([])
+    const html = await render({ page: "9", type: "BAPTISM" })
+    expect(html).toContain("No entries on this page.")
+    expect(html).toContain('href="/sacraments?type=BAPTISM"')
+    expect(html).not.toContain("No entries in the register yet.")
+  })
+
+  it("caps a huge page number", async () => {
+    await render({ page: "9999" })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 999 * 500 }))
+  })
+
+  it("Previous keeps the filters", async () => {
+    const html = await render({ page: "3", type: "MARRIAGE", year: "2026" })
+    expect(html).toContain("/sacraments?type=MARRIAGE&amp;year=2026&amp;page=2")
+  })
+
   it("treats a malformed page as page 1", async () => {
     await render({ page: "-3" })
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0 }))

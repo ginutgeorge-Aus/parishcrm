@@ -15,14 +15,17 @@ type Props = { searchParams: Promise<{ type?: string; year?: string; page?: stri
 
 /** Rows per page; Previous/Next links appear when the register is longer. */
 const PAGE_SIZE = 500
+/** Highest page number accepted (500,000 rows), so a crafted URL cannot force a huge OFFSET. */
+const MAX_PAGE = 1000
 
 /**
- * Parse the `?page=` value: a positive integer, else 1.
+ * Parse the `?page=` value: a positive integer up to MAX_PAGE (bounds the SQL
+ * offset), else 1.
  * @param raw query-string value
  */
 function parsePage(raw: string | undefined): number {
-  if (!raw || !/^\d{1,6}$/.test(raw)) return 1
-  return Math.max(1, Number(raw))
+  if (!raw || !/^\d{1,4}$/.test(raw)) return 1
+  return Math.min(MAX_PAGE, Math.max(1, Number(raw)))
 }
 
 /**
@@ -114,7 +117,12 @@ export default async function SacramentsPage(props: Readonly<Props>) {
         )}
       </form>
 
-      {shown.length === 0 ? (
+      {shown.length === 0 && page > 1 ? (
+        <p className="text-sm text-muted-foreground">
+          No entries on this page.{" "}
+          <Link href={pageHref(type, year, 1)} className="underline">Back to the first page</Link>
+        </p>
+      ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {type || year ? "No entries match these filters." : "No entries in the register yet."}
         </p>
