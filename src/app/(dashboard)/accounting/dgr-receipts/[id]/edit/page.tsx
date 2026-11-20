@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { PERSON_PICKER_CAP } from "@/lib/constants"
 import { safeDecrypt } from "@/lib/crypto"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { currentFyEndYear, type DgrLine } from "@/lib/dgr"
+import { currentFyEndYear, isDgrReceiptEditable, type DgrLine } from "@/lib/dgr"
 import DgrReceiptForm from "@/components/accounting/DgrReceiptForm"
 import { parseRouteId } from "@/lib/validation"
 
@@ -21,10 +21,10 @@ export default async function EditDgrReceiptPage(props: Readonly<Props>) {
 
   const receipt = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!receipt) redirect("/accounting/dgr-receipts")
-  // A SENT receipt is a delivered legal document — frozen. DRAFT/FAILED, plus a
-  // SENDING row stuck by a mid-send crash, are editable (mirrors
+  // A SENT or UNKNOWN (possibly delivered) receipt is frozen. DRAFT/FAILED, plus
+  // a SENDING row whose claim went stale (mid-send crash), are editable (mirrors
   // updateDgrReceipt's guard).
-  if (receipt.status !== "DRAFT" && receipt.status !== "FAILED" && receipt.status !== "SENDING") {
+  if (!isDgrReceiptEditable(receipt.status, receipt.sentAt)) {
     redirect("/accounting/dgr-receipts")
   }
 

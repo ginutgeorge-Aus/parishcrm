@@ -124,6 +124,7 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
                         id={r.id}
                         receiptNo={r.receiptNo}
                         status={r.status}
+                        sentAt={r.sentAt}
                         canManage={canManage}
                       />
                     </td>
@@ -168,6 +169,7 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
                     id={r.id}
                     receiptNo={r.receiptNo}
                     status={r.status}
+                    sentAt={r.sentAt}
                     canManage={canManage}
                   />
                 </div>

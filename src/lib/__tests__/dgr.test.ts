@@ -2,7 +2,15 @@
  * @jest-environment node
  */
 
-import { formatReceiptNo, fyRange, buildDgrPdfModel, currentFyEndYear } from "@/lib/dgr"
+import {
+  formatReceiptNo,
+  fyRange,
+  buildDgrPdfModel,
+  currentFyEndYear,
+  isDgrReceiptEditable,
+  isDgrReceiptDeletable,
+  DGR_SEND_STALE_MS,
+} from "@/lib/dgr"
 import { formatLongDate } from "@/lib/formatting"
 import { DEFAULT_RECEIPT_SETTINGS } from "@/lib/receiptSettings"
 
@@ -105,5 +113,33 @@ describe("buildDgrPdfModel", () => {
     const m = buildDgrPdfModel(input, church, DEFAULT_RECEIPT_SETTINGS)
     expect(m.documentTitle).toBe("ANNUAL TAX-DEDUCTIBLE RECEIPT")
     expect(m.totalDonationsLabel).toBe("TOTAL TAX-DEDUCTIBLE DONATIONS")
+  })
+})
+
+describe("DGR receipt edit/delete guards", () => {
+  const now = new Date("2026-07-01T00:00:00Z")
+  const ago = (ms: number) => new Date(now.getTime() - ms)
+
+  it.each([
+    ["DRAFT", null, true],
+    ["FAILED", null, true],
+    ["SENT", ago(1000), false],
+    ["UNKNOWN", ago(DGR_SEND_STALE_MS * 10), false],
+    ["SENDING", ago(60_000), false],
+    ["SENDING", ago(DGR_SEND_STALE_MS), false],
+    ["SENDING", ago(DGR_SEND_STALE_MS + 1), true],
+    ["SENDING", null, true],
+  ] as const)("isDgrReceiptEditable(%s, %s) = %s", (status, sentAt, expected) => {
+    expect(isDgrReceiptEditable(status, sentAt, now)).toBe(expected)
+  })
+
+  it.each([
+    ["DRAFT", true],
+    ["FAILED", true],
+    ["SENDING", false],
+    ["UNKNOWN", false],
+    ["SENT", false],
+  ])("isDgrReceiptDeletable(%s) = %s", (status, expected) => {
+    expect(isDgrReceiptDeletable(status)).toBe(expected)
   })
 })
