@@ -197,6 +197,56 @@ describe("createSession", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/7")
   })
 
+  it("audits the session open in the same transaction as the create", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockCreateSession.mockResolvedValue({ id: 7 })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3", openingBalance: "12.34" }))
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "PETTY_CASH_SESSION_CREATED",
+      "PettyCashSession",
+      7,
+      { title: "22-MAY-2026", custodianId: 3, openingBalance: "12.34" },
+    )
+  })
+
+  it("returns the audit-failed error and does not redirect when the audit write fails", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockCreateSession.mockResolvedValue({ id: 7 })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("db down"))
+    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3" }))
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it("maps a unique violation (incl. adapter-pg shape) to a friendly duplicate error", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    mockCreateSession.mockRejectedValueOnce({ cause: { kind: "UniqueConstraintViolation" } })
+    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3" }))
+    expect(result).toEqual({ error: "A session for 22-MAY-2026 already exists" })
+  })
+
+  it("returns a try-again error on a serialization conflict", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockFindPersonFirst.mockResolvedValue({ id: 3 })
+    mockCreateSession.mockRejectedValueOnce({ code: "P2034" })
+    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "3" }))
+    expect(result?.error).toMatch(/try again/i)
+  })
+
+  it("closeSession returns the audit-failed error when the audit write fails", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    mockFindSession.mockResolvedValue({ id: 1, status: "OPEN" })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("db down"))
+    const result = await closeSession(1, undefined, fd({}))
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["blocks VIEWER", "VIEWER", "2026-05-22", "Unauthorized"],
     ["blocks AUDITOR", "AUDITOR", "2026-05-22", "Unauthorized"],
@@ -1922,7 +1972,7 @@ describe("createSession — duplicate title", () => {
 
   it("returns a friendly error on P2002 instead of throwing", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
     ;(prisma.pettyCashSession.create as jest.Mock).mockRejectedValue(
       Object.assign(new Error("Unique constraint"), { code: "P2002" })
     )
@@ -1932,6 +1982,18 @@ describe("createSession — duplicate title", () => {
     fd.set("openingBalance", "0")
     const res = await createSession(undefined, fd)
     expect(res).toEqual({ error: expect.stringContaining("already exists") })
+  })
+
+  it("returns a retry error on a serialization conflict (P2034) instead of throwing", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    const fd = new FormData()
+    fd.set("sessionDate", "2026-06-14")
+    fd.set("custodianId", "5")
+    fd.set("openingBalance", "0")
+    const res = await createSession(undefined, fd)
+    expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
   })
 })
 

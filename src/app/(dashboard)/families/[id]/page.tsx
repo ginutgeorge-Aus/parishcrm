@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { NOT_XFER } from "@/lib/xferAccount"
 import { canEdit, isAdmin, canViewAccounting, canAccessAccounting, canViewPeople } from "@/lib/roleGuard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -76,7 +77,7 @@ type DisplayFamily = NonNullable<Awaited<ReturnType<typeof getFamilyForDisplay>>
 async function getFamilyGiving(familyId: number, canView: boolean) {
   const transactions = canView
     ? (await prisma.transaction.findMany({
-        where: { familyId, isGiving: true },
+        where: { familyId, isGiving: true, ...NOT_XFER },
         orderBy: { date: "desc" },
         select: { id: true, date: true, description: true, amount: true },
         take: 2000, // bound the per-family giving history scan

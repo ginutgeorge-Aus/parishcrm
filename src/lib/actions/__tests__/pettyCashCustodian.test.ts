@@ -90,7 +90,14 @@ test("valid update persists new custodian + returns success", async () => {
   )
 })
 
-test("a failed audit write propagates out of the tx callback (a real DB would roll the change back)", async () => {
+test("a failed audit write rolls back and returns the audit-failed error, not a 500", async () => {
   ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
-  await expect(updateSessionCustodian(1, undefined, fd({ custodianId: "5" }))).rejects.toThrow("audit down")
+  const res = await updateSessionCustodian(1, undefined, fd({ custodianId: "5" }))
+  expect(res).toEqual({ error: expect.stringMatching(/audit log/i) })
+})
+
+test("a serialization conflict (P2034) returns a retry error, not a 500", async () => {
+  ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+  const res = await updateSessionCustodian(1, undefined, fd({ custodianId: "5" }))
+  expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
 })

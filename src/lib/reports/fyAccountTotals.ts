@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
+import { XFER_CODE } from "@/lib/xferAccount"
 
 /**
  * Accounts + per-account FY totals (cents) shared by the Trial Balance and
@@ -15,7 +16,7 @@ export async function loadFyAccountTotals(fyStart: Date, fyEnd: Date) {
   const [accounts, totals] = await Promise.all([
     prisma.account.findMany({
       where: {
-        code: { not: "XFER" },
+        code: { not: XFER_CODE },
         OR: [{ isActive: true }, { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } }],
       },
       orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],

@@ -33,7 +33,7 @@ const inv = { id: 11, status: "SENT", invoiceNo: "INV-0007", recipientName: "Exa
   personId: null, total: dec("330.00"), issueDate: new Date("2026-10-11"), accountId: 4, fundId: null, issuer: { name: "Example Church" } }
 const income = { id: 50, type: "INCOME", invoiceId: null, isGiving: false, accountId: 4, fundId: null, amount: dec("330.00"), date: new Date("2026-10-20"),
   reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, updatedAt: new Date("2026-10-20T01:00:00Z") }
-const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null }
+const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, account: { code: { not: "XFER" } } }
 beforeEach(() => {
   jest.clearAllMocks(); as("ADMIN")
   ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma))
@@ -75,6 +75,12 @@ describe("markInvoicePaid — link", () => {
   it("refuses to link when the invoice's account is inactive", async () => {
     ;(prisma.account.findUnique as jest.Mock).mockResolvedValueOnce({ id: 4, type: "INCOME", isActive: false })
     expect(await markInvoicePaid(11, link)).toEqual({ error: "The invoice's income account is inactive — reactivate it first" })
+  })
+  it("refuses to link a transaction on the XFER account", async () => {
+    ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue({ ...income, account: { code: "XFER" } })
+    expect(await markInvoicePaid(11, link)).toEqual({ error: "Pick an income transaction that is not linked to another invoice" })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
   it("rejects an invalid id", async () => {
     expect(await markInvoicePaid(11, { ...link, transactionId: -1 })).toEqual({ error: "Invalid transaction" })

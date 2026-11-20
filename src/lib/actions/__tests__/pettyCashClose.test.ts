@@ -179,8 +179,17 @@ test("concurrent close losing the race is rejected without an audit", async () =
   expect(mockAudit).not.toHaveBeenCalled()
 })
 
-test("a failed audit write propagates out of the tx callback (a real DB would roll the close back)", async () => {
+test("a failed audit write rolls back and returns the audit-failed error, not a 500", async () => {
   mockFind.mockResolvedValue(openSession())
   mockAudit.mockRejectedValueOnce(new Error("audit down"))
-  await expect(closeSession(1, undefined, fd({ notes: "handover" }))).rejects.toThrow("audit down")
+  const res = await closeSession(1, undefined, fd({ notes: "handover" }))
+  expect(res).toEqual({ error: expect.stringMatching(/audit log/i) })
+})
+
+test("a serialization conflict (P2034) on every attempt returns a retry error, not a 500", async () => {
+  mockFind.mockResolvedValue(openSession())
+  // serializableWrite retries P2034; the retry error only surfaces once every attempt conflicts.
+  ;(prisma.$transaction as jest.Mock).mockRejectedValue({ code: "P2034" })
+  const res = await closeSession(1, undefined, fd({ notes: "handover" }))
+  expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
 })

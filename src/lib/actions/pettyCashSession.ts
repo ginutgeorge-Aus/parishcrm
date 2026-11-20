@@ -9,9 +9,8 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, centsToNumber, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
-import { logAuditTx } from "@/lib/audit"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
-import { MONEY_DECIMAL_RE, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2002, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
@@ -66,8 +65,8 @@ export async function createSession(
 
   let created: { id: number }
   try {
-    // A manual opening balance is a money figure the next close is measured
-    // against: audit it with the create so the two commit or roll back together.
+    // Audit in the same transaction: opening a session fixes the custodian and
+    // opening float, so a session must never exist without its audit row.
     created = await prisma.$transaction(async (tx) => {
       const row = await tx.pettyCashSession.create({
         data: {
@@ -84,10 +83,11 @@ export async function createSession(
       return row
     })
   } catch (e) {
-    if (isUniqueViolation(e)) return { error: `A session for ${title} already exists` }
     if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "createSession")
-    // Plain (non-retrying) tx: a P2034 passed through by logAuditGuardedTx is a "try again", not a 500.
-    if (isP2034(e)) return { error: "Conflict while opening the session — please try again." }
+    if (isP2002(e))
+      return { error: `A session for ${title} already exists` }
+    // Plain (non-retrying) tx: a serialization conflict is a "try again", not a 500.
+    if (isP2034(e)) return { error: "Conflict while creating the session — please try again." }
     throw e
   }
   revalidatePath("/accounting/petty-cash")
@@ -125,15 +125,21 @@ export async function updateSessionCustodian(
   })
   if (!custodian) return { error: "Custodian not found" }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.pettyCashSession.update({
-      where: { id },
-      data: { custodianId: parsed.data.custodianId },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.pettyCashSession.update({
+        where: { id },
+        data: { custodianId: parsed.data.custodianId },
+      })
+      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_CUSTODIAN_UPDATED", "PettyCashSession", id, {
+        custodianId: parsed.data.custodianId,
+      })
     })
-    await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_CUSTODIAN_UPDATED", "PettyCashSession", id, {
-      custodianId: parsed.data.custodianId,
-    })
-  })
+  } catch (e) {
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "updateSessionCustodian")
+    if (isP2034(e)) return { error: "Conflict while updating the custodian — please try again." }
+    throw e
+  }
 
   revalidatePath(`/accounting/petty-cash/sessions/${id}`)
   revalidatePath("/accounting/petty-cash")
@@ -195,7 +201,7 @@ function findNextSessionId(
 // Prisma's unique-violation code — used where a check-then-create/upsert race
 // is resolved by treating a concurrent winner's P2002 as "already exists".
 function isUniqueViolation(e: unknown): boolean {
-  return !!(e && typeof e === "object" && "code" in e && e.code === "P2002")
+  return isP2002(e)
 }
 
 export type EnsureWeeklyResult = {
@@ -465,7 +471,7 @@ export async function closeSession(
       // receipts/expenses/transfers are rejected), so who closed it must be on the
       // trail whether or not a physical count was taken. `counted` records
       // which; countedCash/variance are null on a count-less close.
-      await logAuditTx(tx, userId, "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
+      await logAuditGuardedTx(tx, userId, "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
         counted: countedCash !== null,
         countedCash,
         variance: closingVariance,

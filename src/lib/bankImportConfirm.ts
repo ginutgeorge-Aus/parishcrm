@@ -668,9 +668,11 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
             type: row.type,
             accountId: xferAccountId!,
             paymentAccountId: row.paymentAccountId ?? null,
-            isGiving: !!row.familyId,
-            familyId: row.familyId ?? null,
-            personId: row.personId ?? null,
+            // A banking of petty cash is a clearing-account transfer, never a member's gift: drop any
+            // auto-matched member so it can't reach the giving summary or statements.
+            isGiving: false,
+            familyId: null,
+            personId: null,
             bankRef: row.bankRef,
             reconciled: false,
             // same PII as the plain-row branch above.
