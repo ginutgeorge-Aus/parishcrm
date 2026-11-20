@@ -33,7 +33,7 @@ reminder, and reset controls. The page shows:
 - **Event managers** panel — assign or remove `EVENT_ORGANISER` accounts for this event (see
   [Event Organisers](/parishcrm/docs/event-organisers/)).
 - **Export** buttons — CSV download and a print-friendly page.
-- **Send payment reminders** — bulk-email everyone still `PENDING` (see [Event Reminders](/parishcrm/docs/event-reminders/)).
+- **Send payment reminders** — bulk-email everyone still `PENDING` who owes money (free $0 registrations are skipped and shown as "No payment needed") (see [Event Reminders](/parishcrm/docs/event-reminders/)).
 - **Reset registrations** (ADMIN, draft events only) — hard-deletes every registration, waitlist
   entry and checkout session for an unpublished event, for wiping test data before going live.
 

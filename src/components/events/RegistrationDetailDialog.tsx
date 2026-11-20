@@ -1,5 +1,6 @@
 "use client"
 
+import { paymentStatusLabel } from "@/lib/registrationPayment"
 import { useEffect, useState } from "react"
 import { getRegistrationDetail, type RegistrationDetailDTO } from "@/lib/actions/registration"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -70,7 +71,7 @@ export function RegistrationDetailDialog({ registrationId, open, onOpenChange }:
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Badge className={STATUS_COLOURS[data.paymentStatus] ?? ""}>
-                {data.paymentStatus.charAt(0) + data.paymentStatus.slice(1).toLowerCase()}
+                {paymentStatusLabel(data)}
               </Badge>
               <span className="font-semibold text-foreground">{fmtAUD(data.totalAmount)}</span>
               <span className="text-muted-foreground">· {data.paymentMethod}</span>

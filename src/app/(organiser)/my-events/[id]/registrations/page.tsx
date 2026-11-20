@@ -12,6 +12,7 @@ import { getEventRegistrationRollup } from "@/lib/reports/eventRegistrationRollu
 import { RegistrationsTable } from "@/components/events/RegistrationsTable"
 import { ExportButtons } from "@/components/events/ExportButtons"
 import { SendPaymentRemindersClient } from "@/components/events/SendPaymentRemindersClient"
+import { owesPayment } from "@/lib/registrationPayment"
 import type { PendingReminderRow } from "@/components/events/SendPaymentRemindersClient"
 import { Button } from "@/components/ui/button"
 import { parseRouteId } from "@/lib/validation"
@@ -82,7 +83,7 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
   }))
 
   const reminderRows: PendingReminderRow[] = event.registrations
-    .filter((r) => r.paymentStatus === "PENDING")
+    .filter((r) => owesPayment(r))
     .map((r) => ({
       registrationId: r.id,
       name: `${r.firstName} ${r.lastName}`.trim(),

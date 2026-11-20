@@ -15,6 +15,7 @@ import { fillRates, revenueByType, regsOverTime } from "@/lib/reports/eventAnaly
 import { RegistrationsTable } from "@/components/events/RegistrationsTable"
 import { ExportButtons } from "@/components/events/ExportButtons"
 import { SendPaymentRemindersClient } from "@/components/events/SendPaymentRemindersClient"
+import { owesPayment } from "@/lib/registrationPayment"
 import type { PendingReminderRow } from "@/components/events/SendPaymentRemindersClient"
 import { VolunteerViewToggle } from "@/components/events/VolunteerViewToggle"
 import { EventManagersPanel } from "@/components/events/EventManagersPanel"
@@ -103,7 +104,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
   const analyticsTime = regsOverTime(event.registrations.filter(r => r.paymentStatus !== "CANCELLED"))
 
   const reminderRows: PendingReminderRow[] = event.registrations
-    .filter((r) => r.paymentStatus === "PENDING")
+    .filter((r) => owesPayment(r))
     .map((r) => ({
       registrationId: r.id,
       name: `${r.firstName} ${r.lastName}`.trim(),

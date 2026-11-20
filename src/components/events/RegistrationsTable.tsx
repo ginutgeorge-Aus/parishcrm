@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { fmtAUD } from "@/lib/formatting"
+import { owesPayment, paymentStatusLabel } from "@/lib/registrationPayment"
 import { format } from "date-fns"
 
 type Item = { quantity: number; ticketType: { name: string }; attendees: { name: string }[] }
@@ -49,7 +50,7 @@ function RegistrationRowActions({ reg, eventId }: Readonly<{ reg: Reg; eventId: 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex gap-1">
-        {reg.paymentStatus === "PENDING" && (
+        {owesPayment(reg) && (
           <Button
             size="xs"
             variant="ghost"
@@ -96,7 +97,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
   // "All" excludes cancelled — cancelled registrations only show under the Cancelled tab.
   const visible = filter === "ALL"
     ? registrations.filter(r => r.paymentStatus !== "CANCELLED")
-    : registrations.filter(r => r.paymentStatus === filter)
+    : registrations.filter(r => filter === "PENDING" ? owesPayment(r) : r.paymentStatus === filter)
 
   const attendees = visible.flatMap(reg =>
     reg.items.flatMap((item, itemIdx) => {
@@ -111,6 +112,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
         ticketType: item.ticketType.name,
         bookedBy: `${reg.firstName} ${reg.lastName}`,
         paymentStatus: reg.paymentStatus,
+        totalAmount: reg.totalAmount,
       }))
     })
   )
@@ -174,7 +176,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                   <TableCell className="text-muted-foreground">{a.bookedBy}</TableCell>
                   <TableCell>
                     <Badge className={STATUS_COLOURS[a.paymentStatus] ?? ""}>
-                      {a.paymentStatus.charAt(0) + a.paymentStatus.slice(1).toLowerCase()}
+                      {paymentStatusLabel({ paymentStatus: a.paymentStatus, totalAmount: a.totalAmount })}
                     </Badge>
                   </TableCell>
                 </TableRow>
@@ -199,7 +201,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                   <p className="text-xs text-muted-foreground truncate">{a.bookedBy}</p>
                 </div>
                 <Badge className={STATUS_COLOURS[a.paymentStatus] ?? ""}>
-                  {a.paymentStatus.charAt(0) + a.paymentStatus.slice(1).toLowerCase()}
+                  {paymentStatusLabel({ paymentStatus: a.paymentStatus, totalAmount: a.totalAmount })}
                 </Badge>
               </div>
             </li>
@@ -260,7 +262,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                 </TableCell>
                 <TableCell>
                   <Badge className={STATUS_COLOURS[reg.paymentStatus] ?? ""}>
-                    {reg.paymentStatus.charAt(0) + reg.paymentStatus.slice(1).toLowerCase()}
+                    {paymentStatusLabel(reg)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs">
@@ -312,7 +314,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
               <Badge className={STATUS_COLOURS[reg.paymentStatus] ?? ""}>
-                {reg.paymentStatus.charAt(0) + reg.paymentStatus.slice(1).toLowerCase()}
+                {paymentStatusLabel(reg)}
               </Badge>
               <span className="text-xs text-muted-foreground">
                 {paymentMethodOf(reg.paymentRef)} · {format(reg.createdAt, "d MMM yyyy")}
