@@ -108,13 +108,14 @@ export async function startExistingRegistrationCheckout(
   if (!rateLimit(`checkout:${key}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
-  // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
-  if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
-  // Runtime types are caller-controlled: reject non-strings and malformed tokens before any DB read.
+  // Runtime types are caller-controlled: reject non-strings and malformed tokens before any DB read
+  // (after the throttle, ahead of the settings read in featureGuard so junk input costs no query).
   if (!isSlugArg(slug)) return { ok: false, status: 404, error: "Event not found" }
   if (typeof publicToken !== "string" || !REGISTRATION_TOKEN_RE.test(publicToken)) {
     return { ok: false, status: 404, error: REGISTRATION_LINK_EXPIRED_MESSAGE }
   }
+  // Public caller gets the unpublished-event 404, not the admin wording.
+  if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
 
   const event = await prisma.event.findUnique({
     where: { slug },
