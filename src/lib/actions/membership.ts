@@ -18,7 +18,7 @@ import { logAudit } from "@/lib/audit"
 import { encryptFamilyFields } from "@/lib/familyFields"
 import { isP2002 } from "@/lib/validation"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { membershipSubmitSchema, encryptPayload, readPayload, buildNotesBlock, deriveFamilyName, type MembershipPayload } from "@/lib/membership"
+import { membershipSubmitSchema, firstIssueMessage, encryptPayload, readPayload, buildNotesBlock, deriveFamilyName, type MembershipPayload } from "@/lib/membership"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getLetterSettings } from "@/lib/letterSettings"
@@ -45,7 +45,7 @@ type FieldLabels = { homeAddress: string; arrivalDate: string }
 type SubmitMembershipInput = { payload: unknown; signature: string; turnstileToken?: string; website?: string; renderedLabels?: FieldLabels }
 // updatedLabels: the overseas-field labels changed since the form was
 // rendered — the client swaps them in and keeps the applicant's typed data.
-type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels }
+type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels } | { error: string; field: string }
 
 /** Public membership form submit: honeypot → in-memory per-IP throttle → feature check (generic wording) → validation → Turnstile → per-IP and per-email DB quotas. */
 export async function submitMembershipApplication(input: SubmitMembershipInput): Promise<SubmitMembershipResult> {
@@ -67,7 +67,7 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   if (input.signature.length > MAX_SIGNATURE_LEN) return { error: "Signature image too large" }
 
   const parsed = membershipSubmitSchema.safeParse(input.payload)
-  if (!parsed.success) return { error: "Please check the form — some required fields are missing or invalid." }
+  if (!parsed.success) return firstIssueMessage(parsed.error)
 
   // Server-read floor — the client-side check is UX only.
   const membershipSettings = await getMembershipSettings()
