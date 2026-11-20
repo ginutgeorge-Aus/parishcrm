@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,8 @@ export function SlotCell({
   const [error, setError] = useState<string | null>(null)
   const [options, setOptions] = useState<RosterSuggestion[] | null>(null)
   const [loading, setLoading] = useState(false)
+  /** Id of the latest suggestions request; responses from older ones are ignored. */
+  const requestRef = useRef(0)
 
   /**
    * Fetch fresh suggestions each time the dropdown is opened (focus/mousedown),
@@ -38,21 +40,29 @@ export function SlotCell({
    */
   async function loadOptions() {
     if (loading) return
+    const token = ++requestRef.current
     setLoading(true)
     setError(null)
     try {
       const r = await suggestRosterAssignees(slotId)
-      if ("error" in r) setError(r.error)
-      else setOptions(r.suggestions)
+      if (token !== requestRef.current) return
+      if ("error" in r) {
+        setOptions(null)
+        setError(r.error)
+      } else setOptions(r.suggestions)
     } catch {
+      if (token !== requestRef.current) return
+      setOptions(null)
       setError("Could not load people. Please try again.")
     } finally {
-      setLoading(false)
+      if (token === requestRef.current) setLoading(false)
     }
   }
 
   /** Run a mutation, surface its error, refresh on success and reload options next time. */
   function run(fn: () => Promise<{ error: string } | { success: string } | undefined>) {
+    requestRef.current++
+    setLoading(false)
     setError(null)
     startTransition(async () => {
       try {
