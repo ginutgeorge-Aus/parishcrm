@@ -53,10 +53,11 @@ it("caps the list at 20 and says how many more", async () => {
 
 it("shows a headings hint when no row parses", async () => {
   await previewWith({ rows: [], duplicates: [], errors: [{ row: 2, message: "family_name is required" }] })
-  expect(screen.getByText(/column headings do not match the expected format/i)).toBeInTheDocument()
+  expect(screen.getByText(/no rows could be read/i)).toBeInTheDocument()
 })
 
 it("renders error text as text, not HTML", async () => {
   await previewWith({ rows: [validRow], duplicates: [], errors: [{ row: 2, message: "<b>boom</b>" }] })
   expect(screen.getByText("<b>boom</b>")).toBeInTheDocument()
+  expect(document.body.querySelector("td b")).toBeNull()
 })

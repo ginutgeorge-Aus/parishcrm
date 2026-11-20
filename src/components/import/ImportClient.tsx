@@ -28,8 +28,8 @@ Smith,,,,,,Jane,Smith,1983-06-20,FEMALE,SPOUSE,MEMBER,jane@example.com,040000000
 const MAX_VISIBLE_ERRORS = 20
 
 // Messages can quote cell text: always rendered as React text nodes.
-function ErrorList({ errors }: { errors: Array<{ row: number; message: string }> }) {
-  const visible = errors.slice(0, MAX_VISIBLE_ERRORS)
+function ErrorList({ errors, max }: { errors: Array<{ row: number; message: string }>; max?: number }) {
+  const visible = max === undefined ? errors : errors.slice(0, max)
   const hidden = errors.length - visible.length
   return (
     <div className="space-y-2">
@@ -223,7 +223,7 @@ export function ImportClient() {
 
       {preview && (
         <div className="space-y-4">
-          {preview.errors.length > 0 && (
+          {preview.errors.length > 0 && previewRows.length > 0 && (
             <div className="rounded-md bg-warning/10 border border-warning/40 px-4 py-3 text-sm text-warning">
               {preview.errors.length === 1
                 ? "1 row has a parse error and will be skipped."
@@ -232,10 +232,10 @@ export function ImportClient() {
           )}
           {preview.errors.length > 0 && previewRows.length === 0 && (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              The column headings do not match the expected format. Use the Download sample CSV button above to see the expected columns.
+              No rows could be read. Check the column headings and the errors below. Use the Download sample CSV button above to see the expected columns.
             </div>
           )}
-          {preview.errors.length > 0 && <ErrorList errors={preview.errors} />}
+          {preview.errors.length > 0 && <ErrorList errors={preview.errors} max={MAX_VISIBLE_ERRORS} />}
 
           <div className="overflow-x-auto">
           <Table>
