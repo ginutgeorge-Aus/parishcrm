@@ -547,16 +547,27 @@ export async function sendDgrReceiptEmail(
  * @param to recipient address
  * @param pdf rendered statement PDF
  * @param data covering-email fields (no per-gift detail)
+ * @param isExpired optional caller deadline check, evaluated after the email renders and before sending
+ * @returns `"expired"` when the deadline passed during rendering (nothing was sent), else `"sent"`
  */
-export async function sendGivingStatementEmail(to: string, pdf: Buffer, data: GivingStatementEmailData): Promise<void> {
+export async function sendGivingStatementEmail(
+  to: string,
+  pdf: Buffer,
+  data: GivingStatementEmailData,
+  isExpired?: () => boolean
+): Promise<"sent" | "expired"> {
   const { transporter, user } = makeTransporter()
   const el = React.createElement(GivingStatementEmail, { data })
+  const html = await render(el)
+  const text = await render(el, { plainText: true })
+  if (isExpired?.()) return "expired"
   await sendMailWithRetry(transporter, {
     from: `"${data.churchName}" <${user}>`,
     to,
     subject: `Your giving statement — FY ${data.fyLabel}`,
-    html: await render(el),
-    text: await render(el, { plainText: true }),
+    html,
+    text,
     attachments: [{ filename: `giving-statement-${data.fyLabel}.pdf`, content: pdf, contentType: "application/pdf" }],
   })
+  return "sent"
 }
