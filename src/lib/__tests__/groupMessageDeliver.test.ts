@@ -12,6 +12,7 @@ jest.mock("@/lib/churchSettings", () => ({ getChurchSettings: jest.fn(async () =
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn(), isAmbiguousDeliveryError: jest.fn(() => false), alertOwnerEmailFailure: jest.fn() }))
 
 import { prisma } from "@/lib/prisma"
+import { logger } from "@/lib/logger"
 import { sendEmail, isAmbiguousDeliveryError, alertOwnerEmailFailure } from "@/lib/email"
 import {
   claimGroupRecipient, deliverGroupMessage, renderGroupMessageText, runGroupMessageSweep, MAX_DELIVERY_ATTEMPTS, SEND_CONCURRENCY,
@@ -206,6 +207,26 @@ describe("deliverGroupMessage", () => {
     expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(true)
   })
 
+  it("a stale-claim closure beside a clean failure does not make the alert ambiguous", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([
+      { id: 1, personId: 1 },
+      { id: 2, personId: 2, status: "PENDING", claimedAt: new Date(Date.now() - GROUP_MESSAGE_LEASE_MS - 60_000) },
+    ])
+    p.groupMessageRecipient.updateMany.mockImplementation(async (a: { where: { id: number; OR?: unknown } }) => ({ count: a.where.id === 2 && a.where.OR ? 0 : 1 }))
+    send.mockRejectedValue(new Error("535 auth"))
+    const c = await deliverGroupMessage(1)
+    expect(c).toMatchObject({ failed: 1, unknown: 1 })
+    expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(false)
+  })
+
+  it("skip-path terminal write failure releases the claim as retryable FAILED, then rethrows", async () => {
+    setPerson({ emailConsent: false })
+    p.groupMessageRecipient.update.mockRejectedValueOnce(new Error("db blip")).mockResolvedValue({})
+    await expect(deliverGroupMessage(1)).rejects.toThrow("db blip")
+    expect(send).not.toHaveBeenCalled()
+    expect(p.groupMessageRecipient.update.mock.calls[1][0].data).toEqual({ status: "FAILED" })
+  })
+
   it("keeps the ambiguous flag when the send error is ambiguous but the status write then fails", async () => {
     p.groupMessageRecipient.findMany.mockResolvedValue([{ id: 1, personId: 1 }])
     ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValue(true)
@@ -284,6 +305,16 @@ describe("runGroupMessageSweep", () => {
     const r = await runGroupMessageSweep(new Date("2026-11-13T00:00:00Z"))
     expect(r.messages).toBe(1)
     expect(r.sent).toBe(1)
+  })
+
+  it("logs the closed count per sweep, and stays quiet when nothing closed", async () => {
+    p.groupMessage.findMany.mockResolvedValue([])
+    await runGroupMessageSweep(new Date("2026-11-13T00:00:00Z"))
+    expect((logger.info as jest.Mock).mock.calls.some((c) => String(c[0]).includes("closed 2"))).toBe(true)
+    jest.clearAllMocks()
+    p.groupMessageRecipient.updateMany.mockResolvedValue({ count: 0 })
+    await runGroupMessageSweep(new Date("2026-11-13T00:00:00Z"))
+    expect(logger.info).not.toHaveBeenCalled()
   })
 
   it("past the retry window: never-claimed rows close as FAILED, stale claims as UNKNOWN", async () => {
