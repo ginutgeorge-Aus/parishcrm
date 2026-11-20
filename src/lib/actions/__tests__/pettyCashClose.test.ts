@@ -20,9 +20,14 @@ jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn:
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    pettyCashSession: { findUnique: jest.fn(), updateMany: jest.fn() },
-    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
-      fn({ pettyCashSession: { updateMany: jest.requireMock("@/lib/prisma").prisma.pettyCashSession.updateMany }, __isTx: true })),
+    // findMany (no later session) backs the AUD-3-04 roll-forward lookup.
+    pettyCashSession: { findUnique: jest.fn(), updateMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    // The close re-reads the session inside the tx (AUD-3-04), so the tx client
+    // exposes the same findUnique/findMany mocks.
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => {
+      const s = jest.requireMock("@/lib/prisma").prisma.pettyCashSession
+      return fn({ pettyCashSession: { updateMany: s.updateMany, findUnique: s.findUnique, findMany: s.findMany }, __isTx: true })
+    }),
   },
 }))
 
@@ -35,6 +40,7 @@ const mockAudit = logAuditTx as jest.Mock
 function openSession(overrides = {}) {
   return {
     id: 1,
+    title: "05-JAN-2020",
     status: "OPEN",
     openingBalance: "100.00",
     receipts: [],

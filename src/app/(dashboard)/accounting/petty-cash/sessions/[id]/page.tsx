@@ -13,6 +13,8 @@ import { varianceLabel } from "@/lib/pettyCashLedger"
 import { getSessionDetailData } from "./page.data"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
+// Close notes are encrypted since AUD-3-04; older plaintext rows pass through unchanged.
+import { safeDecrypt } from "@/lib/crypto"
 
 export default async function SessionDetailPage(
   props: Readonly<{
@@ -60,7 +62,7 @@ export default async function SessionDetailPage(
               ` · Closed: ${pcSession.closedAt.toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE })}`}
           </p>
           {pcSession.notes && (
-            <p className="text-sm text-muted-foreground mt-1">Note: {pcSession.notes}</p>
+            <p className="text-sm text-muted-foreground mt-1">Note: {safeDecrypt(pcSession.notes)}</p>
           )}
           {!isOpen && pcSession.countedCash !== null && (
             <p className="text-sm mt-1">
