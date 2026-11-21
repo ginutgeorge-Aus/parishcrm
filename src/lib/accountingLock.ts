@@ -54,11 +54,19 @@ export function isDateLocked(date: Date, lock: Date | null): boolean {
 }
 
 /**
+ * User-facing message for a date that falls in the locked period.
+ * @param lock the accounting lock date
+ */
+export function lockedPeriodMessage(lock: Date): string {
+  return `This date is in a locked accounting period (on or before ${lock.toISOString().slice(0, 10)}).`
+}
+
+/**
  * Returns a user-facing error string when `date` is in the locked period,
  * else null. Callers return `{ error }` (actions) or a 400 (API routes).
  */
 export async function assertUnlocked(date: Date): Promise<string | null> {
   const lock = await getAccountingLockDate()
-  if (!isDateLocked(date, lock)) return null
-  return `This date is in a locked accounting period (on or before ${lock!.toISOString().slice(0, 10)}).`
+  if (lock === null || !isDateLocked(date, lock)) return null
+  return lockedPeriodMessage(lock)
 }
