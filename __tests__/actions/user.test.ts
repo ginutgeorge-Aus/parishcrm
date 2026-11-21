@@ -593,6 +593,7 @@ describe("unlockUser", () => {
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 3 },
       data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+      select: { role: true },
     })
     expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })
@@ -601,6 +602,19 @@ describe("unlockUser", () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
     await unlockUser(3)
     expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "USER_UNLOCKED", "User", 3, { targetUserId: 3, targetRole: "VIEWER" }, IP)
+  })
+
+  it("audits the role of the updated row when it changed after the pre-read", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
+    mockUpdate.mockResolvedValueOnce({ role: "AUDITOR" })
+    await unlockUser(3)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "USER_UNLOCKED", "User", 3, { targetUserId: 3, targetRole: "AUDITOR" }, IP)
+  })
+
+  it("maps a serialization conflict to the retry prompt", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
+    mockTransaction.mockRejectedValueOnce({ code: "P2034" })
+    await expect(unlockUser(3)).resolves.toEqual({ error: expect.stringContaining("try again") })
   })
 })
 
@@ -910,6 +924,7 @@ describe("resetUserTotp", () => {
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 3 },
       data: { ...TOTP_CLEARED, sessionsValidFrom: expect.any(Date) },
+      select: { role: true },
     })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
@@ -954,7 +969,7 @@ describe("revokeUserPasskeys", () => {
   it("deletes every passkey, kills live sessions, and audits", async () => {
     mockSession.mockResolvedValue({ user: { id: "42", role: "ADMIN" } })
     await expect(revokeUserPasskeys(3)).resolves.toBeUndefined()
-    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 3 }, data: { sessionsValidFrom: expect.any(Date) } })
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 3 }, data: { sessionsValidFrom: expect.any(Date) }, select: { role: true } })
     expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     // Trusted devices skip OTP after the password; a lost device must not keep that.
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })

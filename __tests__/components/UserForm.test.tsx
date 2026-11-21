@@ -6,6 +6,7 @@
  */
 import { render, screen } from "@testing-library/react"
 import { UserForm } from "@/components/users/UserForm"
+import { UserRole } from "@/lib/generated/prisma/enums"
 
 // Plain native <select> so the options are inspectable without Radix internals.
 jest.mock("@/components/ui/select", () => ({
@@ -35,7 +36,7 @@ it("OFFICE_ADMIN cannot pick ADMIN, PASTOR or OFFICE_ADMIN", () => {
 
 it("ADMIN can pick every role", () => {
   render(<UserForm action={action} currentUserRole="ADMIN" />)
-  expect(optionValues()).toEqual(expect.arrayContaining(["ADMIN", "PASTOR", "OFFICE_ADMIN", "VIEWER"]))
+  expect(optionValues()).toEqual(Object.values(UserRole))
 })
 
 it("self edit shows the name only as editable and keeps the role", () => {

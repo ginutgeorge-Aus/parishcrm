@@ -171,6 +171,7 @@ describe("unlock and welcome target-role guards", () => {
     expect(prisma.user.update).toHaveBeenCalledWith({
       where,
       data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+      select: { role: true },
     })
     expect(await resendWelcome(3)).toEqual({ success: true })
     expect(prisma.user.update).toHaveBeenCalledWith({

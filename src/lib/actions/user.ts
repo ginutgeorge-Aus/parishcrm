@@ -97,6 +97,8 @@ function targetWriteErrorMessage(e: unknown): string | undefined {
   // P2025: the target moved to a role the actor may not manage since the pre-read.
   if ((e as { code?: unknown })?.code === "P2025") return "Unauthorized"
   if (e instanceof AuditWriteError) return e.message
+  // Serializable conflict (also re-thrown unwrapped by auditUserTx): retry prompt.
+  if (isP2034(e)) return "Could not complete the change because of a concurrent update — please try again."
   return undefined
 }
 
@@ -504,13 +506,14 @@ export async function unlockUser(id: number): Promise<ActionResult> {
   const ip = await requestAuditIp()
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.user.update({
+      const updated = await tx.user.update({
         where: { id, ...assignableTargetWhere(session?.user?.role) },
         // Clear both password and OTP lockout state — leaving the OTP lockout in
         // place re-locks the user at the OTP step with no explanation
         data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+        select: { role: true },
       })
-      await auditUserTx(tx, actorId(session), "USER_UNLOCKED", id, { targetUserId: id, targetRole: target.role }, ip)
+      await auditUserTx(tx, actorId(session), "USER_UNLOCKED", id, { targetUserId: id, targetRole: updated?.role ?? target.role }, ip)
     })
   } catch (e) {
     const message = targetWriteErrorMessage(e)
@@ -545,15 +548,16 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
     // skipping the second factor), plus every live session (the lost device may
     // already be signed in). Next login falls back to email OTP.
     await prisma.$transaction(async (tx) => {
-      await tx.user.update({
+      const updated = await tx.user.update({
         where: { id, ...assignableTargetWhere(session?.user?.role) },
         data: { ...TOTP_CLEARED, sessionsValidFrom: new Date() },
+        select: { role: true },
       })
       await tx.backupCode.deleteMany({ where: { userId: id } })
       await tx.trustedDevice.deleteMany({ where: { userId: id } })
       // A lost phone usually holds a passkey too.
       await tx.passkey.deleteMany({ where: { userId: id } })
-      await auditUserTx(tx, actorId(session), "TOTP_RESET", id, { targetUserId: id, targetRole: target.role }, ip)
+      await auditUserTx(tx, actorId(session), "TOTP_RESET", id, { targetUserId: id, targetRole: updated?.role ?? target.role }, ip)
     })
   } catch (e) {
     const message = targetWriteErrorMessage(e)
@@ -586,11 +590,15 @@ export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
     // Lost/stolen device: drop every passkey and kill live sessions (the device
     // may already be signed in). Password + OTP/TOTP still work.
     await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id, ...assignableTargetWhere(session?.user?.role) }, data: { sessionsValidFrom: new Date() } })
+      const updated = await tx.user.update({
+        where: { id, ...assignableTargetWhere(session?.user?.role) },
+        data: { sessionsValidFrom: new Date() },
+        select: { role: true },
+      })
       await tx.passkey.deleteMany({ where: { userId: id } })
       // Trusted devices skip OTP after the password; the lost device may hold one.
       await tx.trustedDevice.deleteMany({ where: { userId: id } })
-      await auditUserTx(tx, actorId(session), "PASSKEYS_REVOKED", id, { targetUserId: id, targetRole: target.role }, ip)
+      await auditUserTx(tx, actorId(session), "PASSKEYS_REVOKED", id, { targetUserId: id, targetRole: updated?.role ?? target.role }, ip)
     })
   } catch (e) {
     const message = targetWriteErrorMessage(e)
