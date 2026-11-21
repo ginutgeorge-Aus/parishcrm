@@ -65,7 +65,7 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
       // emails may have gone out, so refresh the preview instead of leaving stale counts.
       if (seq !== latestSend.current) { loadPlan(); return }
       if ("error" in res) { setError(res.error); return }
-      setDone(`Sent ${res.sent} reminder${res.sent === 1 ? "" : "s"}${res.failed ? `, ${res.failed} failed` : ""}${res.skippedRecent ? `, ${res.skippedRecent} skipped (reminded ${minutes ? `in the last ${minutes} ${minutes === 1 ? "minute" : "minutes"}` : "recently"})` : ""}${res.deferred ? `. ${res.deferred} more not sent yet: run again to continue` : ""}.`)
+      setDone(sentMessage(res, minutes))
     })
   }
 
@@ -98,6 +98,35 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
 }
 
 /**
+ * Pick the singular or plural form of a word.
+ * @param n - Count.
+ * @param one - Singular form.
+ * @param many - Plural form.
+ */
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many
+}
+
+/**
+ * Plain-language outcome of a reminder send.
+ * @param res - Counts returned by `sendFundraiserReminders`.
+ * @param minutes - Dedupe window in minutes from the preview, if known.
+ */
+function sentMessage(
+  res: { sent: number; failed: number; skippedRecent: number; deferred: number },
+  minutes: number | undefined,
+): string {
+  let msg = `Sent ${res.sent} ${plural(res.sent, "reminder", "reminders")}`
+  if (res.failed) msg += `, ${res.failed} failed`
+  if (res.skippedRecent) {
+    const when = minutes ? `in the last ${minutes} ${plural(minutes, "minute", "minutes")}` : "recently"
+    msg += `, ${res.skippedRecent} skipped (reminded ${when})`
+  }
+  if (res.deferred) msg += `. ${res.deferred} more not sent yet: run again to continue`
+  return msg + "."
+}
+
+/**
  * Plain-language preview of a reminder run.
  * @param props.plan - Counts and last-sent date label from `getReminderPlan`.
  */
@@ -107,7 +136,7 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
       <p className="text-foreground">
         {sendable === 0
           ? "Nobody can be reminded right now."
-          : `This will email about ${sendable} ${sendable === 1 ? "person who still owes" : "people who still owe"} money.`}
+          : `This will email about ${sendable} ${plural(sendable, "person who still owes", "people who still owe")} money.`}
       </p>
       {skippedNoEmail > 0 && (
         <p className="text-muted-foreground">
