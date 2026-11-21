@@ -17,7 +17,9 @@ const EventBase = z.object({
   slug: z.string().optional().transform((v) => (v && v.trim() !== "" ? v : null)).pipe(
     z.string().max(200, "Slug is too long").regex(/^[a-z0-9-]+$/, "Slug: lowercase letters, numbers, hyphens only").nullable(),
   ),
-  description: z.string().max(2000, "Description must be 2000 characters or fewer").optional(),
+  // Normalise CRLF (how browsers submit textarea newlines) to LF before the length check so it
+  // matches the textarea's maxLength, which counts a line break as one character.
+  description: z.string().transform((s) => s.replace(/\r\n/g, "\n")).pipe(z.string().max(2000, "Description must be 2000 characters or fewer")).optional(),
   kind: z.enum(["one_off", "recurring"]).default("one_off"),
   category: z.enum(CATEGORIES).catch("worship"),
   // Same strict `YYYY-MM-DDTHH:mm` calendar check sydneyDatetimeLocalToUTC uses,
