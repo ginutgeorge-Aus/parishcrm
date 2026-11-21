@@ -273,7 +273,11 @@ export function formatPercent(p: number | null): string {
 export function classStats(input: ClassStatsInput, opts: { students?: boolean } = {}): ClassStats {
   const marks = new Map<number, { present: number; late: number; absent: number }>()
   const scores = new Map<number, { score: string; totalMarks: string }[]>()
+  // A child listed twice would be counted twice in the full path but once in the lean path; keep the first.
+  const roster: ClassStatsInput["students"] = []
   for (const s of input.students) {
+    if (marks.has(s.personId)) continue
+    roster.push(s)
     marks.set(s.personId, { present: 0, late: 0, absent: 0 })
     scores.set(s.personId, [])
   }
@@ -287,6 +291,9 @@ export function classStats(input: ClassStatsInput, opts: { students?: boolean } 
   for (const e of input.exams) {
     for (const r of e.results) scores.get(r.personId)?.push({ score: r.score, totalMarks: e.totalMarks })
   }
+  let students: StudentStats[] = []
+  let attendance: AttendanceSummary
+  let exams: ExamSummary
   if (opts.students === false) {
     const total = { present: 0, late: 0, absent: 0 }
     for (const c of marks.values()) {
@@ -294,31 +301,26 @@ export function classStats(input: ClassStatsInput, opts: { students?: boolean } 
       total.late += c.late
       total.absent += c.absent
     }
-    return {
-      id: input.id,
-      name: input.name,
-      level: input.level,
-      location: input.location,
-      enrolled: input.students.length,
-      attendance: withRate(total),
-      exams: summariseExams([...scores.values()].flat()),
-      students: [],
-    }
+    attendance = withRate(total)
+    exams = summariseExams([...scores.values()].flat())
+  } else {
+    students = roster.map((s) => ({
+      personId: s.personId,
+      name: s.name,
+      attendance: withRate(marks.get(s.personId) ?? { present: 0, late: 0, absent: 0 }),
+      exams: summariseExams(scores.get(s.personId) ?? []),
+    }))
+    attendance = mergeAttendance(students.map((s) => s.attendance))
+    exams = mergeExams(students.map((s) => s.exams))
   }
-  const students = input.students.map((s) => ({
-    personId: s.personId,
-    name: s.name,
-    attendance: withRate(marks.get(s.personId) ?? { present: 0, late: 0, absent: 0 }),
-    exams: summariseExams(scores.get(s.personId) ?? []),
-  }))
   return {
     id: input.id,
     name: input.name,
     level: input.level,
     location: input.location,
-    enrolled: students.length,
-    attendance: mergeAttendance(students.map((s) => s.attendance)),
-    exams: mergeExams(students.map((s) => s.exams)),
+    enrolled: roster.length,
+    attendance,
+    exams,
     students,
   }
 }
