@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,9 +16,10 @@ const STATUS_LABEL: Record<RosterAssignmentStatus, string> = { PENDING: "Pending
 
 /**
  * One slot of the service grid: who is rostered (with status and remove), how
- * many places are open, and an assign dropdown. The dropdown loads the
- * server's suggestions (no conflicts, longest since served first) on first
- * focus, so conflicting people are never offered.
+ * many places are open, and an assign dropdown. The dropdown reloads the
+ * server's suggestions (no conflicts, longest since served first) every time
+ * it is opened, so conflicting people are never offered and changes made in
+ * other slots show up.
  */
 export function SlotCell({
   slotId, assignments, open,
@@ -28,25 +29,40 @@ export function SlotCell({
   const [error, setError] = useState<string | null>(null)
   const [options, setOptions] = useState<RosterSuggestion[] | null>(null)
   const [loading, setLoading] = useState(false)
+  /** Id of the latest suggestions request; responses from older ones are ignored. */
+  const requestRef = useRef(0)
 
-  /** Load suggestions once, on first focus of the dropdown. */
+  /**
+   * Fetch fresh suggestions each time the dropdown is opened (focus/mousedown),
+   * so a person freed from another slot of the service is offered without a
+   * page reload. Previous options stay visible while the refetch runs; an
+   * in-flight guard collapses the focus + mousedown pair of one click.
+   */
   async function loadOptions() {
-    if (options !== null || loading) return
+    if (loading) return
+    const token = ++requestRef.current
     setLoading(true)
     setError(null)
     try {
       const r = await suggestRosterAssignees(slotId)
-      if ("error" in r) setError(r.error)
-      else setOptions(r.suggestions)
+      if (token !== requestRef.current) return
+      if ("error" in r) {
+        setOptions(null)
+        setError(r.error)
+      } else setOptions(r.suggestions)
     } catch {
+      if (token !== requestRef.current) return
+      setOptions(null)
       setError("Could not load people. Please try again.")
     } finally {
-      setLoading(false)
+      if (token === requestRef.current) setLoading(false)
     }
   }
 
   /** Run a mutation, surface its error, refresh on success and reload options next time. */
   function run(fn: () => Promise<{ error: string } | { success: string } | undefined>) {
+    requestRef.current++
+    setLoading(false)
     setError(null)
     startTransition(async () => {
       try {

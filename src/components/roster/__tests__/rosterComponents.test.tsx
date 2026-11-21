@@ -65,6 +65,33 @@ describe("SlotCell", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled())
   })
 
+  it("refetches suggestions on each open so changes in other slots appear", async () => {
+    r.suggestRosterAssignees.mockResolvedValueOnce({ suggestions: [{ personId: 7, firstName: "Bo", lastName: "Kim", lastServedYMD: null }] })
+    render(<SlotCell slotId={5} assignments={[]} open={1} />)
+    const select = screen.getByLabelText("Assign a person")
+    await userEvent.click(select)
+    await screen.findByRole("option", { name: /Bo Kim/ })
+    r.suggestRosterAssignees.mockResolvedValueOnce({ suggestions: [
+      { personId: 7, firstName: "Bo", lastName: "Kim", lastServedYMD: null },
+      { personId: 9, firstName: "Di", lastName: "Poe", lastServedYMD: null },
+    ] })
+    await userEvent.click(select)
+    expect(await screen.findByRole("option", { name: /Di Poe/ })).toBeInTheDocument()
+    expect(r.suggestRosterAssignees).toHaveBeenCalledTimes(2)
+  })
+
+  it("drops the old list when a reload fails", async () => {
+    r.suggestRosterAssignees.mockResolvedValueOnce({ suggestions: [{ personId: 7, firstName: "Bo", lastName: "Kim", lastServedYMD: null }] })
+    render(<SlotCell slotId={5} assignments={[]} open={1} />)
+    const select = screen.getByLabelText("Assign a person")
+    await userEvent.click(select)
+    await screen.findByRole("option", { name: /Bo Kim/ })
+    r.suggestRosterAssignees.mockResolvedValueOnce({ error: "Not allowed" })
+    await userEvent.click(select)
+    expect(await screen.findByText("Not allowed")).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: /Bo Kim/ })).not.toBeInTheDocument()
+  })
+
   it("says so when nobody is available", async () => {
     r.suggestRosterAssignees.mockResolvedValue({ suggestions: [] })
     render(<SlotCell slotId={5} assignments={[]} open={2} />)
