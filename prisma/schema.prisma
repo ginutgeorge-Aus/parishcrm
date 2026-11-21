@@ -1131,6 +1131,13 @@ model DgrReceipt {
   createdById  Int
   createdBy    User      @relation("DgrReceiptCreatedBy", fields: [createdById], references: [id])
   errorMessage String?
+  /// Church identity, legal text and issue date frozen at send (DgrIssuerSnapshot), so a sent
+  /// receipt never changes when settings are edited later. Null for drafts and for receipts sent
+  /// before this column existed (those render live).
+  issuer       Json?
+  /// The PDF as emailed, stored as `Buffer.from(encrypt(base64), "utf8")` (same as
+  /// Invoice.frozenPdf). Written in the SENDING to SENT update. Null for drafts and legacy rows.
+  frozenPdf    Bytes?
 
   @@unique([fyEndYear, seq])
   // One DGR receipt per donor per FY is enforced only at the app level

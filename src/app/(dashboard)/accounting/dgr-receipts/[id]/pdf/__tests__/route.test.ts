@@ -8,6 +8,17 @@ import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/pdf/DgrReceiptPdf", () => ({ renderDgrReceiptPdf: jest.fn() }))
+jest.mock("@/lib/crypto", () => ({
+  decryptBytes: jest.fn((b: Uint8Array) => Buffer.from(Buffer.from(b).toString("utf8").replace(/^enc:/, ""))),
+}))
+jest.mock("@/lib/receiptSettings", () => ({
+  getReceiptSettings: jest.fn(async () => ({
+    documentTitle: "LIVE TITLE",
+    totalLabel: "LIVE TOTAL",
+    coveredPeriodTemplate: "{from} to {to}",
+    legalText: "Live legal text",
+  })),
+}))
 jest.mock("@/lib/churchSettings", () => ({
   getChurchSettingsStrict: jest.fn(async () => ({
     name: "Example Church",
@@ -71,5 +82,48 @@ describe("GET dgr-receipt pdf", () => {
     expect(res.headers.get("Content-Type")).toBe("application/pdf")
     expect(res.headers.get("Content-Disposition")).toContain('filename="DGR-2025-003.pdf"')
     expect(mockRender).toHaveBeenCalled()
+  })
+
+  it("serves the frozen PDF for a SENT receipt after settings change", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
+      ...row,
+      status: "SENT",
+      frozenPdf: Buffer.from("enc:%PDF-as-emailed"),
+      issuer: { churchName: "Old Church" },
+    })
+    const res = await call("5")
+    expect(res.status).toBe(200)
+    expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("%PDF-as-emailed")
+    expect(mockRender).not.toHaveBeenCalled()
+  })
+
+  it("renders a SENT receipt from its issuer snapshot (no PDF blob) with the frozen issue date", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
+      ...row,
+      status: "SENT",
+      frozenPdf: null,
+      issuer: {
+        churchName: "Old Church",
+        churchAbn: "11111111111",
+        churchAddress: "Old addr",
+        churchEmail: "old@example.com",
+        documentTitle: "OLD TITLE",
+        totalDonationsLabel: "OLD TOTAL",
+        legalLines: ["Old legal"],
+        coveredPeriod: "old period",
+        issueDate: "1 July 2026",
+      },
+    })
+    await call("5")
+    expect(mockRender).toHaveBeenCalledWith(
+      expect.objectContaining({ churchName: "Old Church", documentTitle: "OLD TITLE", issueDate: "1 July 2026", legalLines: ["Old legal"] })
+    )
+  })
+
+  it("a legacy SENT row (no snapshot) still renders live", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...row, status: "SENT", frozenPdf: null, issuer: null })
+    const res = await call("5")
+    expect(res.status).toBe(200)
+    expect(mockRender).toHaveBeenCalledWith(expect.objectContaining({ churchName: "Example Church", documentTitle: "LIVE TITLE" }))
   })
 })
