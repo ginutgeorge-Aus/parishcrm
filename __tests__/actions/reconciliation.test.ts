@@ -14,14 +14,17 @@ jest.mock("@/lib/prisma", () => {
     paymentAccount: {
       findUnique: jest.fn().mockResolvedValue({ id: 1 }),
     },
-    // the locked-range guard reads the lock date via `tx.appSetting`,
-    // not the outer prisma singleton — default no lock configured.
+    // the lock date is read through this client after the advisory lock
+    // is held (tx === prisma here) — default no lock configured.
     appSetting: {
       findUnique: jest.fn().mockResolvedValue(null),
     },
+    // Advisory lock (holdAccountingLock) runs on tx.
+    $queryRaw: jest.fn().mockResolvedValue([]),
     transaction: {
       aggregate: jest.fn(),
       updateMany: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
     // Interactive transaction: default impl runs the callback with the same mock
     // client (tx === prisma) so per-method assertions still work. Tests that
@@ -65,6 +68,8 @@ const mockLoggerError = logger.error as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // Reset lock setting (clearAllMocks keeps implementations) so a lock never leaks across tests.
+  mockLockAppSetting.mockReset().mockResolvedValue(null)
   // Restore the default pass-through impl (tx === prisma) after any per-test override.
   mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
 })
@@ -231,19 +236,55 @@ describe("saveStatementBalance", () => {
   })
 
   // --- locked-period range guard ---
-  it("does not reconcile when the range [opening.asOfDate, statementDate] crosses a locked accounting period", async () => {
+  it("reconciles only rows after the lock date when the lock falls inside the range", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
-    // Opening balance predates the lock date — part of the range about to be
-    // reconciled is locked, even though the statement date itself is not.
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
     mockLockAppSetting.mockResolvedValue({ value: "2026-03-31" })
+    mockAggregate
+      .mockResolvedValueOnce({ _sum: { amount: 2000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 180 } })
+    mockUpdateMany.mockResolvedValue({ count: 2 })
+    ;(prisma.transaction.count as jest.Mock).mockResolvedValueOnce(3)
+
+    const result = await saveStatementBalance(1, "2026-05-31", "2820.00")
+
+    // Balance check spans the full range; only the update is narrowed.
+    const fullRange = { gte: new Date("2026-01-01"), lte: new Date("2026-05-31T23:59:59.999Z") }
+    expect(mockAggregate.mock.calls[0][0].where.date).toEqual(fullRange)
+    expect(mockAggregate.mock.calls[1][0].where.date).toEqual(fullRange)
+    expect(mockUpdateMany.mock.calls[0][0].where.date).toEqual({
+      gt: new Date("2026-03-31T23:59:59.999Z"),
+      lte: new Date("2026-05-31T23:59:59.999Z"),
+    })
+    expect(result && "success" in result ? result.success : "").toMatch(/3 unreconciled transactions.*left unchanged/i)
+  })
+
+  it("returns the locked-period error and writes nothing when a concurrent lock change covers the statement date (pre-check mocked clear, so the in-transaction guard fires)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockUpsert.mockResolvedValue({ id: 1 })
+    mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
+    mockLockAppSetting.mockResolvedValue({ value: "2026-05-31" })
 
     const result = await saveStatementBalance(1, "2026-05-31", "2820.00")
 
     expect(mockAggregate).not.toHaveBeenCalled()
     expect(mockUpdateMany).not.toHaveBeenCalled()
-    expect(result && "success" in result ? result.success : "").toMatch(/locked accounting period/i)
+    expect(result).toEqual({ error: expect.stringMatching(/locked accounting period/i) })
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("lock on the opening day: rows after it are reconciled, opening-day rows are skipped", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockUpsert.mockResolvedValue({ id: 1 })
+    mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
+    mockLockAppSetting.mockResolvedValue({ value: "2026-01-01" })
+    mockAggregate
+      .mockResolvedValueOnce({ _sum: { amount: 2000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 180 } })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    await saveStatementBalance(1, "2026-05-31", "2820.00")
+    expect(mockUpdateMany.mock.calls[0][0].where.date.gt).toEqual(new Date("2026-01-01T23:59:59.999Z"))
   })
 
   it("still reconciles when the lock date predates the opening balance (no part of the range is locked)", async () => {
