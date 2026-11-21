@@ -18,6 +18,11 @@ jest.mock("@/lib/prisma", () => ({
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
+    // closeSession's roll-forward looks up the auto-opened successor by audit provenance
+    // (undefined result = no successor).
+    auditLog: {
+      findFirst: jest.fn(),
+    },
     appSetting: {
       findUnique: jest.fn(),
     },
@@ -160,7 +165,15 @@ beforeEach(() => {
   mockPrismaTransaction.mockImplementation(async (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma))
   // Default the in-tx session re-check (assertSessionOpenTx,/) to OPEN;
   // tests exercising a closed/racing session override this.
-  mockFindSession.mockResolvedValue({ status: "OPEN" })
+  // Also serves as the ledger snapshot for updateExpense's negative-float read (AUD-3-04),
+  // which finds the edited expense (id 3) in the snapshot's expenses.
+  mockFindSession.mockResolvedValue({
+    status: "OPEN",
+    openingBalance: "0.00",
+    receipts: [],
+    expenses: [{ id: 3, amount: "30.00" }],
+    transfers: [],
+  })
   // Default the in-tx mirror-reconciled re-check to "no row" (not
   // reconciled); tests exercising a concurrent reconcile override this. Reset
   // here because clearAllMocks() clears calls but NOT mockResolvedValue impls.

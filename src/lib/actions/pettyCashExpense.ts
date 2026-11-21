@@ -320,14 +320,18 @@ export async function updateExpense(
       select: {
         openingBalance: true,
         receipts: { select: { amount: true } },
-        expenses: { select: { amount: true } },
+        expenses: { select: { id: true, amount: true } },
         transfers: { select: { amount: true } },
       },
     })
-    if (ledger) {
+    // Add back this expense's amount from the SAME snapshot as the balance: a concurrent
+    // edit between the first read and this one must not mix two versions. Gone = deleted
+    // concurrently; the write below fails on its own, so no warning.
+    const ledgerExpense = ledger?.expenses.find((e) => e.id === id)
+    if (ledger && ledgerExpense) {
       const availableCents =
         toCents(calcRunningBalance(ledger.openingBalance, ledger.receipts, ledger.expenses, ledger.transfers)) +
-        toCents(expense.amount)
+        toCents(ledgerExpense.amount)
       if (toCents(parsed.data.amount) > availableCents)
         return { error: negativeFloatWarning(parsed.data.amount, availableCents / 100), negativeBalanceWarning: true }
     }

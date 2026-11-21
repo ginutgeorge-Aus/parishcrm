@@ -217,13 +217,26 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
 
   // Dedup by title (any status) — a manually-created or already-auto-created
   // session for that Sunday means we do nothing.
-  const existing = await prisma.pettyCashSession.findFirst({ where: { title }, select: { id: true } })
+  const existing = await prisma.pettyCashSession.findFirst({ where: { title }, select: { id: true, status: true } })
   if (existing) {
-    // Keep the "provisional" notice up on every load until last week is closed.
+    // Keep the "provisional" notice up on every load until last week is closed — but only
+    // for an OPEN session auto-opened from that prior one. A manual, closed or legacy
+    // (no provenance) session never gets rolled forward, so the notice would be a false promise.
+    if (existing.status !== "OPEN") return { status: "exists" }
     const rows = await prisma.pettyCashSession.findMany({ select: { id: true, title: true, openedAt: true, status: true } })
     const priorId = findPriorSessionId(rows, thisDate)
     const prior = rows.find((r) => r.id === priorId)
-    return prior?.status === "OPEN" ? { status: "exists", provisional: true } : { status: "exists" }
+    if (prior?.status !== "OPEN") return { status: "exists" }
+    const autoOpened = await prisma.auditLog.findFirst({
+      where: {
+        action: "PETTY_CASH_SESSION_AUTO_OPENED",
+        resourceType: "PettyCashSession",
+        resourceId: existing.id,
+        metadata: { path: ["carriedFromSessionId"], equals: prior.id },
+      },
+      select: { id: true },
+    })
+    return autoOpened ? { status: "exists", provisional: true } : { status: "exists" }
   }
 
   // Carry the prior session's closing cash-in-hand forward as this session's
