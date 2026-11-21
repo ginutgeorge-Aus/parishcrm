@@ -411,8 +411,13 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   // The claim time doubles as the claim token: every finalizing write below matches it, so a
   // stale send (its row edited back to DRAFT and claimed again) cannot overwrite the newer claim.
   const claimAt = new Date()
+  // Claim only the status this document was built from: if a parallel send moved the row
+  // (e.g. DRAFT to UNKNOWN with its own stored PDF) after our read, we must not email a different document.
+  const claimable: string[] = [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN]
+  if (!claimable.includes(row.status))
+    return { error: "This receipt is already being sent or has already been sent." }
   const claim = await prisma.dgrReceipt.updateMany({
-    where: { id, status: { in: [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN] } },
+    where: { id, status: row.status },
     data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: claimAt },
   })
   if (claim.count === 0)

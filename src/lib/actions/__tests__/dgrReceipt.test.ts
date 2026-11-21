@@ -630,7 +630,7 @@ describe("sendDgrReceipt", () => {
     // Claimed the row (DRAFT/FAILED → SENDING) before rendering…
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 5, status: { in: ["DRAFT", "FAILED", "UNKNOWN"] } },
+        where: { id: 5, status: "DRAFT" },
         data: expect.objectContaining({ status: "SENDING", sentAt: expect.any(Date) }),
       })
     )
@@ -826,6 +826,13 @@ describe("sendDgrReceipt", () => {
     const claim = calls[0]
     const sent = calls.find((c) => c.data.status === "SENT")
     expect(sent.where.sentAt).toEqual(claim.data.sentAt)
+  })
+
+  it("claims only the status its document was built from, and refuses a row already SENDING", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "SENDING" })
+    expect(await sendDgrReceipt(5)).toEqual({ error: expect.stringMatching(/already being sent/i) })
+    expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalled()
+    expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
   it("does not report success when the SENT write matches no row", async () => {
