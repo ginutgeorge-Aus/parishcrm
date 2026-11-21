@@ -118,21 +118,41 @@ describe("ensureWeeklySession opening balance", () => {
     )
   })
 
-  test("existing session whose prior is still open reports provisional", async () => {
-    s.findFirst.mockResolvedValue({ id: 42 })
-    s.findMany.mockResolvedValue([
-      { id: 7, title: "05-JAN-2020", openedAt: new Date("2020-01-06T00:00:00Z"), status: "OPEN" },
-    ])
+  const openPrior = [
+    { id: 7, title: "05-JAN-2020", openedAt: new Date("2020-01-06T00:00:00Z"), status: "OPEN" },
+  ]
+
+  test("existing auto-opened session whose prior is still open reports provisional", async () => {
+    s.findFirst.mockResolvedValue({ id: 42, status: "OPEN" })
+    s.findMany.mockResolvedValue(openPrior)
+    mockAuditFind.mockResolvedValue({ id: 5 })
     const res = await ensureWeeklySession()
     expect(res).toEqual({ status: "exists", provisional: true })
+    expect(mockAuditFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ resourceId: 42, metadata: { path: ["carriedFromSessionId"], equals: 7 } }),
+      }),
+    )
     expect(s.create).not.toHaveBeenCalled()
   })
 
+  test("existing manual/legacy session (no auto-open provenance) is not provisional", async () => {
+    s.findFirst.mockResolvedValue({ id: 42, status: "OPEN" })
+    s.findMany.mockResolvedValue(openPrior)
+    mockAuditFind.mockResolvedValue(null)
+    expect(await ensureWeeklySession()).toEqual({ status: "exists" })
+  })
+
+  test("existing CLOSED session is not provisional", async () => {
+    s.findFirst.mockResolvedValue({ id: 42, status: "CLOSED" })
+    s.findMany.mockResolvedValue(openPrior)
+    mockAuditFind.mockResolvedValue({ id: 5 })
+    expect(await ensureWeeklySession()).toEqual({ status: "exists" })
+  })
+
   test("existing session whose prior is closed is not provisional", async () => {
-    s.findFirst.mockResolvedValue({ id: 42 })
-    s.findMany.mockResolvedValue([
-      { id: 7, title: "05-JAN-2020", openedAt: new Date("2020-01-06T00:00:00Z"), status: "CLOSED" },
-    ])
+    s.findFirst.mockResolvedValue({ id: 42, status: "OPEN" })
+    s.findMany.mockResolvedValue([{ ...openPrior[0], status: "CLOSED" }])
     const res = await ensureWeeklySession()
     expect(res).toEqual({ status: "exists" })
   })

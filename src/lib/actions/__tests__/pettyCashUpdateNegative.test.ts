@@ -79,7 +79,7 @@ describe("updateExpense", () => {
       transaction: null,
     })
     db.pettyCashSession.findUnique.mockResolvedValue({
-      openingBalance: "50.00", receipts: [], expenses: [{ amount: "30.00" }], transfers: [],
+      openingBalance: "50.00", receipts: [], expenses: [{ id: 9, amount: "30.00" }], transfers: [],
     })
   })
   const base = { payee: "Bunnings", accountId: "3", description: "Screws" }
@@ -113,7 +113,7 @@ describe("updateReceipt", () => {
       transaction: null,
     })
     db.pettyCashSession.findUnique.mockResolvedValue({
-      openingBalance: "0.00", receipts: [{ amount: "50.00" }], expenses: [{ amount: "40.00" }], transfers: [],
+      openingBalance: "0.00", receipts: [{ id: 4, amount: "50.00" }], expenses: [{ amount: "40.00" }], transfers: [],
     })
   })
 

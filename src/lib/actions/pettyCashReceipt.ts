@@ -325,15 +325,17 @@ export async function updateReceipt(
       where: { id: receipt.sessionId },
       select: {
         openingBalance: true,
-        receipts: { select: { amount: true } },
+        receipts: { select: { id: true, amount: true } },
         expenses: { select: { amount: true } },
         transfers: { select: { amount: true } },
       },
     })
-    if (ledger) {
+    // Subtract this receipt's amount from the SAME snapshot as the balance (see updateExpense).
+    const ledgerReceipt = ledger?.receipts.find((r) => r.id === id)
+    if (ledger && ledgerReceipt) {
       const afterCents =
         toCents(calcRunningBalance(ledger.openingBalance, ledger.receipts, ledger.expenses, ledger.transfers)) -
-        toCents(receipt.amount) +
+        toCents(ledgerReceipt.amount) +
         toCents(parsed.data.amount)
       if (afterCents < 0)
         return {
