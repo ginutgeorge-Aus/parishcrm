@@ -10,6 +10,7 @@ import { updateEntryQuantity, updateEntryDelivery, deleteEntry } from "@/lib/act
 import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PaymentsPanel } from "./PaymentsPanel"
+import { NATIVE_SELECT_CLASS } from "./nativeSelect"
 import type { FundraiserPaymentItem, FundraiserRow } from "@/lib/fundraiserQueries"
 
 const STATUS_LABEL: Record<FundraiserRow["status"], string> = {
@@ -97,7 +98,7 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
       {hasDelivery && (
         <select
           aria-label={`Pickup or delivery for ${row.name}`}
-          className="h-8 rounded-md border bg-background px-2 text-sm"
+          className={NATIVE_SELECT_CLASS}
           value={row.delivery ? "delivery" : "pickup"}
           disabled={pending || row.paidCents > 0}
           title={row.paidCents > 0 ? "Delivery cannot change once a payment is recorded" : undefined}
