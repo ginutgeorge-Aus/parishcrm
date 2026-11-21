@@ -3,4 +3,5 @@
 // negativeBalanceWarning: same soft-confirm UX for a petty-cash expense
 // that would drive the session float below zero.
 export type ActionResult = { error: string; duplicateWarning?: boolean; negativeBalanceWarning?: boolean } | undefined
-export type ActionResultWithSuccess = { error: string } | { success: string } | undefined
+// warning: optional caveat on a success (e.g. saved, but a roster clash needs action), rendered as a warning not green.
+export type ActionResultWithSuccess = { error: string } | { success: string; warning?: string } | undefined

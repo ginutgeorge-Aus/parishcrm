@@ -23,6 +23,9 @@ export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
 // `icon` is shown on collapsible group headers; headless groups have none.
 export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; icon?: React.ElementType }
 
+/** Flip to true once /roster can create services and roles (#711); until then the nav link stays hidden. */
+const ROSTER_UI_READY = false
+
 /** Sidebar groups for the viewer's role, badge counts and enabled features. */
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
@@ -61,7 +64,9 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         // Service headcount (#308): editors (= canEditAttendance) get the entry page,
         // everyone with canViewAttendance (editors + VIEWER) the trends. AUDITOR/EVENT_ORGANISER neither.
         // Volunteer roster (#623): staff only (canManageRoster = canEdit = isEditor).
-        { href: "/roster", label: "Roster", icon: CalendarCheck, show: isEditor },
+        // Hidden until the UI to create services/roles and resize/remove slots lands
+        // (#711): the actions exist, but /roster is a dead end without it.
+        { href: "/roster", label: "Roster", icon: CalendarCheck, show: isEditor && ROSTER_UI_READY },
         { href: "/attendance", label: "Attendance", icon: ClipboardList, show: isEditor },
         { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
         // Pastoral care (#305): follow-ups for editors (assignees see their own; the page

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,8 +17,8 @@ const STATUS_LABEL: Record<RosterAssignmentStatus, string> = { PENDING: "Pending
 /**
  * One slot of the service grid: who is rostered (with status and remove), how
  * many places are open, and an assign dropdown. The dropdown loads the
- * server's suggestions (no conflicts, longest since served first) on first
- * focus, so conflicting people are never offered.
+ * server's suggestions (no conflicts, longest since served first) on mount, so
+ * it is already populated on first open and conflicting people are never offered.
  */
 export function SlotCell({
   slotId, assignments, open,
@@ -27,35 +27,43 @@ export function SlotCell({
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [options, setOptions] = useState<RosterSuggestion[] | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const latest = useRef(0)
+  // Still loading until the first response (or a load failure) arrives.
+  const loading = options === null && loadError === null
+  const assignedCount = assignments.length
 
-  /** Load suggestions once, on first focus of the dropdown. */
-  async function loadOptions() {
-    if (options !== null || loading) return
-    setLoading(true)
-    setError(null)
-    try {
-      const r = await suggestRosterAssignees(slotId)
-      if ("error" in r) setError(r.error)
-      else setOptions(r.suggestions)
-    } catch {
-      setError("Could not load people. Please try again.")
-    } finally {
-      setLoading(false)
-    }
-  }
+  /** Fetch suggestions; only the most recent call may update state. Keeps current options while refetching. */
+  const fetchOptions = useCallback(() => {
+    const id = ++latest.current
+    suggestRosterAssignees(slotId)
+      .then((r) => {
+        if (id !== latest.current) return
+        if ("error" in r) setLoadError(r.error)
+        else {
+          setLoadError(null)
+          setOptions(r.suggestions)
+        }
+      })
+      .catch(() => {
+        if (id === latest.current) setLoadError("Could not load people. Please try again.")
+      })
+  }, [slotId])
 
-  /** Run a mutation, surface its error, refresh on success and reload options next time. */
+  // Load on mount (and again whenever this slot's fill changes after a refresh) so
+  // the dropdown is populated on first open. Skipped when the slot is full.
+  useEffect(() => {
+    if (open > 0) fetchOptions()
+  },[open, assignedCount, fetchOptions])
+
+  /** Run a mutation, surface its error and refresh on success (the effect above reloads options). */
   function run(fn: () => Promise<{ error: string } | { success: string } | undefined>) {
     setError(null)
     startTransition(async () => {
       try {
         const r = await fn()
         if (r && "error" in r) setError(r.error)
-        else {
-          setOptions(null)
-          router.refresh()
-        }
+        else router.refresh()
       } catch {
         setError("Something went wrong. Please try again.")
       }
@@ -91,8 +99,8 @@ export function SlotCell({
             className="min-h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm sm:min-h-8"
             value=""
             disabled={pending}
-            onFocus={loadOptions}
-            onMouseDown={loadOptions}
+            // Background refresh on open: another slot of this service may have taken someone since mount.
+            onFocus={fetchOptions}
             onChange={(e) => {
               const personId = Number(e.target.value)
               if (personId) run(() => assignToRosterSlot(slotId, personId))
@@ -108,7 +116,7 @@ export function SlotCell({
           </select>
         </div>
       )}
-      <FormFeedback state={{ error }} />
+      <FormFeedback state={{ error: error ?? loadError }} />
     </div>
   )
 }

@@ -114,7 +114,10 @@ describe("addPersonUnavailability", () => {
       { slot: { service: { title: "Sunday service", date: new Date("2026-12-06T00:00:00.000Z") } } },
     ])
     const r = await add({ from: "2026-12-05", to: "2026-12-07" })
-    expect(r).toEqual({ success: expect.stringContaining("Warning: already rostered at Sunday service on 2026-12-06") })
+    expect(r).toEqual({
+      success: "Unavailable dates saved",
+      warning: expect.stringContaining("Already rostered at Sunday service on 2026-12-06"),
+    })
     expect(p.personUnavailability.create).toHaveBeenCalled()
     expect(p.rosterAssignment.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ personId: 7, status: { not: "DECLINED" } }),
