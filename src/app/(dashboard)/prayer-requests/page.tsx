@@ -15,6 +15,19 @@ const CHOICES = [
 ] as const
 
 /**
+ * Absolute URL of the public prayer form so staff can copy it. Uses the origin
+ * of AUTH_URL; falls back to the relative path when it is unset or invalid.
+ * @returns the absolute URL, or "/prayer-request"
+ */
+function publicFormUrl(): string {
+  try {
+    return new URL("/prayer-request", new URL(process.env.AUTH_URL ?? "").origin).toString()
+  } catch {
+    return "/prayer-request"
+  }
+}
+
+/**
  * Prayer requests, private to ADMIN | PASTOR (PO decision #611). Any other
  * role is sent home before anything is read. Status filter is a search param.
  */
@@ -35,8 +48,8 @@ export default async function PrayerRequestsPage({
     <div className="space-y-4">
       <h2 className="text-2xl font-semibold text-foreground">Prayer requests</h2>
       <p className="text-sm text-muted-foreground">
-        Private to pastors and admins. Members can also submit one at{" "}
-        <Link href="/prayer-request" className="underline">/prayer-request</Link>.
+        Private to pastors and admins. Anyone can also submit one at{" "}
+        <Link href="/prayer-request" className="underline">{publicFormUrl()}</Link>.
       </p>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Status">
         {CHOICES.map((c) => (

@@ -65,9 +65,14 @@ jest.mock("@/lib/prisma", () => ({
       findFirst: jest.fn(),
       findMany: jest.fn(),
     },
+    auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
   },
 }))
+
+// Captured at load, before any jest.resetModules() in the suite: a later requireActual would bind
+// the real helper to a fresh prisma mock instance instead of the one the action under test uses.
+const realLogAudit = jest.requireActual("@/lib/audit").logAudit as typeof logAudit
 
 const mockAuth = auth as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
@@ -726,6 +731,26 @@ describe("sendDgrReceipt", () => {
     expect(mockLogAudit).toHaveBeenCalledWith(1, "DGR_RECEIPT_FAILED", "DgrReceipt", 5, { receiptNo: "DGR-2025-003" })
     expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
     expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Helper-level variant of the test above: runs the REAL logAudit with
+   * auditLog.create rejecting, instead of mocking the helper's resolved-false contract.
+   */
+  it("still marks FAILED and returns the could-not-email error when the real logAudit's auditLog.create rejects", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockRejectedValue(new Error("SMTP down"))
+    // clearAllMocks keeps queued once-values from earlier tests; drop them so the real helper is what runs.
+    mockLogAudit.mockReset()
+    mockLogAudit.mockImplementationOnce(realLogAudit)
+    ;(prisma.auditLog.create as jest.Mock).mockRejectedValueOnce(new Error("audit db down"))
+    const res = await sendDgrReceipt(5)
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 5, status: "SENDING" }, data: expect.objectContaining({ status: "FAILED" }) })
+    )
+    expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
   })
 
   it("a definite failure on a resend of an UNKNOWN receipt keeps it UNKNOWN (still frozen)", async () => {
