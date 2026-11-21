@@ -121,7 +121,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         <div className="flex flex-col gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="title">Title *</Label>
-            <Input id="title" name="title" defaultValue={defaultValues.title} required />
+            <Input id="title" name="title" defaultValue={defaultValues.title} maxLength={200} required />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="slug">
@@ -132,6 +132,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
               name="slug"
               defaultValue={defaultValues.slug ?? ""}
               pattern="[a-z0-9\-]+"
+              maxLength={200}
               className="font-mono"
             />
             <p className="text-xs text-muted-foreground">
@@ -140,7 +141,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="description">Description</Label>
-            <Textarea id="description" name="description" defaultValue={defaultValues.description} rows={4} />
+            <Textarea id="description" name="description" defaultValue={defaultValues.description} maxLength={2000} rows={4} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="grid gap-1.5">
@@ -183,11 +184,11 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
                 <Label htmlFor="recursLabel">
                   Short label <span className="text-xs text-muted-foreground font-normal">(calendar)</span>
                 </Label>
-                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} placeholder="2nd Sun" />
+                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} maxLength={40} placeholder="2nd Sun" />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="startTime">Time</Label>
-                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} placeholder="9:30 AM" />
+                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} maxLength={40} placeholder="9:30 AM" />
               </div>
             </div>
           ) : (
@@ -239,7 +240,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
           )}
           <div className="grid gap-1.5">
             <Label htmlFor="location">Location</Label>
-            <Input id="location" name="location" defaultValue={defaultValues.location} />
+            <Input id="location" name="location" defaultValue={defaultValues.location} maxLength={200} />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="imageUrl">
@@ -323,11 +324,11 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="bankBsb">BSB</Label>
-            <Input id="bankBsb" name="bankBsb" defaultValue={defaultValues.bankBsb} placeholder="012-345" />
+            <Input id="bankBsb" name="bankBsb" defaultValue={defaultValues.bankBsb} maxLength={20} placeholder="012-345" />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="bankAccount">Account number</Label>
-            <Input id="bankAccount" name="bankAccount" defaultValue={defaultValues.bankAccount} />
+            <Input id="bankAccount" name="bankAccount" defaultValue={defaultValues.bankAccount} maxLength={20} />
           </div>
         </div>
         <label htmlFor="onlinePaymentEnabled" className="mt-4 flex items-center gap-2 text-sm">
