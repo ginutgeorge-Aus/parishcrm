@@ -22,6 +22,7 @@ jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
+  encryptBytes: jest.fn((b: Uint8Array) => Buffer.from(`enc:${Buffer.from(b).toString("base64")}`)),
 }))
 jest.mock("@/lib/email", () => ({
   sendDgrReceiptEmail: jest.fn(),
@@ -566,6 +567,45 @@ describe("sendDgrReceipt", () => {
     mockAuth.mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } })
     const res = await sendDgrReceipt(5)
     expect(res).toEqual({ error: "Unauthorized" })
+  })
+
+  it("issue date is the Sydney send date, not the UTC createdAt day", async () => {
+    jest.useFakeTimers({ now: new Date("2026-06-30T14:30:00Z"), doNotFake: ["nextTick", "setImmediate", "setTimeout"] }) // 1 July 00:30 Sydney
+    try {
+      ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+      mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+      mockSendEmail.mockResolvedValue(undefined)
+      await sendDgrReceipt(5)
+      expect(mockRenderPdf).toHaveBeenCalledWith(expect.objectContaining({ issueDate: "1 July 2026" }))
+      expect(mockSendEmail).toHaveBeenCalledWith(
+        "g@x.com",
+        expect.anything(),
+        expect.objectContaining({ issueDate: "1 July 2026" })
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("freezes the issuer snapshot and the encrypted emailed PDF on the SENT update", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    await sendDgrReceipt(5)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 5, status: "SENDING" },
+        data: expect.objectContaining({
+          status: "SENT",
+          frozenPdf: Buffer.from(`enc:${Buffer.from("pdf").toString("base64")}`),
+          issuer: expect.objectContaining({
+            churchName: "Example Church",
+            churchAbn: "51824753556",
+            legalLines: ["Test legal text"],
+          }),
+        }),
+      })
+    )
   })
 
   it("renders the PDF, emails it, marks SENT, and audits on success", async () => {

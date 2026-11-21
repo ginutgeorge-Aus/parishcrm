@@ -7,7 +7,8 @@ import { actorId } from "@/lib/actor"
 import { logger } from "@/lib/logger"
 import { logAudit } from "@/lib/audit"
 import { logAuditGuardedTx, auditTxErrorResult, AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
-import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { encrypt, safeDecrypt, encryptBytes } from "@/lib/crypto"
+import { sydneyToday } from "@/lib/dates"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
@@ -16,6 +17,7 @@ import {
   fyRange,
   formatReceiptNo,
   buildDgrPdfModel,
+  toIssuerSnapshot,
   type DgrLine,
   DGR_STATUS,
   DGR_SEND_STALE_MS,
@@ -384,7 +386,8 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
     {
       receiptNo: row.receiptNo,
       fyEndYear: row.fyEndYear,
-      issueDate: row.createdAt,
+      // The issue date is the send date in the church's timezone, not the UTC day the draft was made.
+      issueDate: sydneyToday(),
       donorName: row.donorName,
       lines: row.lines as DgrLine[],
     },
@@ -399,8 +402,11 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   if (claim.count === 0)
     return { error: "This receipt is already being sent or has already been sent." }
 
+  let frozenPdf: ReturnType<typeof encryptBytes>
   try {
     const pdf = await renderDgrReceiptPdf(model)
+    // Encrypt before the email goes out: a failure here must not happen after delivery.
+    frozenPdf = encryptBytes(pdf)
     await sendDgrReceiptEmail(safeDecrypt(row.donorEmail), pdf, {
       receiptNo: row.receiptNo,
       fyLabel: fyLabel(row.fyEndYear),
@@ -457,7 +463,15 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
 
   const sent = await prisma.dgrReceipt.updateMany({
     where: { id, status: DGR_STATUS.SENDING },
-    data: { status: DGR_STATUS.SENT, sentAt: new Date(), sentById: uid, errorMessage: null },
+    data: {
+      status: DGR_STATUS.SENT,
+      sentAt: new Date(),
+      sentById: uid,
+      errorMessage: null,
+      // Freeze what the donor received so later settings edits never change the office copy.
+      issuer: toIssuerSnapshot(model),
+      frozenPdf,
+    },
   })
   if (sent.count === 0) {
     // The row left SENDING while the email was in flight (e.g. a stale claim was edited):
