@@ -7,6 +7,7 @@ jest.mock("@/lib/generated/prisma/client", () => ({
   })),
 }))
 jest.mock("@prisma/adapter-pg", () => ({ PrismaPg: jest.fn() }))
+import { PrismaPg } from "@prisma/adapter-pg"
 
 describe("prisma singleton — lazy construction (v1.1.4 deploy fix)", () => {
   const origUrl = process.env.DATABASE_URL
@@ -43,5 +44,17 @@ describe("prisma singleton — lazy construction (v1.1.4 deploy fix)", () => {
       const { prisma } = require("@/lib/prisma")
       expect(prisma.user).toBeDefined()
     })
+  })
+
+  it("sets a connection timeout and a statement timeout on the pool", () => {
+    process.env.DATABASE_URL = "postgresql://x:y@localhost:5432/test"
+    jest.isolateModules(() => {
+      const { prisma } = require("@/lib/prisma")
+      void prisma.user
+    })
+    const cfg = (PrismaPg as unknown as jest.Mock).mock.calls.at(-1)![0]
+    expect(cfg.connectionTimeoutMillis).toBe(10_000)
+    // above the longest explicit interactive transaction (90s)
+    expect(cfg.statement_timeout).toBeGreaterThanOrEqual(120_000)
   })
 })

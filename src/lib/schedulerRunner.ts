@@ -9,6 +9,8 @@ import { FEATURE_OFF_SKIP, type FeatureKey } from "@/lib/features"
  */
 export const TICK_MS = 5 * 60_000
 export const FIRST_TICK_MS = 60_000
+/** Above the 10-minute job leases. A job still running after this is treated as stuck and released. */
+export const JOB_TIMEOUT_MS = 15 * 60_000
 export type Jobs = Record<JobName, (now: Date) => Promise<unknown>>
 
 /** Wraps a job so it skips (`{ skipped: "feature off" }`) while `key` is off. */
@@ -67,8 +69,17 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
   const s = state[name]
   recordStart(name, state, now)
   const t0 = Date.now()
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const result = await fn(now)
+    // A query on a dead socket never settles; without this race `running` would stay set forever.
+    // A late finisher is safe: each job's DB claim/lease guards against double work.
+    const result = await Promise.race([
+      fn(now),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${JOB_TIMEOUT_MS / 60_000} minutes`)), JOB_TIMEOUT_MS)
+        timer.unref()
+      }),
+    ])
     const ms = Date.now() - t0
     if (skippedFeatureOff(result)) {
       // Not recorded as the period's success: turning the feature back on
@@ -87,6 +98,7 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
   } catch (err) {
     log("error", { job: name, ms: Date.now() - t0, message: err instanceof Error ? err.message : String(err) })
   } finally {
+    clearTimeout(timer)
     s.running = false
   }
 }
