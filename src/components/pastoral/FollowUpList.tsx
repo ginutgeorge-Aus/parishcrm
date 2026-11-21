@@ -80,7 +80,7 @@ export function FollowUpList({ tasks, canManage, showTarget = false }: Props) {
  * @param ymd the due date as YYYY-MM-DD
  * @returns the formatted date, or the input unchanged if it is not a valid date
  */
-export function formatDueDate(ymd: string): string {
+function formatDueDate(ymd: string): string {
   const d = new Date(`${ymd}T00:00:00Z`)
   if (Number.isNaN(d.getTime())) return ymd
   return d.toLocaleDateString(APP_LOCALE, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
