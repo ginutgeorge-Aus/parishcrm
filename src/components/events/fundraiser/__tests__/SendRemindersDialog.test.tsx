@@ -27,12 +27,12 @@ describe("SendRemindersDialog", () => {
 
   it("uses singular wording and last-sent date", async () => {
     await open({ sendable: 1, skippedNoEmail: 1, lastSentAt: "1 Nov 2026" })
-    expect(screen.getByText("This will email up to 1 person who still owe money.")).toBeInTheDocument()
+    expect(screen.getByText("This will email up to 1 person who still owes money.")).toBeInTheDocument()
     expect(screen.getByText(/1 person owes money but has no email/)).toBeInTheDocument()
     expect(screen.getByText("Reminders were last sent on 1 Nov 2026.")).toBeInTheDocument()
   })
 
-  it("says 'about N' for any send, since the send recomputes the plan and the time budget may stop it early", async () => {
+  it("says 'up to N' for any send, since the send recomputes the plan and the time budget may stop it early", async () => {
     await open({ sendable: 200, deferred: 5 })
     expect(screen.getByText("This will email up to 200 people who still owe money.")).toBeInTheDocument()
   })
