@@ -162,11 +162,11 @@ test("AUD-3-01: reconciles rows after the lock date when the lock is later than 
     },
   })
   expect((r as { success: string }).success).toBe(
-    "Balanced — 4 transactions reconciled. (2 unreconciled transactions on or before 2026-06-30 left unchanged — locked period)",
+    "Balanced — 4 transactions reconciled. (2 unreconciled transactions on or before 2026-06-30 left unchanged — locked period; lift the accounting lock date to reconcile them)",
   )
 })
 
-test("does not touch rows on or before the lock date", async () => {
+test("AUD-3-01: does not mark rows on or before the lock date reconciled", async () => {
   const tx = withTx({
     opening: { amount: "100.00", asOfDate: new Date("2024-07-01T00:00:00Z") },
     income: "50.00",
@@ -183,7 +183,7 @@ test("does not touch rows on or before the lock date", async () => {
   expect(where.date.gte).toBeUndefined()
 })
 
-test("rejects the save when the lock covers the statement date (concurrent lock change)", async () => {
+test("AUD-3-01: in-transaction guard rejects the save when a concurrent lock change covers the statement date", async () => {
   const tx = withTx({
     opening: { amount: "100.00", asOfDate: new Date("2026-01-01T00:00:00Z") },
     lockDate: "2026-07-31",
@@ -200,7 +200,7 @@ test("rejects the save when the lock covers the statement date (concurrent lock 
 test.each([
   ["no opening balance is set", null],
   ["the statement predates the opening balance", { amount: "100.00", asOfDate: new Date("2026-08-01T00:00:00Z") }],
-])("rejects the save on a concurrent lock change when %s", async (_label, opening) => {
+])("AUD-3-01: rejects the save on a concurrent lock change when %s", async (_label, opening) => {
   const tx = withTx({ opening, lockDate: "2026-07-31" })
   const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
   expect(r).toEqual({ error: expect.stringMatching(/locked accounting period/i) })
@@ -208,7 +208,7 @@ test.each([
   expect(logAuditTx).not.toHaveBeenCalled()
 })
 
-test("lock on the opening day: only rows after it are reconciled", async () => {
+test("AUD-3-01: lock on the opening day: only rows after it are reconciled", async () => {
   const tx = withTx({
     opening: { amount: "100.00", asOfDate: new Date("2026-01-01T00:00:00Z") },
     income: "50.00",
@@ -217,7 +217,26 @@ test("lock on the opening day: only rows after it are reconciled", async () => {
     lockDate: "2026-01-01",
   })
   await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
-  expect(tx.transaction.updateMany.mock.calls[0][0].where.date.gt).toEqual(new Date("2026-01-01T23:59:59.999Z"))
+  expect(tx.transaction.updateMany.mock.calls[0][0].where.date).toEqual({
+    gt: new Date("2026-01-01T23:59:59.999Z"),
+    lte: new Date("2026-07-31T23:59:59.999Z"),
+  })
+})
+
+test("AUD-3-01: a lock that leaves 0 rows to mark is a no-op (no '0 reconciled' claim, no audit row)", async () => {
+  const tx = withTx({
+    opening: { amount: "100.00", asOfDate: new Date("2024-07-01T00:00:00Z") },
+    income: "50.00",
+    expense: "20.00",
+    updatedCount: 0,
+    skippedCount: 3,
+    lockDate: "2026-06-30",
+  })
+  const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
+  const msg = (r as { success: string }).success
+  expect(msg).not.toMatch(/0 transactions reconciled/)
+  expect(msg).toMatch(/3 unreconciled transactions.*lift the accounting lock date/)
+  expect(logAuditTx).not.toHaveBeenCalledWith(tx, 1, "RECON_AUTO_RECONCILED", expect.anything(), undefined, expect.anything())
 })
 
 test("still reconciles when the lock date predates the opening balance", async () => {
