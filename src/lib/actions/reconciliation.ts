@@ -12,7 +12,13 @@ import { endOfDayUTC } from "@/lib/dates"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { assertUnlocked, getAccountingLockDate, holdAccountingLock } from "@/lib/accountingLock"
+import {
+  assertUnlocked,
+  getAccountingLockDate,
+  holdAccountingLock,
+  isDateLocked,
+  lockedPeriodMessage,
+} from "@/lib/accountingLock"
 import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isP2034 } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
@@ -26,10 +32,10 @@ const MAX_TX_ATTEMPTS = 3
  */
 class StatementDateLockedError extends Error {
   /**
-   * @param lockDate the lock date (YYYY-MM-DD) that covers the statement date
+   * @param lockDate the lock date that covers the statement date
    */
-  constructor(lockDate: string) {
-    super(`This date is in a locked accounting period (on or before ${lockDate}).`)
+  constructor(lockDate: Date) {
+    super(lockedPeriodMessage(lockDate))
     this.name = "StatementDateLockedError"
   }
 }
@@ -217,8 +223,8 @@ async function reconcileIfBalanced(
   // put the statement date itself in a locked period: abort so the upsert rolls back.
   // Checked before the early returns below so a save with no opening balance, or
   // one that predates it, is rolled back too.
-  if (lockDate && lockEnd && lockEnd >= lte) {
-    throw new StatementDateLockedError(lockDate.toISOString().slice(0, 10))
+  if (lockDate && isDateLocked(statementDate, lockDate)) {
+    throw new StatementDateLockedError(lockDate)
   }
 
   const opening = await tx.accountOpeningBalance.findUnique({
@@ -262,7 +268,7 @@ async function reconcileIfBalanced(
   // reject them), so they stay as they are and we report how many were skipped.
   // No lock, or a lock before the range starts → the whole range (keeps `gte`
   // so rows stamped exactly at the opening date count).
-  const lockIso = lockDate && lockEnd && lockEnd >= opening.asOfDate ? lockDate.toISOString().slice(0, 10) : null
+  const lockIso = lockDate && isDateLocked(opening.asOfDate, lockDate) ? lockDate.toISOString().slice(0, 10) : null
   const markRange = lockIso && lockEnd ? { gt: lockEnd, lte } : range
   const updated = await tx.transaction.updateMany({
     where: { paymentAccountId, reconciled: false, date: markRange },
@@ -276,8 +282,13 @@ async function reconcileIfBalanced(
       : 0
   const lockNote =
     lockIso && skipped > 0
-      ? ` (${skipped} unreconciled transaction${skipped === 1 ? "" : "s"} on or before ${lockIso} left unchanged — locked period)`
+      ? ` (${skipped} unreconciled transaction${skipped === 1 ? "" : "s"} on or before ${lockIso} left unchanged — locked period; lift the accounting lock date to reconcile them)`
       : ""
+  // Nothing left to mark (the lock covers every unreconciled row, or none remain):
+  // a no-op, so no "0 reconciled" claim and no count-0 audit row.
+  if (updated.count === 0) {
+    return { result: { success: `Saved. Balanced — no transactions to reconcile.${lockNote}` }, reconciledCount: null }
+  }
   return {
     result: {
       success: `Balanced — ${updated.count} transaction${updated.count === 1 ? "" : "s"} reconciled.${lockNote}`,

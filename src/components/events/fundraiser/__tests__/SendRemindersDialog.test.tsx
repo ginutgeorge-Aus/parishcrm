@@ -5,8 +5,8 @@ import { getReminderPlan, sendFundraiserReminders } from "@/lib/actions/fundrais
 jest.mock("@/lib/actions/fundraiser", () => ({ sendFundraiserReminders: jest.fn(), getReminderPlan: jest.fn() }))
 
 /** Render the dialog, open it and wait for the lazily loaded counts. */
-async function open(props: Partial<{ sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; lastSentAt: string | null }> = {}) {
-  ;(getReminderPlan as jest.Mock).mockResolvedValue({ sendable: 3, skippedNoEmail: 0, skippedRecent: 0, deferred: 0, lastSentAt: null, ...props })
+async function open(props: Partial<{ sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; dedupeMinutes: number; lastSentAt: string | null }> = {}) {
+  ;(getReminderPlan as jest.Mock).mockResolvedValue({ sendable: 3, skippedNoEmail: 0, skippedRecent: 0, deferred: 0, dedupeMinutes: 10, lastSentAt: null, ...props })
   render(<SendRemindersDialog fundraiserId={4} />)
   fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
   await screen.findByText(/Reminders were last sent|No reminders have been sent yet/)
@@ -27,7 +27,7 @@ describe("SendRemindersDialog", () => {
 
   it("uses singular wording and last-sent date", async () => {
     await open({ sendable: 1, skippedNoEmail: 1, lastSentAt: "1 Nov 2026" })
-    expect(screen.getByText("This will email about 1 person who still owe money.")).toBeInTheDocument()
+    expect(screen.getByText("This will email about 1 person who still owes money.")).toBeInTheDocument()
     expect(screen.getByText(/1 person owes money but has no email/)).toBeInTheDocument()
     expect(screen.getByText("Reminders were last sent on 1 Nov 2026.")).toBeInTheDocument()
   })
@@ -51,6 +51,34 @@ describe("SendRemindersDialog", () => {
     expect(sendFundraiserReminders).toHaveBeenCalledWith(4)
     fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0])
     await waitFor(() => expect(screen.queryByText("Sent 2 reminders, 1 failed.")).toBeNull())
+  })
+
+  it("previews recently-reminded and deferred counts using the server's window", async () => {
+    await open({ skippedRecent: 2, deferred: 1, dedupeMinutes: 15 })
+    expect(screen.getByText("2 people were reminded in the last 15 minutes, so will be skipped.")).toBeInTheDocument()
+    expect(screen.getByText("Reminders go out in batches: 1 more person will be left for later runs.")).toBeInTheDocument()
+  })
+
+  it("reports skippedRecent and deferred in the send result", async () => {
+    ;(sendFundraiserReminders as jest.Mock).mockResolvedValue({ sent: 2, failed: 0, skippedRecent: 3, deferred: 4 })
+    await open({ dedupeMinutes: 10 })
+    fireEvent.click(confirmBtn())
+    expect(await screen.findByText("Sent 2 reminders, 3 skipped (reminded in the last 10 minutes). 4 more not sent yet: run again to continue.")).toBeInTheDocument()
+  })
+
+  it("ignores a send result that lands after the dialog was reopened", async () => {
+    let resolveSend: (v: unknown) => void = () => {}
+    ;(sendFundraiserReminders as jest.Mock).mockImplementationOnce(() => new Promise((r) => { resolveSend = r }))
+    await open()
+    fireEvent.click(confirmBtn())
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull())
+    fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
+    await screen.findByText(/Reminders were last sent|No reminders have been sent yet/)
+    await act(async () => { resolveSend({ sent: 9, failed: 0, skippedRecent: 0, deferred: 0 }) })
+    expect(screen.queryByText(/Sent 9 reminders/)).toBeNull()
+    // The late send may have emailed people, so the preview is refreshed (open + reopen + refresh).
+    expect(getReminderPlan).toHaveBeenCalledTimes(3)
   })
 
   it("uses singular sent wording", async () => {

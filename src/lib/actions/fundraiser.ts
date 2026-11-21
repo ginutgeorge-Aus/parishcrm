@@ -648,7 +648,7 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
 /** Counts for the send-reminders confirm dialog, or an error. */
 export type ReminderPlanResult =
   | { error: string }
-  | { sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; lastSentAt: string | null }
+  | { sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; dedupeMinutes: number; lastSentAt: string | null }
 
 /**
  * Load the send-reminders preview (who would be emailed). Called lazily when
@@ -670,6 +670,7 @@ export async function getReminderPlan(fundraiserId: number): Promise<ReminderPla
     skippedNoEmail: plan.skippedNoEmail,
     skippedRecent: plan.skippedRecent,
     deferred: plan.deferred,
+    dedupeMinutes: Math.max(1, Math.round(REMINDER_DEDUPE_MS / 60_000)),
     lastSentAt: plan.lastSentAt ? formatSydneyDate(plan.lastSentAt) : null,
   }
 }

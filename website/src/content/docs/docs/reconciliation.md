@@ -36,7 +36,7 @@ One row per `(paymentAccount, statementDate)` — the closing balance you entere
 
 When the books balance, the save marks transactions reconciled. The balance check always spans the full range, from the opening-balance date through the statement date. Only transactions dated **after** the accounting lock date are ticked.
 
-Transactions on or before the lock date are left unchanged, including their reconciled tick, because locked rows are read-only. The response says how many unreconciled locked transactions were skipped, so a closed period is never silently reopened by a later reconcile. A statement dated inside a locked period is rejected outright.
+Transactions on or before the lock date are left unchanged, including their reconciled tick, because locked rows are read-only. The response says how many unreconciled locked transactions were skipped and reminds you to lift the accounting lock date if they need reconciling, so a closed period is never silently reopened by a later reconcile. If the lock leaves nothing to mark, the save is a no-op: no "0 reconciled" claim and no audit entry. A statement dated inside a locked period is rejected outright.
 
 ### Editing/deleting a reconciled transaction
 

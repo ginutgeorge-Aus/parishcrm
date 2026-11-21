@@ -36,7 +36,7 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
       where: { eventId, paymentStatus: "PAID", ...CARD_PAYMENT_WHERE },
       _sum: { totalAmount: true },
     }),
-    prisma.registration.count({ where: { eventId, paymentStatus: "PENDING", totalAmount: 0 } }),
+    prisma.registration.count({ where: { eventId, paymentStatus: "PENDING", totalAmount: { lte: 0 } } }),
   ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
   /** The status rollup group for one payment status, if any registrations have it. */
   const row = (status: string) => statusRollup.find((r) => r.paymentStatus === status)

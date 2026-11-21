@@ -236,7 +236,7 @@ describe("saveStatementBalance", () => {
   })
 
   // --- locked-period range guard ---
-  it("reconciles only rows after the lock date when the lock falls inside the range", async () => {
+  it("AUD-3-01: does not mark locked rows reconciled when the lock falls inside the range", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
@@ -260,7 +260,7 @@ describe("saveStatementBalance", () => {
     expect(result && "success" in result ? result.success : "").toMatch(/3 unreconciled transactions.*left unchanged/i)
   })
 
-  it("returns the locked-period error and writes nothing when a concurrent lock change covers the statement date (pre-check mocked clear, so the in-transaction guard fires)", async () => {
+  it("AUD-3-01: in-transaction guard returns the locked-period error and writes nothing when the lock covers the statement date (pre-check mocked clear)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
@@ -274,7 +274,7 @@ describe("saveStatementBalance", () => {
     expect(logAuditTx).not.toHaveBeenCalled()
   })
 
-  it("lock on the opening day: rows after it are reconciled, opening-day rows are skipped", async () => {
+  it("AUD-3-01: lock on the opening day: rows after it are reconciled, opening-day rows are skipped", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
@@ -284,10 +284,39 @@ describe("saveStatementBalance", () => {
       .mockResolvedValueOnce({ _sum: { amount: 180 } })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     await saveStatementBalance(1, "2026-05-31", "2820.00")
-    expect(mockUpdateMany.mock.calls[0][0].where.date.gt).toEqual(new Date("2026-01-01T23:59:59.999Z"))
+    expect(mockUpdateMany.mock.calls[0][0].where.date).toEqual({
+      gt: new Date("2026-01-01T23:59:59.999Z"),
+      lte: new Date("2026-05-31T23:59:59.999Z"),
+    })
   })
 
-  it("still reconciles when the lock date predates the opening balance (no part of the range is locked)", async () => {
+  it("AUD-3-01: a lock that leaves 0 rows to mark is a no-op (no '0 reconciled' claim, no audit row)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockUpsert.mockResolvedValue({ id: 1 })
+    mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
+    mockLockAppSetting.mockResolvedValue({ value: "2026-03-31" })
+    mockAggregate
+      .mockResolvedValueOnce({ _sum: { amount: 2000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 180 } })
+    mockUpdateMany.mockResolvedValue({ count: 0 })
+    ;(prisma.transaction.count as jest.Mock).mockResolvedValueOnce(3)
+
+    const result = await saveStatementBalance(1, "2026-05-31", "2820.00")
+
+    const msg = result && "success" in result ? result.success : ""
+    expect(msg).not.toMatch(/0 transactions reconciled/)
+    expect(msg).toMatch(/lift the accounting lock date/i)
+    expect(logAuditTx).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "RECON_AUTO_RECONCILED",
+      expect.anything(),
+      undefined,
+      expect.anything()
+    )
+  })
+
+  it("AUD-3-01: still reconciles when the lock date predates the opening balance (no part of the range is locked)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
