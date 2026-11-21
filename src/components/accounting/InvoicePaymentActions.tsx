@@ -140,7 +140,7 @@ export function InvoicePaymentActions({ id, status, bankAccounts, hasEmail }: Re
   const [msg, setMsg] = useState<Msg>(null)
 
   function unmark() {
-    if (!window.confirm("Unmark as paid? The payment transaction stays in your books, just unlinked from this invoice.")) return
+    if (!window.confirm("Unmark as paid? A payment this invoice recorded is deleted from your books. A transaction you linked is unlinked and returned to its previous category.")) return
     setMsg(null)
     start(async () => {
       const r = await unmarkInvoicePaid(id)

@@ -19,6 +19,7 @@ import { featureGuard } from "@/lib/featureFlags"
 import { NOT_XFER, XFER_CODE } from "@/lib/xferAccount"
 
 const CHANGED = { error: "This invoice has changed. Reload and try again." }
+const RECONCILED_UNMARK = "The payment is reconciled. Un-reconcile it on the Reconciliation page before unmarking."
 const BEFORE_ISSUE = { error: "The payment can't be dated before the invoice was issued" }
 const REPORT_PATHS = ["/accounting", "/accounting/transactions", "/accounting/reports/pl", "/accounting/reports/balance-sheet", "/accounting/reports/budget-vs-actual", "/accounting/reports/funds"]
 
@@ -183,7 +184,11 @@ export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise
   return warning ? { success, warning } : { success }
 }
 
-/** Undo a payment link: PAID → SENT. The transaction stays in the ledger, just unlinked. */
+/**
+ * Undo a payment: PAID → SENT. How the ledger row is handled depends on how it got there (read from the INVOICE_PAID audit row):
+ * a row the invoice created is deleted (leaving it would double the income when the invoice is marked paid again, or leave
+ * income for a voided invoice); a row the invoice linked is unlinked and moved back to its previous account and fund.
+ */
 export async function unmarkInvoicePaid(id: number): Promise<{ success: string } | { error: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -198,15 +203,40 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   }
   const uid = actorId(session)
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
+    const paid = await tx.auditLog.findFirst({ where: { action: "INVOICE_PAID", resourceType: "Invoice", resourceId: id }, orderBy: { id: "desc" }, select: { metadata: true } })
+    const meta = (paid?.metadata ?? {}) as { mode?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
+    const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true } })
+    // Checked before any write: returning an error doesn't roll the transaction back.
+    if (row?.reconciled && meta.mode === "create") return { error: RECONCILED_UNMARK }
     const flip = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.PAID }, data: { status: InvoiceStatus.SENT, paidAt: null } })
     if (flip.count === 0) throw new Conflict()
-    await tx.transaction.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } })
-    await logAuditGuardedTx(tx, uid, "INVOICE_UNPAID", "Invoice", id, { invoiceNo: inv.invoiceNo })
-    return true
+    let deleted = false
+    let restoredTo: { accountId: number; fundId: number | null } | undefined
+    if (row && meta.mode === "create") {
+      // Reconciled rows are refused above; the predicate also catches one reconciled since the read.
+      const del = await tx.transaction.deleteMany({ where: { id: row.id, invoiceId: id, reconciled: false } })
+      if (del.count === 0) throw new Conflict()
+      deleted = true
+    } else if (row) {
+      const from = meta.recategorisedFrom
+      const prev = typeof from?.accountId === "number" && (from.fundId === null || typeof from.fundId === "number") ? { accountId: from.accountId, fundId: from.fundId } : undefined
+      // A reconciled row can't be edited, so it is unlinked but keeps its current category.
+      const restore = prev && !row.reconciled
+      const upd = await tx.transaction.updateMany({
+        where: { id: row.id, invoiceId: id, ...(restore ? { reconciled: false } : {}) },
+        data: restore ? { invoiceId: null, ...prev } : { invoiceId: null },
+      })
+      if (upd.count === 0) throw new Conflict()
+      if (restore) restoredTo = prev
+    }
+    await logAuditGuardedTx(tx, uid, "INVOICE_UNPAID", "Invoice", id, {
+      invoiceNo: inv.invoiceNo, ...(row ? { transactionId: row.id, deletedTransaction: deleted } : {}), ...(restoredTo ? { restoredTo } : {}),
+    })
+    return { deleted }
   }))
-  if (typeof ok === "object") return ok
+  if ("error" in ok) return { error: ok.error as string }
   revalidate(id)
-  return { success: `Payment unlinked — ${inv.invoiceNo} is unpaid again` }
+  return { success: ok.deleted ? `Payment removed — ${inv.invoiceNo} is unpaid again` : `Payment unlinked — ${inv.invoiceNo} is unpaid again` }
 }
 
 /**
