@@ -25,11 +25,11 @@ it("returns empty for a non-editor role (IDOR guard)", async () => {
 it("returns email + mobile + surname matches deduped, email first", async () => {
   ;(prisma.membershipApplication.findUnique as jest.Mock).mockResolvedValue({ id: 1, emailHash: "HASH", mobileHash: "MHASH", applicantName: "John Miller" })
   ;(prisma.person.findMany as jest.Mock)
-    .mockResolvedValueOnce([{ familyId: 5, family: { name: "Miller" } }])          // email
-    .mockResolvedValueOnce([{ familyId: 5, family: { name: "Miller" } }, { familyId: 6, family: { name: "Taylor" } }]) // mobile
-    .mockResolvedValueOnce([{ familyId: 7, family: { name: "Miller" } }])          // surname
+    .mockResolvedValueOnce([{ familyId: 5, family: { name: "Miller", _count: { people: 2 } } }])          // email
+    .mockResolvedValueOnce([{ familyId: 5, family: { name: "Miller", _count: { people: 2 } } }, { familyId: 6, family: { name: "Taylor", _count: { people: 4 } } }]) // mobile
+    .mockResolvedValueOnce([{ familyId: 7, family: { name: "Miller", _count: { people: 2 } } }])          // surname
   const r = await findMembershipMatches(1)
-  expect(r[0]).toEqual({ familyId: 5, familyName: "Miller", reason: "email" })
+  expect(r[0]).toEqual({ familyId: 5, familyName: "Miller", reason: "email", memberCount: 2 })
   expect(r.map((c) => c.familyId)).toEqual([5, 6, 7]) // deduped
 })
 it("returns empty when application missing", async () => {
