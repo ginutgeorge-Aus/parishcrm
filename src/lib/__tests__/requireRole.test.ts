@@ -17,10 +17,10 @@ describe("requireRole", () => {
   it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN])(
     "returns session and actor for %s when predicate allows",
     async (role) => {
-      const s = session(role)
+      const s = session(role, "42")
       mockAuth.mockResolvedValue(s)
       const result = await requireRole(canEdit)
-      expect(result).toEqual({ session: s, actor: 7 })
+      expect(result).toEqual({ session: s, actor: 42 })
     },
   )
 
