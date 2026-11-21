@@ -241,8 +241,7 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       // Lock the children's existing enrolment rows so a concurrent move of the
       // same child waits for this commit and the read below is the row we move.
       // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-      await tx.$queryRaw`
-        SELECT id FROM "SundaySchoolEnrolment" WHERE "personId" = ANY(${ids}) AND year = ${year} FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM "SundaySchoolEnrolment" WHERE "personId" = ANY(${ids}) AND year = ${year} FOR UPDATE` // nosemgrep: crm-no-raw-sql
       // Read inside the transaction (after the locks) so the audit count and the
       // revalidated paths reflect what this write actually moved.
       // Only a live class counts as a "move"; a row left in an archived class is
