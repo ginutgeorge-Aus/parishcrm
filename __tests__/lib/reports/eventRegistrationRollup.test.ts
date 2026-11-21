@@ -2,7 +2,7 @@
 
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    registration: { groupBy: jest.fn(), aggregate: jest.fn() },
+    registration: { groupBy: jest.fn(), aggregate: jest.fn(), count: jest.fn() },
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }))
@@ -15,9 +15,13 @@ import { getEventRegistrationRollup } from "@/lib/reports/eventRegistrationRollu
 
 const mockGroupBy = prisma.registration.groupBy as jest.Mock
 const mockAggregate = prisma.registration.aggregate as jest.Mock
+const mockCount = prisma.registration.count as jest.Mock
 const dec = (v: string) => ({ toString: () => v })
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  mockCount.mockResolvedValue(0)
+})
 
 describe("getEventRegistrationRollup", () => {
   it("splits paid revenue into card (has paymentRef) and transfer (the rest)", async () => {
@@ -27,6 +31,7 @@ describe("getEventRegistrationRollup", () => {
       { paymentStatus: "PENDING", _count: { _all: 2 }, _sum: { totalAmount: dec("40") } },
     ])
     mockAggregate.mockResolvedValue({ _sum: { totalAmount: dec("100.10") } })
+    mockCount.mockResolvedValue(1)
 
     const rollup = await getEventRegistrationRollup(9)
 
@@ -34,7 +39,8 @@ describe("getEventRegistrationRollup", () => {
       where: { eventId: 9, paymentStatus: "PAID", paymentRef: { gt: "" } },
       _sum: { totalAmount: true },
     })
-    expect(rollup).toEqual({ total: 6, paid: 3, cancelled: 1, revenue: 150.3, cardRevenue: 100.1, transferRevenue: 50.2 })
+    expect(rollup).toEqual({ total: 6, paid: 3, cancelled: 1, free: 1, revenue: 150.3, cardRevenue: 100.1, transferRevenue: 50.2 })
+    expect(mockCount).toHaveBeenCalledWith({ where: { eventId: 9, paymentStatus: "PENDING", totalAmount: 0 } })
     // Both reads share one snapshot so card can never exceed total.
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Array), { isolationLevel: "RepeatableRead" })
   })
@@ -53,7 +59,7 @@ describe("getEventRegistrationRollup", () => {
     mockAggregate.mockResolvedValue({ _sum: { totalAmount: null } })
 
     expect(await getEventRegistrationRollup(9)).toEqual({
-      total: 0, paid: 0, cancelled: 0, revenue: 0, cardRevenue: 0, transferRevenue: 0,
+      total: 0, paid: 0, cancelled: 0, free: 0, revenue: 0, cardRevenue: 0, transferRevenue: 0,
     })
   })
 })

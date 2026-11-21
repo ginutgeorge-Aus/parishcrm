@@ -49,10 +49,10 @@ async function gate() {
   return { session, settings, userId: actorId(session) } as const
 }
 
-/** REQUESTED, not-yet-asked rows (all months), oldest first. */
+/** REQUESTED, not-yet-asked rows dated today (Sydney) or later (all months), oldest first. A past date is never asked for. */
 function loadCandidates() {
   return prisma.venueUsage.findMany({
-    where: { status: "REQUESTED", bookingRequestedAt: null },
+    where: { status: "REQUESTED", bookingRequestedAt: null, date: { gte: sydneyToday() } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
     take: MAX_ROWS_PER_MONTH,
     select: { id: true, date: true, startTime: true, endTime: true, purpose: true },
@@ -159,7 +159,8 @@ async function auditBookingRequest(userId: number, action: string, ids: number[]
 
 /**
  * Email the venue a booking request for the ticked dates (`canEdit`; blocked in demo mode).
- * Claims the rows first (conditional `updateMany`) so a double-click cannot email twice, and
+ * Claims the rows first (conditional `updateMany`) so a double-click cannot email twice, then re-reads the
+ * claimed rows and builds the email from them (so a concurrent edit is never emailed with stale values), and
  * releases only its own claim if the send fails. On success it stamps `venueNotifiedAt` (first time only).
  * @param ids ticked VenueUsage ids (1 to 200)
  */
@@ -172,13 +173,13 @@ export async function sendBookingRequest(ids: number[]): Promise<{ success: stri
   if (ids.length > MAX_ROWS_PER_MONTH || !ids.every(isValidPgId)) return { error: "Invalid booking" }
   if (!g.settings.contactEmail) return { error: "Set the venue contact email in Settings first" }
 
-  const [candidates, booked, actor, church, template] = await Promise.all([
+  const [candidates, actor, church, template] = await Promise.all([
     prisma.venueUsage.findMany({
       where: { id: { in: ids }, status: "REQUESTED", bookingRequestedAt: null },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
       select: { id: true, date: true, startTime: true, endTime: true, status: true },
     }),
-    loadBooked(), loadActor(g.userId), getChurchSettings(), getEmailTemplate("venueBookingRequest"),
+    loadActor(g.userId), getChurchSettings(), getEmailTemplate("venueBookingRequest"),
   ])
   if (candidates.length === 0) return { error: "Those dates were already requested. Refresh the page." }
   const claimedIds = candidates.map((c) => c.id)
@@ -192,10 +193,20 @@ export async function sendBookingRequest(ids: number[]): Promise<{ success: stri
     return { error: "Those dates were already requested. Refresh the page." }
   }
   try {
+    // Build the email from the rows as they are NOW the claim is held: an edit that committed between the first
+    // read and the claim (before the venue-known lock applied) is otherwise emailed with its old date or times.
+    const claimed = await prisma.venueUsage.findMany({
+      where: { id: { in: claimedIds }, bookingRequestedAt: claimAt, status: "REQUESTED" },
+      orderBy: [{ date: "asc" }, { startTime: "asc" }],
+      select: { id: true, date: true, startTime: true, endTime: true, status: true },
+    })
+    if (claimed.length !== claimedIds.length) throw new Error("claimed rows changed")
+    // Reference list of confirmed bookings is read after the claim so it is as fresh as the requested rows.
+    const booked = await loadBooked()
     const { to, cc, replyTo } = bookingRecipients(g.settings, actor)
     const mail = buildBookingRequestEmail({
       churchName: church.name, venueName: g.settings.venueName, contactName: g.settings.contactName,
-      requested: candidates, booked, senderName: actor.name, template,
+      requested: claimed, booked, senderName: actor.name, template,
     })
     await sendVenueUsageRequestEmail({ to, cc: cc.length ? cc.join(", ") : undefined, replyTo: replyTo || undefined, ...mail })
   } catch {

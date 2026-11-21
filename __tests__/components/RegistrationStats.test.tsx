@@ -32,4 +32,12 @@ describe("RegistrationStats", () => {
     expect(screen.getByText("from paid registrations")).toBeInTheDocument()
     expect(screen.queryByText(/Card \$/)).not.toBeInTheDocument()
   })
+
+  it("excludes free ($0) registrations from the pending count", () => {
+    // 5 total = 2 paid + 1 free + 2 pending
+    render(
+      <RegistrationStats total={5} paid={2} cancelled={0} free={1} revenue={20} cardRevenue={0} transferRevenue={20} ticketsSold={[]} />
+    )
+    expect(screen.getByText("2 paid · 2 pending · 1 free")).toBeInTheDocument()
+  })
 })

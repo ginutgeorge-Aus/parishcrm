@@ -17,6 +17,7 @@ import { formatAnswerForCsv, isAttendeeScoped, isQuestionApplicable, type Custom
 import { sendPaymentReminderEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { fmtAUD } from "@/lib/formatting"
+import { owesPayment } from "@/lib/registrationPayment"
 import { toFloat } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 
@@ -369,6 +370,7 @@ async function sendOneReminder(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!reg) return { ok: false, error: "Registration not found" }
   if (reg.paymentStatus !== "PENDING") return { ok: false, error: "No longer pending" }
+  if (!owesPayment(reg)) return { ok: false, error: "Nothing owing" }
   const email = reg.email ? safeDecrypt(reg.email) : ""
   if (!isValidEmail(email)) return { ok: false, error: "No valid email" }
 

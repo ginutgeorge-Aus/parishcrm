@@ -7,7 +7,7 @@ import { auth } from "@/auth"
 import { assertNotDemo } from "@/lib/demoMode"
 import { actorId } from "@/lib/actor"
 import { isAdmin } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
 import {
   RECEIPT_SETTING_KEYS,
   RECEIPT_SETTING_MAX_LENGTHS,
@@ -30,6 +30,8 @@ const InputSchema = z
     "A value exceeds its maximum length"
   )
 
+const SAVE_BUSY = "Couldn't save the receipt settings. Try again."
+
 /**
  * Save receipt settings. ADMIN; blocked in demo mode and while both receipt features are off.
  * @param input AppSetting key → value for the receipt keys being saved
@@ -50,18 +52,25 @@ export async function updateReceiptSettings(
   const parsed = InputSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  await prisma.$transaction(async (tx) => {
-    for (const [key, value] of Object.entries(parsed.data)) {
-      await tx.appSetting.upsert({
-        where: { key },
-        update: { value },
-        create: { key, value },
+  const uid = actorId(session)
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const [key, value] of Object.entries(parsed.data)) {
+        await tx.appSetting.upsert({
+          where: { key },
+          update: { value },
+          create: { key, value },
+        })
+      }
+      await logAuditGuardedTx(tx, uid, "RECEIPT_SETTINGS_UPDATED", "AppSetting", undefined, {
+        keys: Object.keys(parsed.data),
       })
-    }
-  })
-  await logAudit(actorId(session), "RECEIPT_SETTINGS_UPDATED", "AppSetting", undefined, {
-    keys: Object.keys(parsed.data),
-  })
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "updateReceiptSettings", SAVE_BUSY)
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath("/settings/receipts")
   // The write committed; a failed re-read must not hand defaults back as "saved".
   const settings = await readReceiptSettings().catch(() => undefined)
@@ -77,12 +86,21 @@ export async function resetReceiptSettings(): Promise<{ ok: true } | { error: st
   const off = await featureGuardAny(["receipts", "dgrReceipts"])
   if (off) return off
 
-  await prisma.appSetting.deleteMany({
-    where: { key: { in: Array.from(RECEIPT_SETTING_KEYS) } },
-  })
-  await logAudit(actorId(session), "RECEIPT_SETTINGS_RESET", "AppSetting", undefined, {
-    keys: RECEIPT_SETTING_KEYS,
-  })
+  const uid = actorId(session)
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.appSetting.deleteMany({
+        where: { key: { in: Array.from(RECEIPT_SETTING_KEYS) } },
+      })
+      await logAuditGuardedTx(tx, uid, "RECEIPT_SETTINGS_RESET", "AppSetting", undefined, {
+        keys: RECEIPT_SETTING_KEYS,
+      })
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "resetReceiptSettings", SAVE_BUSY)
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath("/settings/receipts")
   return { ok: true }
 }

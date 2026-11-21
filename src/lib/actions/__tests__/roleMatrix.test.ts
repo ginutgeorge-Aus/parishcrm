@@ -7,7 +7,9 @@
  * access; comments and strings ignored), and for every role that the REAL
  * roleGuard helpers refuse, asserts the action performs no Prisma write. Writes
  * are model write methods, `$executeRaw*`, and `$queryRaw*` whose SQL writes or locks;
- * `$transaction` itself is not a write, only what runs inside it. Covers OFFICE_ADMIN being refused on admin-only / PASTOR+ADMIN
+ * `$transaction` itself is not a write, only what runs inside it (the callback gets a distinct `tx`
+ * object without `$transaction`, like Prisma's). A guard refusal must also make no Prisma call at
+ * all, read or write, so a refusal cannot be a downstream failure on a mocked read. Covers OFFICE_ADMIN being refused on admin-only / PASTOR+ADMIN
  * actions (the audit's nearest-miss role). roleGuard is never mocked.
  */
 import fs from "node:fs"
@@ -46,6 +48,8 @@ function rawQueryWrites(args: unknown[]): boolean {
   return RAW_WRITE_SQL.test(sql)
 }
 const writes: string[] = []
+/** Every Prisma call (read or write): a guard refusal happens before any of them. */
+const dbCalls: string[] = []
 let currentRole: Role | undefined
 /** Rows the mocked `findMany` returns; empty unless a case needs a non-empty read to prove a refusal. */
 let findManyRows: unknown[] = []
@@ -73,37 +77,48 @@ jest.mock("@/lib/prisma", () => {
       {
         get: (_t, method: string | symbol) =>
           typeof method === "symbol" ? undefined : jest.fn(async () => {
+            dbCalls.push(`${name}.${method}`)
             if (WRITE_METHODS.has(method)) writes.push(`${name}.${method}`)
             return method.startsWith("find") ? (method === "findMany" ? findManyRows : null) : method === "count" ? 0 : undefined
           }),
       },
     )
-  // Interactive transactions run their callback against the same proxy, so a write made through
-  // `tx` inside the callback is recorded (the $transaction call itself is not a write; its
-  // contents are). Array-form transactions already recorded their writes when the items were built.
-  const client: unknown = new Proxy(
-    {},
-    {
-      get: (_t, key: string | symbol) => {
-        if (typeof key === "symbol") return undefined
-        if (key === "$transaction") {
-          return jest.fn(async (arg: unknown) =>
-            typeof arg === "function" ? (arg as (tx: unknown) => unknown)(client) : Array.isArray(arg) ? Promise.all(arg) : undefined,
-          )
-        }
-        if (key.startsWith("$")) {
-          return jest.fn(async (...args: unknown[]) => {
-            if (WRITE_METHODS.has(key)) writes.push(key)
-            else if ((key === "$queryRaw" || key === "$queryRawUnsafe") && rawQueryWrites(args)) writes.push(`${key}(write)`)
-            return []
-          })
-        }
-        if (key === "then") return undefined
-        return model(key)
+  /**
+   * Build a mocked Prisma client. The root client supports `$transaction`; an interactive
+   * transaction's `tx` is a separate object WITHOUT `$transaction` (like Prisma's real
+   * `TransactionClient`), so a nested `$transaction` or a use of the root client in place of `tx`
+   * is visible. Writes made through either are recorded; the $transaction call itself is not a write.
+   * Array-form transactions already recorded their writes when the items were built.
+   * @param isTx true for the object handed to an interactive transaction callback
+   */
+  const makeClient = (isTx: boolean): unknown =>
+    new Proxy(
+      {},
+      {
+        get: (_t, key: string | symbol) => {
+          if (typeof key !== "string") return undefined
+          // Like Prisma's TransactionClient, `tx` has no `$transaction`: calling it throws.
+          if (key === "$transaction" && isTx) return undefined
+          if (key === "$transaction") {
+            return jest.fn(async (arg: unknown) => {
+              dbCalls.push("$transaction")
+              return typeof arg === "function" ? (arg as (tx: unknown) => unknown)(makeClient(true)) : Array.isArray(arg) ? Promise.all(arg) : undefined
+            })
+          }
+          if (key.startsWith("$")) {
+            return jest.fn(async (...args: unknown[]) => {
+              dbCalls.push(key)
+              if (WRITE_METHODS.has(key)) writes.push(key)
+              else if ((key === "$queryRaw" || key === "$queryRawUnsafe") && rawQueryWrites(args)) writes.push(`${key}(write)`)
+              return []
+            })
+          }
+          if (key === "then") return undefined
+          return model(key)
+        },
       },
-    },
-  )
-  return { prisma: client, __esModule: true }
+    )
+  return { prisma: makeClient(false), __esModule: true }
 })
 // External side effects must never run for real.
 jest.mock("@/lib/notifications", () => new Proxy({}, { get: () => jest.fn(async () => undefined) }))
@@ -132,7 +147,137 @@ function bodyOf(src: string, start: number): string {
  * @param src source text
  */
 function stripCommentsAndStrings(src: string): string {
-  return src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g, (m) => " ".repeat(m.length))
+  const out = src.split("")
+  const n = src.length
+  /** Blank [from, to) with spaces, keeping newlines so offsets and line shape survive. */
+  const blank = (from: number, to: number): void => {
+    for (let k = from; k < Math.min(to, n); k++) if (out[k] !== "\n") out[k] = " "
+  }
+  const ident = /[A-Za-z0-9_$]/
+  // Keywords after which a `/` starts a regex literal rather than a division.
+  const REGEX_AFTER = new Set(["return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "else", "do", "yield", "await"])
+
+  /**
+   * Scan template text from just after the opening backtick, blanking it. `${ ... }` holes are scanned
+   * as code (recursively, so nested templates work). Returns the index after the closing backtick.
+   * @param start index just after the opening backtick
+   */
+  const scanTemplate = (start: number): number => {
+    let i = start
+    while (i < n) {
+      const c = src[i]
+      if (c === "\\") {
+        blank(i, i + 2)
+        i += 2
+      } else if (c === "`") {
+        blank(i, i + 1)
+        return i + 1
+      } else if (c === "$" && src[i + 1] === "{") {
+        blank(i, i + 2)
+        const close = scanCode(i + 2, true)
+        blank(close, close + 1)
+        i = close + 1
+      } else {
+        blank(i, i + 1)
+        i++
+      }
+    }
+    return n
+  }
+
+  /**
+   * Scan code from `start`, blanking comments, strings, templates and regex literals. When `inHole`
+   * is true, stops at the `}` that closes the enclosing template hole and returns its index.
+   * @param start first index to scan
+   * @param inHole true when scanning a `${ }` template hole
+   */
+  const scanCode = (start: number, inHole: boolean): number => {
+    let i = start
+    let depth = 0
+    let prev = ""
+    let before = "" // the non-space char before `prev`, to spot postfix ++/--
+    let prevPos = -1 // index of `prev`, so ++/-- needs two adjacent operator chars
+    let word = ""
+    while (i < n) {
+      const c = src[i]
+      const next = src[i + 1]
+      if (c === "/" && next === "/") {
+        const e = src.indexOf("\n", i)
+        const end = e === -1 ? n : e
+        blank(i, end)
+        i = end
+      } else if (c === "/" && next === "*") {
+        const e = src.indexOf("*/", i + 2)
+        const end = e === -1 ? n : e + 2
+        blank(i, end)
+        i = end
+      } else if (c === '"' || c === "'") {
+        let j = i + 1
+        while (j < n && src[j] !== c && src[j] !== "\n") j += src[j] === "\\" ? 2 : 1
+        blank(i, j + 1)
+        i = j + 1
+        prev = '"'
+        word = ""
+      } else if (c === "`") {
+        blank(i, i + 1)
+        i = scanTemplate(i + 1)
+        prev = '"'
+        word = ""
+      } else if (c === "/" && (prev === "" || !(ident.test(prev) || prev === ")" || prev === "]" || prev === '"' || prev === "}") || REGEX_AFTER.has(word))) {
+        let j = i + 1
+        let inClass = false
+        while (j < n && src[j] !== "\n" && (inClass || src[j] !== "/")) {
+          if (src[j] === "\\") j++
+          else if (src[j] === "[") inClass = true
+          else if (src[j] === "]") inClass = false
+          j++
+        }
+        blank(i, j + 1)
+        i = j + 1
+        prev = '"'
+        word = ""
+      } else {
+        if (c === "{") depth++
+        else if (c === "}") {
+          if (inHole && depth === 0) return i
+          depth--
+        }
+        if (!/\s/.test(c)) {
+          word = ident.test(c) ? (ident.test(prev) ? word + c : c) : ""
+          // `x++ / 2`: a postfix ++/-- ends an operand, so a following `/` is division.
+          const postfix = (c === "+" || c === "-") && prev === c && prevPos === i - 1 && (ident.test(before) || before === ")" || before === "]")
+          before = prev
+          prev = postfix ? ")" : c
+          prevPos = i
+        }
+        i++
+      }
+    }
+    return n
+  }
+
+  scanCode(0, false)
+  return out.join("")
+}
+
+/**
+ * True when `code` contains a call `helper(...)` whose balanced closing paren is followed by
+ * `=== false` / `== false`, at any paren nesting depth.
+ * @param code comment/string-stripped source
+ * @param helper the roleGuard helper name
+ */
+function hasCallComparedToFalse(code: string, helper: string): boolean {
+  for (const m of code.matchAll(new RegExp(`\\b${helper}\\(`, "g"))) {
+    let depth = 1
+    let i = m.index! + m[0].length
+    while (i < code.length && depth > 0) {
+      if (code[i] === "(") depth++
+      else if (code[i] === ")") depth--
+      i++
+    }
+    if (depth === 0 && /^\s*===?\s*false\b/.test(code.slice(i))) return true
+  }
+  return false
 }
 
 /**
@@ -144,9 +289,7 @@ function leadingGuards(body: string): string[] {
   const code = stripCommentsAndStrings(body)
   const firstDb = code.search(/\bprisma\b|\btx\./)
   const head = firstDb === -1 ? code : code.slice(0, firstDb)
-  return HELPERS.filter((h) =>
-    new RegExp(`(?<!!)!\\s*${h}\\(|\\bfalse\\s*===?\\s*${h}\\(|\\b${h}\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)\\s*===?\\s*false`).test(head),
-  )
+  return HELPERS.filter((h) => new RegExp(`(?<!!)!\\s*${h}\\(|\\bfalse\\s*===?\\s*${h}\\(`).test(head) || hasCallComparedToFalse(head, h))
 }
 
 /**
@@ -401,6 +544,7 @@ pettyCashSession.closeSession:canAccessAccounting
 pettyCashSession.deleteSession:isAdmin
 pettyCashTransfer.createTransfer:canAccessAccounting
 pettyCashTransfer.deleteTransfer:isAdmin
+pettyCashTransfer.updateTransfer:canAccessAccounting
 prayerRequest.createPrayerRequest:canManagePrayerRequests
 prayerRequest.updatePrayerRequest:canManagePrayerRequests
 prayerRequest.withdrawPrayerShareConsent:canManagePrayerRequests
@@ -524,6 +668,28 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(leadingGuards("if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
   })
 
+  it("stripCommentsAndStrings handles regex literals, nested templates and deep call nesting", () => {
+    // A backtick inside a regex literal must not open a template that swallows the guard.
+    expect(leadingGuards("const r = /`/\nif (!isAdmin(x)) return\nawait prisma.x.create(`a`)")).toEqual(["isAdmin"])
+    // A quote inside a regex character class, then a real guard.
+    expect(leadingGuards("const r = /[\"']/g\nif (!isAdmin(x)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // A guard-looking token inside a nested template hole's string is ignored.
+    expect(leadingGuards("const s = `a ${`b ${1} !isAdmin(`} c`\nawait prisma.x.create()")).toEqual([])
+    // Code inside a template hole is still code.
+    expect(leadingGuards("const s = `a ${!isAdmin(r)}`\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // Division is not a regex.
+    expect(leadingGuards("const h = a / b\nif (!isAdmin(r)) return // x'\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // Division after a postfix ++/-- is not a regex opener.
+    expect(leadingGuards("let n = 4; n++ / 2; if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("let n = 4; n-- / 2; if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // `n + +/re/` is binary plus then unary plus (not postfix ++): the slash opens a regex.
+    expect(leadingGuards("const s = n + +/prisma/.test(t); if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("const s = n - -/prisma/.test(t); if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    // canX(...) === false with three or more paren levels.
+    expect(leadingGuards("if (isAdmin(f(g(h(1)), (2))) === false) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("if (isAdmin(f(g(1))) === true) return\nawait prisma.x.create()")).toEqual([])
+  })
+
   it("rawQueryWrites treats SELECT as a read and writes, locks and unknown shapes as writes", () => {
     expect(rawQueryWrites([["SELECT id FROM t WHERE a = ", ""]])).toBe(false)
     expect(rawQueryWrites(["INSERT INTO t VALUES (1)"])).toBe(true)
@@ -600,6 +766,7 @@ describe("role matrix: generated from src/lib/actions", () => {
 
   beforeEach(() => {
     writes.length = 0
+    dbCalls.length = 0
     findManyRows = []
   })
 
@@ -616,6 +783,9 @@ describe("role matrix: generated from src/lib/actions", () => {
       thrown = e
     }
     expect(writes).toEqual([])
+    // The guard is the first thing the action does, so a real guard refusal makes no Prisma call at
+    // all, read or write. A read that ran means the refusal came from somewhere downstream.
+    expect(dbCalls).toEqual([])
     // A refusal is a returned error/empty shape or a thrown redirect/not-found error. Any other
     // throw is a crash, not a refusal, and any other result is a success payload.
     if (thrown === undefined) expect(isRefusalShape(result)).toBe(true)

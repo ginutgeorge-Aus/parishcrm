@@ -4,6 +4,8 @@ type Props = {
   total: number
   paid: number
   cancelled: number
+  /** PENDING registrations with nothing owing ($0); excluded from the pending (unpaid) count. */
+  free?: number
   revenue: number
   /** Paid revenue split by payment method (card = Stripe, transfer = everything else). */
   cardRevenue: number
@@ -11,11 +13,11 @@ type Props = {
   ticketsSold: { name: string; count: number }[]
 }
 
-export function RegistrationStats({ total, paid, cancelled, revenue, cardRevenue, transferRevenue, ticketsSold }: Readonly<Props>) {
+export function RegistrationStats({ total, paid, cancelled, free = 0, revenue, cardRevenue, transferRevenue, ticketsSold }: Readonly<Props>) {
   // CANCELLED registrations still count toward the headline total but are neither
-  // paid nor pending.
-  const pending = total - paid - cancelled
-  const registeredSub = `${paid} paid · ${pending} pending${cancelled ? ` · ${cancelled} cancelled` : ""}`
+  // paid nor pending. Free ($0) registrations owe nothing, so they are not pending either.
+  const pending = total - paid - cancelled - free
+  const registeredSub = `${paid} paid · ${pending} pending${free ? ` · ${free} free` : ""}${cancelled ? ` · ${cancelled} cancelled` : ""}`
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

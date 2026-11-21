@@ -6,18 +6,30 @@ import { prisma } from "@/lib/prisma"
 import { actorId } from "@/lib/actor"
 import { logger } from "@/lib/logger"
 import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult, AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
-import { fyLabel, fyRange, formatReceiptNo, buildDgrPdfModel, type DgrLine } from "@/lib/dgr"
+import {
+  fyLabel,
+  fyRange,
+  formatReceiptNo,
+  buildDgrPdfModel,
+  type DgrLine,
+  DGR_STATUS,
+  DGR_SEND_STALE_MS,
+  isDgrReceiptEditable,
+  isDgrReceiptDeletable,
+} from "@/lib/dgr"
 import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
-import { sendDgrReceiptEmail } from "@/lib/email"
+import { sendDgrReceiptEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { sumCents, centsToNumber, formatLongDate } from "@/lib/formatting"
 import { isValidEmail, MIN_YEAR, MAX_YEAR, isP2002, isTwoDecimalMoney, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import { featureGuard } from "@/lib/featureFlags"
+import { serializableWrite } from "@/lib/serializableWrite"
 
 const LIST_PATH = "/accounting/dgr-receipts"
 
@@ -26,6 +38,9 @@ const LIST_PATH = "/accounting/dgr-receipts"
 // the oldest receipts — DgrReceipt grows ~1 row/donor/FY, so this is never hit in
 // practice but keeps the query bounded by construction.
 const LIST_ALL_YEARS_CAP = 1000
+
+const DUP_RACE_ERROR = "A receipt for this donor and year was just created. Refresh the list and check before trying again."
+const EDIT_RACE_ERROR = "This receipt is being sent or was sent"
 
 const LineSchema = z.object({
   // Format AND real-calendar-date check: the regex alone lets 2025-02-30 through,
@@ -126,24 +141,26 @@ export async function createDgrReceipt(
   if (!person) return { error: "Selected donor no longer exists." }
   const donorName = `${person.firstName} ${person.lastName}`
 
-  // One DGR receipt per donor per financial year — there is no supersede/amend
-  // concept, so a second row is a double-claim risk. Block it; the
-  // secretary edits or deletes the existing DRAFT instead.
-  const dup = await prisma.dgrReceipt.findFirst({
-    where: { personId, fyEndYear },
-    select: { receiptNo: true },
-  })
-  if (dup)
-    return {
-      error: `A DGR receipt (${dup.receiptNo}) already exists for ${donorName} for the ${fyEndYear} financial year. Edit or delete it instead of creating a duplicate.`,
-    }
-
   let created: { id: number } | null = null
-  let receiptNo = ""
   const receipt = await getReceiptSettings()
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const outcome = await prisma.$transaction(async (tx) => {
+      // The duplicate check and the insert run in one Serializable transaction:
+      // a double click can no longer pass the check twice and insert two receipts.
+      // The losing request gets P2034, and serializableWrite re-runs it against the
+      // committed state, where the check finds the winner's row.
+      const outcome = await serializableWrite(async (tx): Promise<{ row: { id: number }; rNo: string } | { error: string }> => {
+        // One DGR receipt per donor per financial year — there is no supersede/amend
+        // concept, so a second row is a double-claim risk. Block it; the
+        // secretary edits or deletes the existing DRAFT instead.
+        const dup = await tx.dgrReceipt.findFirst({
+          where: { personId, fyEndYear },
+          select: { receiptNo: true },
+        })
+        if (dup)
+          return {
+            error: `A DGR receipt (${dup.receiptNo}) already exists for ${donorName} for the ${fyEndYear} financial year. Edit or delete it instead of creating a duplicate.`,
+          }
         const agg = await tx.dgrReceipt.aggregate({ where: { fyEndYear }, _max: { seq: true } })
         const seq = (agg._max.seq ?? 0) + 1
         const rNo = formatReceiptNo(fyEndYear, seq, receipt.numberPrefix)
@@ -157,16 +174,19 @@ export async function createDgrReceipt(
             donorEmail: encrypt(donorEmail),
             lines,
             totalAmount,
-            status: "DRAFT",
+            status: DGR_STATUS.DRAFT,
             createdById: uid,
           },
         })
+        // Audit in the same transaction: a failed audit write rolls the receipt back.
+        await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_CREATED", "DgrReceipt", row.id, { receiptNo: rNo, fyEndYear, personId })
         return { row, rNo }
-      })
+      }, { error: DUP_RACE_ERROR })
+      if ("error" in outcome) return { error: outcome.error }
       created = outcome.row
-      receiptNo = outcome.rNo
       break
     } catch (e) {
+      if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "createDgrReceipt")
       if (isP2002(e) && attempt === 0) continue
       logger.error("createDgrReceipt failed", { message: e instanceof Error ? e.message : "unknown" })
       return { error: "Could not create the receipt. Please try again." }
@@ -174,10 +194,11 @@ export async function createDgrReceipt(
   }
   if (!created) return { error: "Could not create the receipt. Please try again." }
 
-  await logAudit(uid, "DGR_RECEIPT_CREATED", "DgrReceipt", created.id, { receiptNo, fyEndYear, personId })
   revalidatePath(LIST_PATH)
   redirect(LIST_PATH)
 }
+
+const SAVE_BUSY = "Could not save the receipt. Please try again."
 
 /** Update a DGR receipt. ADMIN/PASTOR only. */
 export async function updateDgrReceipt(
@@ -194,10 +215,14 @@ export async function updateDgrReceipt(
 
   const existing = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!existing) return { error: "Receipt not found." }
-  // A SENT receipt is a legal document already delivered — frozen. FAILED never
-  // reached the donor, and SENDING is a stuck/in-flight send reset to
-  // DRAFT by this edit; both stay editable before (re)send.
-  if (existing.status !== "DRAFT" && existing.status !== "FAILED" && existing.status !== "SENDING") {
+  // A SENT receipt is a legal document already delivered — frozen, and so is an
+  // UNKNOWN one (may have been delivered). FAILED (definite failure) never reached
+  // the donor. A SENDING row is editable only once its claim went stale (a
+  // mid-send crash); a live send must not be reset to DRAFT under it.
+  if (!isDgrReceiptEditable(existing.status, existing.sentAt)) {
+    if (existing.status === DGR_STATUS.SENDING) return { error: "This receipt is being sent. Try again in a few minutes." }
+    if (existing.status === DGR_STATUS.UNKNOWN)
+      return { error: "This receipt may have been delivered and can no longer be edited." }
     return { error: "This receipt has been sent and can no longer be edited." }
   }
 
@@ -231,13 +256,48 @@ export async function updateDgrReceipt(
       }
   }
 
-  await prisma.dgrReceipt.update({
-    where: { id },
-    // Editing a FAILED receipt clears the failure state so it reads as ready-to-send again.
-    data: { personId, donorName, donorEmail: encrypt(donorEmail), lines, totalAmount, status: "DRAFT", errorMessage: null },
-  })
-
-  await logAudit(uid, "DGR_RECEIPT_UPDATED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+  // Status predicate in the write itself: a send that claimed the row after the
+  // read above (DRAFT -> SENDING) makes this match no row, so the edit can't
+  // overwrite a receipt in flight or reset a delivered one to DRAFT.
+  const staleBefore = new Date(Date.now() - DGR_SEND_STALE_MS)
+  // Encrypt before the transaction so the row isn't held open for slow work.
+  const encryptedEmail = encrypt(donorEmail)
+  let raced = false
+  try {
+    await prisma.$transaction(async (tx) => {
+      const res = await tx.dgrReceipt.updateMany({
+        where: {
+          id,
+          OR: [
+            { status: { in: [DGR_STATUS.DRAFT, DGR_STATUS.FAILED] } },
+            { status: DGR_STATUS.SENDING, OR: [{ sentAt: null }, { sentAt: { lt: staleBefore } }] },
+          ],
+        },
+        // Editing a FAILED or stale SENDING receipt clears the failure state and the
+        // claim time so it reads as ready-to-send again.
+        data: {
+          personId,
+          donorName,
+          donorEmail: encryptedEmail,
+          lines,
+          totalAmount,
+          status: DGR_STATUS.DRAFT,
+          errorMessage: null,
+          sentAt: null,
+        },
+      })
+      if (res.count === 0) {
+        raced = true
+        return
+      }
+      await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_UPDATED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "updateDgrReceipt", SAVE_BUSY)
+    if (mapped) return mapped
+    throw e
+  }
+  if (raced) return { error: EDIT_RACE_ERROR }
   revalidatePath(LIST_PATH)
   redirect(LIST_PATH)
 }
@@ -253,10 +313,34 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
 
   const existing = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!existing) return { error: "Receipt not found." }
-  if (existing.status === "SENT") return { error: "A sent receipt cannot be deleted." }
+  // Only DRAFT, or FAILED with a definite failure. SENDING and UNKNOWN may have
+  // reached the donor: deleting them would free the number for the next receipt
+  // and leave the donor holding a document the books no longer have.
+  if (!isDgrReceiptDeletable(existing.status)) {
+    if (existing.status === DGR_STATUS.SENT) return { error: "A sent receipt cannot be deleted." }
+    if (existing.status === DGR_STATUS.SENDING) return { error: "This receipt is being sent and cannot be deleted." }
+    return { error: "This receipt may have been delivered and cannot be deleted." }
+  }
 
-  await prisma.dgrReceipt.delete({ where: { id } })
-  await logAudit(uid, "DGR_RECEIPT_DELETED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+  // Same predicate in the write, so a send that claimed the row after the read can't be deleted under it.
+  let raced = false
+  try {
+    await prisma.$transaction(async (tx) => {
+      const res = await tx.dgrReceipt.deleteMany({
+        where: { id, status: { in: [DGR_STATUS.DRAFT, DGR_STATUS.FAILED] } },
+      })
+      if (res.count === 0) {
+        raced = true
+        return
+      }
+      await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_DELETED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "deleteDgrReceipt", SAVE_BUSY)
+    if (mapped) return mapped
+    throw e
+  }
+  if (raced) return { error: "This receipt is being sent or was sent and cannot be deleted." }
   revalidatePath(LIST_PATH)
   return { success: "Receipt deleted." }
 }
@@ -275,15 +359,17 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   // a SENT receipt is a legal ATO tax receipt already delivered to the
   // donor — a double-click or retry must never re-email it or overwrite
   // sentAt/sentById. Same freeze rule as updateDgrReceipt/deleteDgrReceipt.
-  if (row.status === "SENT") return { error: "This receipt has already been sent." }
+  if (row.status === DGR_STATUS.SENT) return { error: "This receipt has already been sent." }
 
   // Atomically claim the row BEFORE the slow render+email. Only a DRAFT/FAILED
-  // row is claimable; the conditional updateMany flips it to SENDING so a
+  // row is claimable, plus UNKNOWN (possibly delivered): its content is frozen, so
+  // a resend after staff check can only repeat the identical receipt; the conditional updateMany flips it to SENDING so a
   // concurrent double-click / parallel retry finds no claimable row — it can
   // neither re-email the donor nor let a losing failure overwrite the winner's
   // SENT with FAILED. Every finalize below is likewise guarded on `SENDING`, so
   // only this claimant writes the terminal state. A row wedged in
-  // SENDING by a mid-send crash is recovered by editing it (resets to DRAFT).
+  // SENDING by a mid-send crash is recovered by editing it (resets to DRAFT) once
+  // the claim time stored in sentAt is older than DGR_SEND_STALE_MS.
   // Read strict church settings BEFORE claiming the row: a strict read
   // rejects on a cold-cache/transient DB error, and if that happened after the
   // claim flipped the row to SENDING (outside the delivery try) the receipt would
@@ -307,8 +393,8 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   )
 
   const claim = await prisma.dgrReceipt.updateMany({
-    where: { id, status: { in: ["DRAFT", "FAILED"] } },
-    data: { status: "SENDING", errorMessage: null },
+    where: { id, status: { in: [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN] } },
+    data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: new Date() },
   })
   if (claim.count === 0)
     return { error: "This receipt is already being sent or has already been sent." }
@@ -329,22 +415,58 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
       totalDonationsLabel: model.totalDonationsLabel,
       coveredPeriod: model.coveredPeriod,
     })
-  } catch {
+  } catch (e) {
     // Never log the raw error — SMTP messages can embed the recipient email.
     logger.error("sendDgrReceipt delivery failed", { receiptNo: row.receiptNo })
+    if (isAmbiguousDeliveryError(e)) {
+      // The provider may have accepted the mail before the connection dropped.
+      // UNKNOWN is frozen like SENT (no edit, no delete), so the donor can never
+      // end up with two different documents under one receipt number. sentAt
+      // keeps the attempt time.
+      const message = "Delivery status unknown: the receipt may have been delivered, check before resending."
+      await prisma.dgrReceipt.updateMany({
+        where: { id, status: DGR_STATUS.SENDING },
+        data: { status: DGR_STATUS.UNKNOWN, errorMessage: message },
+      })
+      await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo, outcome: "unknown" })
+      revalidatePath(LIST_PATH)
+      return { error: message }
+    }
+    if (row.status === DGR_STATUS.UNKNOWN) {
+      // This was a resend of a possibly-delivered receipt: a definite failure now says
+      // nothing about the earlier attempt, so it stays frozen (no edit, no delete).
+      const message = "Resend failed, but the earlier attempt may have been delivered. Check before resending."
+      await prisma.dgrReceipt.updateMany({
+        where: { id, status: DGR_STATUS.SENDING },
+        data: { status: DGR_STATUS.UNKNOWN, errorMessage: message },
+      })
+      await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo, outcome: "unknown" })
+      revalidatePath(LIST_PATH)
+      return { error: message }
+    }
+    // Terminal-state recovery: write FAILED unconditionally and audit best-effort. A rolled-back
+    // flip would leave the row wedged in SENDING (the claim only accepts DRAFT/FAILED).
     await prisma.dgrReceipt.updateMany({
-      where: { id, status: "SENDING" },
-      data: { status: "FAILED", errorMessage: "Email delivery failed. Please try again." },
+      where: { id, status: DGR_STATUS.SENDING },
+      data: { status: DGR_STATUS.FAILED, errorMessage: "Email delivery failed. Please try again.", sentAt: null },
     })
     await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo })
     revalidatePath(LIST_PATH)
     return { error: "Could not email the receipt. It has been marked failed." }
   }
 
-  await prisma.dgrReceipt.updateMany({
-    where: { id, status: "SENDING" },
-    data: { status: "SENT", sentAt: new Date(), sentById: uid, errorMessage: null },
+  const sent = await prisma.dgrReceipt.updateMany({
+    where: { id, status: DGR_STATUS.SENDING },
+    data: { status: DGR_STATUS.SENT, sentAt: new Date(), sentById: uid, errorMessage: null },
   })
+  if (sent.count === 0) {
+    // The row left SENDING while the email was in flight (e.g. a stale claim was edited):
+    // the donor has the receipt but the books do not say so. Do not claim success.
+    logger.error("sendDgrReceipt could not record SENT", { receiptNo: row.receiptNo })
+    await logAudit(uid, "DGR_RECEIPT_SENT", "DgrReceipt", id, { receiptNo: row.receiptNo, statusRecorded: false })
+    revalidatePath(LIST_PATH)
+    return { error: "The email was sent, but the receipt status could not be updated. Check it before resending." }
+  }
   await logAudit(uid, "DGR_RECEIPT_SENT", "DgrReceipt", id, { receiptNo: row.receiptNo })
   revalidatePath(LIST_PATH)
   return { success: "Receipt emailed." }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { logAudit, logAuditTx } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult, AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
 import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
@@ -46,9 +46,16 @@ const ymdOf = (d: Date) => d.toISOString().slice(0, 10)
  * concurrent account retype/delete can't slip between (see {@link sharedSerializableWrite}). A retried conflict
  * re-validates and returns the normal "Choose an active income account" message, or succeeds.
  * @param fn - the validate-then-write body, run against the transaction client
+ * @param label - action name for the server log when the in-transaction audit write fails
  */
-function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T | { error: string }> {
-  return sharedSerializableWrite(fn, BUSY)
+async function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>, label: string): Promise<T | { error: string }> {
+  try {
+    return await sharedSerializableWrite(fn, BUSY)
+  } catch (e) {
+    // A failed in-transaction audit write rolled the invoice write back; report it instead of a 500.
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, label)
+    throw e
+  }
 }
 
 /**
@@ -112,9 +119,9 @@ export async function createInvoice(_prev: ActionResult, formData: FormData): Pr
     if (refErr) return { error: refErr }
     const row = await tx.invoice.create({ data: { ...data, status: InvoiceStatus.DRAFT, createdById: uid } })
     // Audit inside the transaction so it commits or rolls back with the insert.
-    await logAuditTx(tx, uid, "INVOICE_CREATED", "Invoice", row.id, { total: data.total })
+    await logAuditGuardedTx(tx, uid, "INVOICE_CREATED", "Invoice", row.id, { total: data.total })
     return { row }
-  })
+  }, "createInvoice")
   if (!("row" in created)) return created
   const { row } = created
   revalidatePath(INVOICES_PATH)
@@ -148,9 +155,9 @@ export async function updateInvoice(id: number, _prev: ActionResult, formData: F
       data: { ...data, updatedAt: new Date() },
     })
     if (res.count === 0) return CHANGED
-    await logAuditTx(tx, actorId(session), "INVOICE_UPDATED", "Invoice", id, { total: data.total })
+    await logAuditGuardedTx(tx, actorId(session), "INVOICE_UPDATED", "Invoice", id, { total: data.total })
     return null
-  })
+  }, "updateInvoice")
   if (result) return result
   revalidatePath(INVOICES_PATH)
   redirect(`${INVOICES_PATH}/${id}`)
@@ -163,9 +170,21 @@ export async function deleteDraftInvoice(id: number): Promise<{ error: string } 
   const off = await featureGuard("invoices")
   if (off) return off
   if (!isValidPgId(id)) return { error: "Invoice not found" }
-  const res = await prisma.invoice.deleteMany({ where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null } })
-  if (res.count === 0) return { error: "Only unnumbered draft invoices can be deleted" }
-  await logAudit(actorId(session), "INVOICE_DELETED", "Invoice", id, {})
+  const uid = actorId(session)
+  let deleted: boolean
+  try {
+    deleted = await prisma.$transaction(async (tx) => {
+      const res = await tx.invoice.deleteMany({ where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null } })
+      if (res.count === 0) return false
+      await logAuditGuardedTx(tx, uid, "INVOICE_DELETED", "Invoice", id, {})
+      return true
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "deleteDraftInvoice", BUSY.error)
+    if (mapped) return mapped
+    throw e
+  }
+  if (!deleted) return { error: "Only unnumbered draft invoices can be deleted" }
   revalidatePath(INVOICES_PATH)
   return { success: "Draft deleted" }
 }

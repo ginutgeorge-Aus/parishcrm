@@ -156,12 +156,13 @@ export async function expireOpenFundraiserCheckouts(entryId: number): Promise<nu
 
 /**
  * Retrieve every OPEN prior session of an entry from Stripe, outside any lock.
- * One indexed DB read first; Stripe is only called when OPEN rows exist. Never
- * throws: a DB failure returns an empty map (the caller then retrieves each
- * prior under the lock), and `retrievePrior` already absorbs Stripe errors.
+ * One indexed DB read first; Stripe is only called when OPEN rows exist.
+ * `retrievePrior` absorbs Stripe errors; a DB read failure is busy (retryable)
+ * rather than an empty map, which would retrieve every prior under the lock.
  * @param stripe Stripe client
  * @param entryId FundraiserEntry id
  * @returns live state keyed by Checkout Session id
+ * @throws FundraiserCheckoutBusyError when the DB read fails
  */
 async function prefetchPriors(stripe: Stripe, entryId: number): Promise<Map<string, LivePrior>> {
   let open: { stripeSessionId: string }[]
@@ -171,9 +172,9 @@ async function prefetchPriors(stripe: Stripe, entryId: number): Promise<Map<stri
       select: { stripeSessionId: true },
     })
   } catch (e) {
-    // Optimisation only: on a DB error, priors are retrieved under the lock instead.
+    // An empty map would make the lock retrieve every prior from Stripe (slow, holds the row lock): busy instead.
     console.warn("Fundraiser checkout: prefetching prior sessions for entry %s failed: %s", String(entryId), e instanceof Error ? e.message : String(e))
-    return new Map()
+    throw new FundraiserCheckoutBusyError()
   }
   // Common case (first pay click): no OPEN rows, so no Stripe call at all.
   if (open.length === 0) return new Map()

@@ -2,11 +2,13 @@
 import { GET } from "../route"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
+import { logger } from "@/lib/logger"
 import { getSacramentRecord } from "@/lib/actions/sacrament"
 import { renderSacramentCertificatePdf } from "@/lib/pdf/SacramentCertificatePdf"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 jest.mock("@/lib/actions/sacrament", () => ({ getSacramentRecord: jest.fn() }))
 jest.mock("@/lib/pdf/SacramentCertificatePdf", () => ({ renderSacramentCertificatePdf: jest.fn() }))
 jest.mock("@/lib/churchSettings", () => ({
@@ -52,6 +54,26 @@ describe("GET sacrament certificate", () => {
   it("404 when the entry does not exist", async () => {
     ;(getSacramentRecord as jest.Mock).mockResolvedValue(null)
     expect((await call("5")).status).toBe(404)
+  })
+
+  it("logs and returns 500 when rendering fails, without an audit row", async () => {
+    ;(renderSacramentCertificatePdf as jest.Mock).mockRejectedValue(new Error("boom"))
+    const res = await call("5")
+    expect(res.status).toBe(500)
+    expect(logger.error).toHaveBeenCalledWith("sacrament certificate render failed", { id: 5, message: "boom" })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it("waits for the audit write before returning the PDF", async () => {
+    let release: () => void = () => {}
+    ;(logAudit as jest.Mock).mockReturnValue(new Promise<void>((r) => { release = r }))
+    let done = false
+    const pending = call("5").then((res) => { done = true; return res })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(logAudit).toHaveBeenCalled()
+    expect(done).toBe(false)
+    release()
+    expect((await pending).status).toBe(200)
   })
 
   it.each(["ADMIN", "PASTOR", "OFFICE_ADMIN"])("%s gets the PDF and an audit row without PII", async (role) => {

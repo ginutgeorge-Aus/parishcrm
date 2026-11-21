@@ -1,9 +1,11 @@
 /** @jest-environment node */
-import { createUser, updateUser, deleteUser, unlockUser, resendWelcome } from "@/lib/actions/user"
+import { createUser, updateUser, deleteUser, unlockUser, resendWelcome, resetUserTotp, revokeUserPasskeys } from "@/lib/actions/user"
+import { canAssignRole } from "@/lib/roleGuard"
+import type { UserRole } from "@/lib/generated/prisma/enums"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { sendWelcomeEmail } from "@/lib/email"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 
 // Locks in the user-admin guards that lock an org out of the app if they
@@ -12,7 +14,11 @@ import { revalidatePath } from "next/cache"
 // (P2002/P2034) error translations.
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({
+  logAudit: jest.fn().mockResolvedValue(undefined),
+  logAuditTx: jest.fn().mockResolvedValue(undefined),
+}))
+jest.mock("next/headers", () => ({ headers: jest.fn().mockResolvedValue(new Headers()) }))
 jest.mock("@/lib/email", () => ({ sendWelcomeEmail: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
@@ -31,6 +37,9 @@ jest.mock("@/lib/prisma", () => ({
       count: jest.fn(),
     },
     trustedDevice: { deleteMany: jest.fn() },
+    passkey: { deleteMany: jest.fn() },
+    backupCode: { deleteMany: jest.fn() },
+    auditLog: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(),
   },
   // user.ts now re-imports `Prisma` from this module instead of the generated
@@ -54,6 +63,11 @@ const p2034 = Object.assign(new Error("serialize"), { code: "P2034" })
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // Interactive transactions run against the same mocked client by default.
+  ;(prisma.$transaction as jest.Mock).mockImplementation((cb: (tx: unknown) => unknown) => cb(prisma))
+  ;(logAuditTx as jest.Mock).mockResolvedValue(undefined)
+  ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+  ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([]) // no email collision unless a test says so
 })
 
 describe("role gate — canManageUsers (ADMIN | OFFICE_ADMIN)", () => {
@@ -143,7 +157,6 @@ describe("unlock and welcome target-role guards", () => {
     ["ADMIN", "PASTOR"],
     ["OFFICE_ADMIN", "VIEWER"],
     ["OFFICE_ADMIN", "AUDITOR"],
-    ["OFFICE_ADMIN", "OFFICE_ADMIN"],
     ["OFFICE_ADMIN", "EVENT_ORGANISER"],
   ])("allows %s to unlock and re-invite a %s target", async (actorRole, targetRole) => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "2", role: actorRole } })
@@ -152,12 +165,13 @@ describe("unlock and welcome target-role guards", () => {
     })
     ;(prisma.user.update as jest.Mock).mockResolvedValue({ id: 3 })
     // Non-ADMIN writes carry the atomic target-role predicate.
-    const where = actorRole === "ADMIN" ? { id: 3 } : { id: 3, role: { notIn: ["ADMIN", "PASTOR"] } }
+    const where = actorRole === "ADMIN" ? { id: 3 } : { id: 3, role: { notIn: ["ADMIN", "PASTOR", "OFFICE_ADMIN"] } }
 
     expect(await unlockUser(3)).toBeUndefined()
     expect(prisma.user.update).toHaveBeenCalledWith({
       where,
       data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+      select: { role: true },
     })
     expect(await resendWelcome(3)).toEqual({ success: true })
     expect(prisma.user.update).toHaveBeenCalledWith({
@@ -192,7 +206,7 @@ describe("last-admin guard", () => {
     return (cb: (tx: unknown) => unknown) =>
       cb({
         user: {
-          findUnique: jest.fn().mockResolvedValue({ role: "ADMIN", archivedAt: null }),
+          findUnique: jest.fn().mockResolvedValue({ role: "ADMIN", email: "x@x.com", archivedAt: null }),
           count: jest.fn().mockResolvedValue(count),
           update: jest.fn().mockResolvedValue({}),
           delete: jest.fn().mockResolvedValue({}),
@@ -242,7 +256,7 @@ describe("last-admin guard", () => {
     ;(prisma.$transaction as jest.Mock).mockImplementation((cb: (tx: unknown) => unknown) =>
       cb({
         user: {
-          findUnique: jest.fn().mockResolvedValue({ role: "ADMIN", archivedAt: null }),
+          findUnique: jest.fn().mockResolvedValue({ role: "ADMIN", email: "x@x.com", archivedAt: null }),
           count: txCount,
           update: txUpdate,
         },
@@ -331,5 +345,202 @@ describe("validation", () => {
     const r = await createUser(undefined, form({ ...VALID_USER, email: "not-an-email" }))
     expect(r).toMatchObject({ error: expect.stringContaining("Invalid email") })
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+})
+
+// AUD-1-02: an OFFICE_ADMIN may not manage a peer OFFICE_ADMIN (takeover via
+// email/password/2FA reset); user changes are audited old->new inside the same
+// transaction and fail closed; email/role changes void old credentials.
+describe("AUD-1-02 peer takeover, in-transaction audit, credential invalidation", () => {
+  const OFFICE = { user: { id: "2", role: "OFFICE_ADMIN" } }
+  const PEER = { id: 3, role: "OFFICE_ADMIN", email: "peer@example.com", name: "Peer", archivedAt: null }
+
+  /**
+   * Tx client whose in-transaction reload returns `current`.
+   * @param current the row the transaction re-reads
+   * @returns the tx mock and its update spy
+   */
+  function txReturning(current: Record<string, unknown>) {
+    const update = jest.fn().mockResolvedValue({})
+    const tx = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        count: jest.fn().mockResolvedValue(1),
+        update,
+        create: jest.fn().mockResolvedValue({ id: 3 }),
+      },
+      trustedDevice: { deleteMany: jest.fn() },
+      passkey: { deleteMany: jest.fn() },
+    }
+    ;(prisma.$transaction as jest.Mock).mockImplementation((cb: (t: unknown) => unknown) => cb(tx))
+    return { tx, update }
+  }
+
+  it.each([
+    ["ADMIN", "OFFICE_ADMIN", true],
+    ["ADMIN", "ADMIN", true],
+    ["OFFICE_ADMIN", "OFFICE_ADMIN", false],
+    ["OFFICE_ADMIN", "ADMIN", false],
+    ["OFFICE_ADMIN", "PASTOR", false],
+    ["OFFICE_ADMIN", "VIEWER", true],
+    ["OFFICE_ADMIN", "EVENT_ORGANISER", true],
+  ] as const)("canAssignRole(%s, %s) is %s", (actor, target, expected) => {
+    expect(canAssignRole(actor as UserRole, target as UserRole)).toBe(expected)
+  })
+
+  it("refuses OFFICE_ADMIN updating a peer OFFICE_ADMIN before any transaction", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(OFFICE)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(PEER)
+    const r = await updateUser(3, undefined, form({ name: "X", email: "attacker@example.com", role: "VIEWER", password: "Newpass9!x" }))
+    expect(r).toEqual({ error: "Unauthorized" })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["deleteUser", () => deleteUser(3)],
+    ["unlockUser", () => unlockUser(3)],
+    ["resetUserTotp", () => resetUserTotp(3)],
+    ["revokeUserPasskeys", () => revokeUserPasskeys(3)],
+    ["resendWelcome", () => resendWelcome(3)],
+  ] as const)("refuses OFFICE_ADMIN %s on a peer OFFICE_ADMIN with no write", async (_name, action) => {
+    ;(auth as jest.Mock).mockResolvedValue(OFFICE)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(PEER)
+    expect(await action()).toEqual({ error: "Unauthorized" })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(sendWelcomeEmail).not.toHaveBeenCalled()
+  })
+
+  it("refuses OFFICE_ADMIN creating or granting OFFICE_ADMIN", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(OFFICE)
+    expect(await createUser(undefined, form({ ...VALID_USER, role: "OFFICE_ADMIN" }))).toEqual({ error: "Unauthorized" })
+    expect(prisma.user.create).not.toHaveBeenCalled()
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", archivedAt: null })
+    expect(await updateUser(3, undefined, form({ name: "V", email: "v@example.com", role: "OFFICE_ADMIN" }))).toEqual({ error: "Unauthorized" })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("lets ADMIN create an OFFICE_ADMIN, audited in the transaction", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.create as jest.Mock).mockResolvedValue({ id: 11, role: "OFFICE_ADMIN", email: "o@example.com", name: "O" })
+    await expect(createUser(undefined, form({ ...VALID_USER, role: "OFFICE_ADMIN" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 9, "USER_CREATED", "User", 11, { targetUserId: 11, toRole: "OFFICE_ADMIN" }, undefined)
+  })
+
+  it("lets ADMIN edit an OFFICE_ADMIN", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(PEER)
+    const { update } = txReturning(PEER)
+    await expect(updateUser(3, undefined, form({ name: "Peer", email: "peer@example.com", role: "OFFICE_ADMIN" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(update).toHaveBeenCalled()
+  })
+
+  it("re-checks the target role inside the transaction (outer VIEWER, promoted to PASTOR)", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(OFFICE)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", archivedAt: null })
+    const { update } = txReturning({ role: "PASTOR", email: "v@example.com", archivedAt: null })
+    expect(await updateUser(3, undefined, form({ name: "V", email: "v@example.com", role: "VIEWER" }))).toEqual({ error: "Unauthorized" })
+    expect(update).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("re-checks the target role inside the deleteUser transaction", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(OFFICE)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", archivedAt: null })
+    const { update } = txReturning({ role: "OFFICE_ADMIN", email: "v@example.com", archivedAt: null })
+    expect(await deleteUser(3)).toEqual({ error: "Unauthorized" })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("audits old and new role and email change (no addresses) in the update transaction", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "old@example.com", archivedAt: null })
+    const { tx } = txReturning({ role: "VIEWER", email: "old@example.com", archivedAt: null })
+    await expect(updateUser(3, undefined, form({ name: "V", email: "new@example.com", role: "OFFICE_ADMIN" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 9, "USER_UPDATED", "User", 3, {
+      targetUserId: 3, fromRole: "VIEWER", toRole: "OFFICE_ADMIN", emailChanged: true, passwordChanged: false,
+    }, undefined)
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["updateUser", () => updateUser(3, undefined, form({ name: "V", email: "v@example.com", role: "VIEWER" }))],
+    ["deleteUser", () => deleteUser(3)],
+    ["createUser", () => createUser(undefined, form(VALID_USER))],
+    ["unlockUser", () => unlockUser(3)],
+  ] as const)("%s fails closed when the audit write fails", async (_name, action) => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", archivedAt: null })
+    txReturning({ role: "VIEWER", email: "v@example.com", archivedAt: null })
+    // The real $transaction rejects when its callback throws, rolling the write back.
+    ;(logAuditTx as jest.Mock).mockRejectedValue(new Error("audit table down"))
+    const r = await action()
+    expect(r).toEqual({ error: expect.stringMatching(/audit log/) })
+    expect(revalidatePath).not.toHaveBeenCalled()
+    expect(sendWelcomeEmail).not.toHaveBeenCalled()
+  })
+
+  it("passes a Serializable conflict from the audit write through to the retry prompt", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", archivedAt: null })
+    txReturning({ role: "VIEWER", email: "v@example.com", archivedAt: null })
+    ;(logAuditTx as jest.Mock).mockRejectedValue(p2034)
+    expect(await updateUser(3, undefined, form({ name: "V", email: "v@example.com", role: "VIEWER" }))).toEqual({
+      error: expect.stringMatching(/try again/),
+    })
+    expect(await deleteUser(3)).toEqual({ error: expect.stringMatching(/try again/) })
+  })
+
+  it("an email change voids reset links and OTP codes and ends sessions", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "old@example.com", archivedAt: null })
+    const { update } = txReturning({ role: "VIEWER", email: "old@example.com", archivedAt: null })
+    await expect(updateUser(3, undefined, form({ name: "V", email: "new@example.com", role: "VIEWER" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(update.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      passwordResetToken: null, passwordResetExpires: null, otpCode: null, otpExpiresAt: null, sessionsValidFrom: expect.any(Date),
+    }))
+  })
+
+  it("a role change ends sessions; a name-only change does not", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", archivedAt: null })
+    let { update } = txReturning({ role: "VIEWER", email: "v@example.com", archivedAt: null })
+    await expect(updateUser(3, undefined, form({ name: "V", email: "v@example.com", role: "AUDITOR" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(update.mock.calls[0][0].data.sessionsValidFrom).toBeInstanceOf(Date)
+    expect(update.mock.calls[0][0].data).not.toHaveProperty("passwordResetToken")
+    ;({ update } = txReturning({ role: "VIEWER", email: "v@example.com", archivedAt: null }))
+    await expect(updateUser(3, undefined, form({ name: "Renamed", email: "v@example.com", role: "VIEWER" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(update.mock.calls[0][0].data).not.toHaveProperty("sessionsValidFrom")
+  })
+
+  it.each([
+    ["email", { name: "Me", email: "other@example.com", role: "ADMIN" }],
+    ["role", { name: "Me", email: "me@example.com", role: "VIEWER" }],
+    ["password", { name: "Me", email: "me@example.com", role: "ADMIN", password: "Newpass9!x" }],
+  ])("self-edit refuses a changed %s", async (_field, fields) => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 9, role: "ADMIN", email: "me@example.com", archivedAt: null })
+    const r = await updateUser(9, undefined, form(fields))
+    expect(r).toEqual({ error: expect.stringContaining("only change your own name") })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("self-edit of the name only writes the name", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(OFFICE)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 2, role: "OFFICE_ADMIN", email: "me@example.com", archivedAt: null })
+    const { update } = txReturning({ role: "OFFICE_ADMIN", email: "me@example.com", archivedAt: null })
+    await expect(updateUser(2, undefined, form({ name: "New Name", email: "me@example.com", role: "OFFICE_ADMIN" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(update).toHaveBeenCalledWith({ where: { id: 2 }, data: { name: "New Name" } })
+  })
+
+  it("resendWelcome refuses a user who has already signed in", async () => {
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "v@example.com", name: "V", archivedAt: null })
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ id: 1 })
+    const r = await resendWelcome(3)
+    expect(r).toEqual({ error: expect.stringContaining("already signed in") })
+    expect(prisma.auditLog.findFirst).toHaveBeenCalledWith({ where: { userId: 3, action: "USER_LOGIN" }, select: { id: true } })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(sendWelcomeEmail).not.toHaveBeenCalled()
   })
 })

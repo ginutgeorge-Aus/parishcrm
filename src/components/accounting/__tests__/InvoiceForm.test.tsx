@@ -22,6 +22,11 @@ describe("InvoiceForm", () => {
     expect(screen.getByTestId("invoice-gst")).toHaveTextContent("$30.00")
     expect(screen.getByTestId("invoice-total")).toHaveTextContent("$330.00")
   })
+  it("accepts a comma-typed unit price", () => {
+    render(<InvoiceForm {...props} />)
+    fireEvent.change(screen.getByLabelText("Line 1 unit price"), { target: { value: "1,000.00" } })
+    expect(screen.getByTestId("invoice-subtotal")).toHaveTextContent("$1,000.00")
+  })
   it("hides GST controls when not registered", () => {
     render(<InvoiceForm {...props} gstEnabled={false} />)
     expect(screen.queryByLabelText("Line 1 GST")).not.toBeInTheDocument()

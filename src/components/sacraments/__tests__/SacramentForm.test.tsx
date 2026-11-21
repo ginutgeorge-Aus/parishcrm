@@ -36,6 +36,16 @@ describe("SacramentForm", () => {
     expect(screen.getByLabelText("Search for the spouse")).toBeInTheDocument()
   })
 
+  it("Cancel goes to the register on create and to cancelHref on edit, never history", async () => {
+    const { unmount } = render(<SacramentForm personId={8} action={jest.fn()} />)
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(push).toHaveBeenLastCalledWith("/sacraments")
+    unmount()
+    render(<SacramentForm record={RECORD} cancelHref="/sacraments/5" action={jest.fn()} />)
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(push).toHaveBeenLastCalledWith("/sacraments/5")
+  })
+
   it("edit: the rite is read-only and updatedAt rides along", () => {
     const { container } = render(<SacramentForm record={RECORD} action={jest.fn()} />)
     expect(screen.queryByLabelText("Sacrament")).toBeNull()

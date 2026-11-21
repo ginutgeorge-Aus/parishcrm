@@ -1,15 +1,20 @@
 import { z } from "zod"
 import { encrypt, decrypt } from "@/lib/crypto"
-import { isRealCalendarDate } from "@/lib/validation"
+import { isRealCalendarDate, isValidEmail, EMAIL_MSG } from "@/lib/validation"
+
+// Same isValidEmail the client form uses, so "mary@bad" is caught before submit.
+const emailRule = z.string().trim().max(255, EMAIL_MSG).refine(isValidEmail, EMAIL_MSG)
 
 // Public, unauthenticated endpoint — every free-text string needs a .max() bound
 // so an oversized field can't drive a ~10MB encrypt + PDF-layout pass (security.md
 // requires .max() on all Zod strings on public/action surfaces).
+const DATE_MSG = "Enter a valid date"
+
 const person = z.object({
   name: z.string().trim().min(1).max(200),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).nullable(),
   dateOfBirth: z.string().max(30).nullable(),
-  email: z.string().trim().email().max(255),
+  email: emailRule,
   mobile: z.string().max(50).nullable(),
   address: z.string().trim().min(1).max(500),
   suburb: z.string().trim().min(1).max(200),
@@ -34,8 +39,8 @@ export const membershipPayloadSchema = z.object({
       // Reject it here so a direct API caller gets a clean validation error.
       // Strict YYYY-MM-DD calendar check: a rollover like 2025-02-31 is finite
       // but new Date() silently shifts it to March.
-      dateOfMarriage: z.string().max(50).nullable().refine((v) => v === null || isRealCalendarDate(v), "Invalid marriage date"),
-      parish: z.string().max(200).nullable(), working: z.boolean().nullable(), email: z.string().trim().email().max(255).nullable() })
+      dateOfMarriage: z.string().max(50).nullable().refine((v) => v === null || isRealCalendarDate(v), DATE_MSG),
+      parish: z.string().max(200).nullable(), working: z.boolean().nullable(), email: emailRule.nullable() })
     .nullable(),
   children: z.array(row.extend({ occupation: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(4),
   dependents: z.array(row.extend({ relationship: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(4),
@@ -51,7 +56,7 @@ export const membershipPayloadSchema = z.object({
   // declaration.date is converted with `new Date()` before storage (signedDate);
   // guard the Invalid-Date crash the same way, matching family.ts's joinedDate
   // refine.
-  declaration: z.object({ place: z.string().max(200).nullable(), date: z.string().max(50).nullable().refine((v) => v === null || isRealCalendarDate(v), "Invalid date") }),
+  declaration: z.object({ place: z.string().max(200).nullable(), date: z.string().max(50).nullable().refine((v) => v === null || isRealCalendarDate(v), DATE_MSG) }),
   // Overseas-field labels the applicant actually saw, stamped server-side by
   // submitMembershipApplication (client value ignored) so a later settings
   // change doesn't relabel old answers. Absent on pre- payloads.
@@ -74,9 +79,47 @@ export const membershipSubmitSchema = membershipPayloadSchema.superRefine((p, ct
     ...p.dependents.map((d, i): [string | null, (string | number)[]] => [d.dateOfBirth, ["dependents", i, "dateOfBirth"]]),
   ]
   for (const [v, path] of dates) {
-    if (v !== null && !isRealCalendarDate(v)) ctx.addIssue({ code: "custom", message: "Invalid date", path })
+    if (v !== null && !isRealCalendarDate(v)) ctx.addIssue({ code: "custom", message: DATE_MSG, path })
   }
 })
+
+const SECTION_LABELS: Record<string, string> = { personal: "Your", spouse: "Spouse", children: "Child", dependents: "Dependent", relativesInAustralia: "Relative" }
+const FIELD_LABELS: Record<string, string> = {
+  name: "Name", gender: "Sex", dateOfBirth: "Date of birth", email: "Email", mobile: "Mobile", address: "Address", suburb: "Suburb",
+  state: "State", postcode: "Postcode", qualificationProfession: "Profession", motherParish: "Mother parish",
+  addressInIndia: "Address in India", dateOfArrivalNsw: "Date of arrival", maritalStatus: "Marital status",
+  transferCertFurnished: "Transfer certificate", dateOfMarriage: "Date of marriage", parish: "Parish", working: "Working",
+  sex: "Sex", occupation: "Occupation", phoneEmail: "Phone / Email", relationship: "Relationship", place: "Place",
+  monthlyAmount: "Monthly subscription", date: "Declaration date",
+}
+
+/** Plain label for a dotted payload path, e.g. "spouse.dateOfBirth" -> "Spouse date of birth". */
+export function labelForPath(path: ReadonlyArray<PropertyKey>): string {
+  const [section, ...rest] = path.map(String)
+  const field = rest.filter((k) => !/^\d+$/.test(k)).pop() ?? section
+  const idx = rest.find((k) => /^\d+$/.test(k))
+  const fieldLabel = section === "declaration" && field === "place" ? "Place signed" : FIELD_LABELS[field] ?? "Field"
+  if (section === "personal") return fieldLabel
+  if (section === "subscription" || section === "declaration") return fieldLabel
+  const who = SECTION_LABELS[section] ?? "Entry"
+  const n = idx !== undefined ? ` ${Number(idx) + 1}` : ""
+  return `${who}${n} ${fieldLabel.toLowerCase()}`.replace(/^(\w)/, (c) => c.toUpperCase())
+}
+
+/** First Zod issue as a public-safe message plus its dotted path. Never echoes the submitted value. */
+export function firstIssueMessage(error: z.ZodError): { error: string; field: string } {
+  const issue = error.issues[0]
+  const field = issue.path.join(".")
+  const label = labelForPath(issue.path)
+  // Our own messages (EMAIL_MSG, DATE_MSG) are plain; anything else is mapped from the issue code.
+  let reason: string
+  if (issue.message === EMAIL_MSG || issue.message === DATE_MSG) reason = issue.message
+  else if (issue.code === "too_big") reason = "Too long"
+  else if (issue.code === "too_small") reason = "This field is required"
+  else if (issue.code === "invalid_type" && issue.input === undefined) reason = "This field is required"
+  else reason = "Check this value"
+  return { error: `${label}: ${reason}`, field }
+}
 
 export function encryptPayload(p: MembershipPayload): string {
   return encrypt(JSON.stringify(p))

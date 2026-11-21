@@ -3,10 +3,11 @@ import { updateInvoiceSettings } from "@/lib/actions/invoiceSettings"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null) }))
 jest.mock("@/lib/prisma", () => ({
@@ -17,7 +18,7 @@ const mockAuth = auth as jest.Mock
 beforeEach(() => {
   jest.clearAllMocks()
   mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
-  ;(prisma.$transaction as jest.Mock).mockImplementation(async (ops: unknown[]) => ops)
+  ;(prisma.$transaction as jest.Mock).mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
 })
 
 describe("getInvoiceSettings", () => {
@@ -41,7 +42,11 @@ describe("updateInvoiceSettings", () => {
   it("upserts both keys and audits", async () => {
     expect(await updateInvoiceSettings({ gstRegistered: true, paymentDetails: "BSB 000-000" })).toEqual({ ok: true })
     expect(prisma.appSetting.upsert).toHaveBeenCalledTimes(2)
-    expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_SETTINGS_UPDATED", "AppSetting", undefined, { gstRegistered: true })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_SETTINGS_UPDATED", "AppSetting", undefined, { gstRegistered: true })
+  })
+  it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await updateInvoiceSettings({ gstRegistered: true, paymentDetails: "" })).toEqual({ error: AUDIT_FAILED_ERROR })
   })
   it("rejects over-long payment details", async () => {
     expect(await updateInvoiceSettings({ gstRegistered: false, paymentDetails: "x".repeat(1001) }))

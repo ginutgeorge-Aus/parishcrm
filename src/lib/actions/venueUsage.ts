@@ -12,11 +12,11 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { sendVenueUsageRequestEmail } from "@/lib/email"
 import type { VenueUsageSettings } from "@/lib/venueUsageSettings"
 import { assertNotDemo } from "@/lib/demoMode"
-import { isValidEmail, isValidPgId } from "@/lib/validation"
+import { isP2025, isValidEmail, isValidPgId } from "@/lib/validation"
 import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, MONTH_FULL_ERROR, prepareInvoiceRequest } from "@/lib/venueInvoice"
 import { autoSendLabel } from "@/lib/venueSchedule"
 import { sydneyTodayYMD } from "@/lib/dates"
-import { buildCancellationEmail, describeIncomplete, formatMonthLabel, isPastDay, monthRange, normaliseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
+import { buildCancellationEmail, defaultStatusForDate, describeIncomplete, formatMonthLabel, isPastDay, monthRange, normaliseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
 import type { VenueUsageLine } from "@/lib/venueUsage"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
@@ -151,6 +151,9 @@ function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>):
 const VENUE_KNOWS_LOCK_ERROR =
   "The venue has already been asked about this date. To change it, cancel it (emailing the venue) and add a new booking."
 
+/** Refusal when a booking request claimed the row while its date or times were being edited. */
+const VENUE_CLAIMED_ERROR = "A booking request for this date was just sent to the venue, so its date and times can no longer be changed. Refresh the page."
+
 const VENUE_KNOWS_CANCEL_ERROR =
   "The venue has already been asked about this date. Cancel it from the bookings list so you can email the venue."
 
@@ -206,6 +209,8 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
  * When a change alters what a month's invoice counts (CONFIRMED rows: date, hours or status; old and new month both
  * checked, whether or not the venue knows the row) and that month's invoice request was already sent or is being
  * sent right now, the result carries a warning because the send is not redone.
+ * A timing change to a row the venue did not yet know is written conditionally (still unclaimed); when a booking
+ * request claimed it meanwhile the edit is refused ({@link VENUE_CLAIMED_ERROR}).
  * Moving the row into another month refuses when that month is already full ({@link MAX_ROWS_PER_MONTH}).
  * @param id VenueUsage id
  * @param input new field values
@@ -243,11 +248,23 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     // Reopening a venue-known row (back to REQUESTED) clears its asked-on stamp so the booking request goes out again;
     // otherwise the asked-on stamp is kept (an hours correction must not clear it or relock the row).
     const reopened = statusChanged && rest.status === "REQUESTED"
-    await tx.venueUsage.update({
-      where: { id },
-      data: { ...rest, date: ymdToUtcDate(date), ...(reopened ? { bookingRequestedAt: null } : {}) },
-      select: { id: true },
-    })
+    // A timing change on a row the venue did not know at read time is applied only while it is still unclaimed:
+    // a booking request claiming it in between would otherwise email the old date or times.
+    const guardUnclaimed = timingChanged && !venueKnows
+    try {
+      await tx.venueUsage.update({
+        where: { id, ...(guardUnclaimed ? { bookingRequestedAt: null, venueNotifiedAt: null } : {}) },
+        data: { ...rest, date: ymdToUtcDate(date), ...(reopened ? { bookingRequestedAt: null } : {}) },
+        select: { id: true },
+      })
+    } catch (e) {
+      if (isP2025(e)) {
+        // Deleted since the read, or claimed by a booking request meanwhile: tell the editor which.
+        const still = await tx.venueUsage.findUnique({ where: { id }, select: { id: true } })
+        return still ? ({ claimed: true } as const) : ({ notFound: true } as const)
+      }
+      throw e
+    }
     const oldMonth = monthOfDate(existing.date)
     const months = await clearApprovalTx(tx, [oldMonth, date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, {
@@ -267,6 +284,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   if ("error" in outcome) return outcome
   if ("notFound" in outcome) return { error: "Booking not found" }
   if ("locked" in outcome) return { error: VENUE_KNOWS_LOCK_ERROR }
+  if ("claimed" in outcome) return { error: VENUE_CLAIMED_ERROR }
   if ("cancelViaList" in outcome) return { error: VENUE_KNOWS_CANCEL_ERROR }
   if ("full" in outcome) return { error: MOVE_MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")
@@ -316,9 +334,10 @@ const AddAllSchema = z.object({
 })
 
 /**
- * Add a REQUESTED booking for every Sunday of a month that has no non-cancelled booking yet (`canEdit`).
- * Refuses (adds nothing) when the new rows would push the month past {@link MAX_ROWS_PER_MONTH}.
- * It only adds REQUESTED rows, which no invoice counts, so it never needs the sent-month warning.
+ * Add a booking for every Sunday of a month that has no non-cancelled booking yet (`canEdit`).
+ * Each row gets {@link defaultStatusForDate}: REQUESTED for a later Sunday, CONFIRMED (used) for today or a past Sunday,
+ * the same rule as adding one row by hand. Refuses (adds nothing) when the new rows would push the month past
+ * {@link MAX_ROWS_PER_MONTH}. CONFIRMED rows count on an invoice, so adding any returns the sent-month warning.
  * @param input month "YYYY-MM", shared start/end time and optional public purpose
  */
 export async function addAllSundays(input: { month: string; startTime: string; endTime: string; purpose?: string }): Promise<VenueMutationResult> {
@@ -334,6 +353,7 @@ export async function addAllSundays(input: { month: string; startTime: string; e
 
   const userId = actorId(session)
   const sundays = sundaysInMonth(month)
+  const today = sydneyTodayYMD()
   const outcome = await serializableWrite(async (tx) => {
     const existing = await tx.venueUsage.findMany({
       where: { date: { in: sundays.map(ymdToUtcDate) }, status: { not: "CANCELLED" } },
@@ -342,23 +362,26 @@ export async function addAllSundays(input: { month: string; startTime: string; e
     })
     const taken = new Set(existing.map((e) => utcDateToYmd(e.date)))
     const free = sundays.filter((s) => !taken.has(s))
-    if (free.length === 0) return { added: 0, cleared: [] as string[] }
+    if (free.length === 0) return { added: 0, used: 0, cleared: [] as string[], warning: undefined }
     if (await monthWouldOverflow(tx, month, free.length)) return null
+    const rows = free.map((s) => ({ ymd: s, status: defaultStatusForDate(s, today) }))
+    const used = rows.filter((r) => r.status === "CONFIRMED").length
     await tx.venueUsage.createMany({
-      data: free.map((s) => ({ date: ymdToUtcDate(s), startTime, endTime, status: "REQUESTED" as const, purpose, createdById: userId })),
+      data: rows.map((r) => ({ date: ymdToUtcDate(r.ymd), startTime, endTime, status: r.status, purpose, createdById: userId })),
     })
     const months = await clearApprovalTx(tx, [month], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_BULK_ADDED", "VenueUsage", undefined, { month, added: free.length, skipped: sundays.length - free.length })
-    return { added: free.length, cleared: months }
+    return { added: free.length, used, cleared: months, warning: await sentMonthsWarning(tx, used > 0 ? [month] : []) }
   })
   if (!outcome) return { error: MONTH_FULL_ERROR }
   if ("error" in outcome) return outcome
-  const { added, cleared } = outcome
+  const { added, used, cleared, warning } = outcome
   revalidatePath("/venue-usage")
   if (added === 0) return { success: "Nothing to add: every Sunday already has a booking" }
   const skipped = sundays.length - added
-  const label = `Added ${added} ${added === 1 ? "Sunday" : "Sundays"}${skipped ? ` (${skipped} skipped: already booked)` : ""}`
-  return mutationOk(label, cleared)
+  const split = used > 0 && used < added ? ` (${used} as used, ${added - used} as requested)` : ""
+  const label = `Added ${added} ${added === 1 ? "Sunday" : "Sundays"}${split}${skipped ? ` (${skipped} skipped: already booked)` : ""}`
+  return mutationOk(label, cleared, warning)
 }
 
 /**

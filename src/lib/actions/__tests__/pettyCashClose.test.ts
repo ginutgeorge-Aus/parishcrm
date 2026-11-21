@@ -188,9 +188,9 @@ test("a failed audit write rolls back and returns the audit-failed error, not a 
   expect(res).toEqual({ error: expect.stringMatching(/audit log/i) })
 })
 
-test("a serialization conflict (P2034) on every attempt returns a retry error, not a 500", async () => {
+test("a serialization conflict (P2034) returns a retry error, not a 500", async () => {
   mockFind.mockResolvedValue(openSession())
-  // serializableWrite retries P2034; the retry error only surfaces once every attempt conflicts.
+  // serializableWrite retries P2034, so every attempt must conflict to surface the busy error.
   ;(prisma.$transaction as jest.Mock).mockRejectedValue({ code: "P2034" })
   const res = await closeSession(1, undefined, fd({ notes: "handover" }))
   expect(res).toEqual({ error: expect.stringMatching(/try again/i) })

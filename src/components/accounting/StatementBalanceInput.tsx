@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useId, useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { saveStatementBalance } from "@/lib/actions/reconciliation"
 import { APP_LOCALE } from "@/lib/appConfig"
 import { fmtAUD as fmt } from "@/lib/formatting"
+import { normaliseMoneyInput, SIGNED_MONEY_DECIMAL_RE } from "@/lib/validation"
 
 // Format a YMD string directly — never via `new Date(s)`, which would parse as
 // UTC midnight and can shift the displayed day across the Sydney timezone.
@@ -38,18 +39,21 @@ export function StatementBalanceInput({
   calculatedBalance,
   canEdit,
 }: Readonly<Props>) {
+  const hintId = useId()
   const [value, setValue] = useState(initialValue ?? "")
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const statementAmt = value !== "" ? Number.parseFloat(value) : null
+  // Strip commas/spaces/$ once; parse only text matching the 2-decimal pattern.
+  const normalised = normaliseMoneyInput(value)
+  const valid = SIGNED_MONEY_DECIMAL_RE.test(normalised)
+  const showHint = value.trim() !== "" && !valid
   // Compare in integer cents to avoid IEEE-754 noise (e.g. 1e-15) from
   // subtracting two floats; the input is constrained to ≤2 decimal places.
-  const diffCents =
-    statementAmt !== null && !Number.isNaN(statementAmt)
-      ? Math.round(calculatedBalance * 100) - Math.round(statementAmt * 100)
-      : null
+  const diffCents = valid
+    ? Math.round(calculatedBalance * 100) - Math.round(Number.parseFloat(normalised) * 100)
+    : null
   const difference = diffCents !== null ? diffCents / 100 : null
   const balanced = diffCents !== null && diffCents === 0
 
@@ -58,7 +62,7 @@ export function StatementBalanceInput({
     setNotice(null)
     startTransition(async () => {
       try {
-        const result = await saveStatementBalance(paymentAccountId, statementDate, value)
+        const result = await saveStatementBalance(paymentAccountId, statementDate, normalised)
         if (result && "error" in result) setError(result.error)
         else if (result && "success" in result) setNotice(result.success)
       } catch {
@@ -90,23 +94,25 @@ export function StatementBalanceInput({
                 placeholder="0.00"
                 maxLength={15}
                 aria-label="Statement closing balance"
+                aria-describedby={showHint ? hintId : undefined}
               />
             </div>
             <Button
               size="sm"
               variant="outline"
               onClick={handleSave}
-              disabled={isPending || value === "" || !/^-?\d+(\.\d{1,2})?$/.test(value)}
+              disabled={isPending || !valid}
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         ) : (
           <span className="text-sm tabular text-muted-foreground">
-            {value !== "" && !Number.isNaN(Number.parseFloat(value)) ? fmt(Number.parseFloat(value)) : "—"}
+            {valid ? fmt(Number.parseFloat(normalised)) : "—"}
           </span>
         )}
       </div>
+      {showHint && <p id={hintId} className="text-xs text-muted-foreground ml-52">Enter an amount such as 1000.00</p>}
       {error && <p role="alert" className="text-xs text-destructive ml-52">{error}</p>}
       {notice && !error && (
         <p

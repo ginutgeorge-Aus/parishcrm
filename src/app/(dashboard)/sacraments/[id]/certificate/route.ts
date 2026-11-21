@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { canViewSacraments } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
+import { logger } from "@/lib/logger"
 import { getSacramentRecord } from "@/lib/actions/sacrament"
 import { renderSacramentCertificatePdf } from "@/lib/pdf/SacramentCertificatePdf"
 import { getChurchSettings } from "@/lib/churchSettings"
@@ -26,10 +27,18 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   const record = await getSacramentRecord(id)
   if (!record) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const church = await getChurchSettings()
-  const pdf = await renderSacramentCertificatePdf(record, { name: church.name, address: church.address })
+  let pdf: Buffer
+  try {
+    const church = await getChurchSettings()
+    pdf = await renderSacramentCertificatePdf(record, { name: church.name, address: church.address })
+  } catch (e) {
+    logger.error("sacrament certificate render failed", { id, message: e instanceof Error ? e.message : "unknown" })
+    return NextResponse.json({ error: "Could not render the certificate" }, { status: 500 })
+  }
 
-  void logAudit(actorId(session), "SACRAMENT_CERTIFICATE_PRINTED", "SacramentRecord", id, {
+  // Awaited so the audit row is written before the PII document is served
+  // (logAudit swallows its own errors, so a failed write cannot block the PDF).
+  await logAudit(actorId(session), "SACRAMENT_CERTIFICATE_PRINTED", "SacramentRecord", id, {
     registerNo: record.registerNo,
     type: record.type,
     personId: record.person.id,

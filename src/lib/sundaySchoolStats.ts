@@ -25,16 +25,17 @@ export type AttendanceSummary = {
   rate: number | null
 }
 
-/** An exact non-negative fraction (den > 0), kept reduced. */
-type Fraction = { num: bigint; den: bigint }
-
 /** Exam results count, the exact sum of their score/total ratios, and the rounded average percent. */
 export type ExamSummary = {
   results: number
   /** Results not counted because the score or total is not a valid decimal, or the total is 0. */
   skipped: number
-  /** Exact sum of each result's score/total ratio; kept so summaries can be merged without rounding. */
-  ratioSum: Fraction
+  /**
+   * Sum of the counted scores (hundredths), keyed by exam total (hundredths); kept so summaries
+   * merge exactly without rounding. Size is the number of distinct totals, and no common
+   * denominator is accumulated: it is formed only when the average is computed.
+   */
+  ratioSum: ReadonlyMap<bigint, bigint>
   averagePercent: number | null
 }
 
@@ -56,7 +57,8 @@ export type ClassStatsInput = {
   students: { personId: number; name: string }[]
   /**
    * Marks on this class's rolls; rows for children not in `students` are ignored.
-   * `count` (default 1) lets a loader pass pre-grouped counts instead of one row per mark.
+   * `count` (default 1) lets a loader pass pre-grouped counts instead of one row per mark;
+   * it must be a non-negative integer (anything else counts as 0).
    */
   attendance: { personId: number; status: AttendanceStatus; count?: number }[]
   /** The class's live (non-archived) exams with their results. */
@@ -114,13 +116,22 @@ export function beforeEnrolment(date: Date, enrolledAt: Date): boolean {
  * @param statuses one entry per roll row, null when the child was not marked
  */
 export function summariseAttendance(statuses: readonly (AttendanceStatus | null)[]): AttendanceSummary {
-  let present = 0, late = 0, absent = 0
-  for (const s of statuses) {
-    if (s === "PRESENT") present++
-    else if (s === "LATE") late++
-    else if (s === "ABSENT") absent++
-  }
-  return withRate({ present, late, absent })
+  const c = { present: 0, late: 0, absent: 0 }
+  for (const s of statuses) tally(c, s, 1)
+  return withRate(c)
+}
+
+/**
+ * Add `n` marks of one status to the counters; a null (unmarked) status adds nothing.
+ * The single status-to-counter mapping shared by `summariseAttendance` and `classStats`.
+ * @param c counters to mutate
+ * @param status the mark, or null when not marked
+ * @param n how many marks to add (non-negative integer)
+ */
+function tally(c: { present: number; late: number; absent: number }, status: AttendanceStatus | null, n: number): void {
+  if (status === "PRESENT") c.present += n
+  else if (status === "LATE") c.late += n
+  else if (status === "ABSENT") c.absent += n
 }
 
 /**
@@ -158,8 +169,6 @@ function hundredths(s: string): bigint | null {
   return BigInt(whole) * BigInt(100) + BigInt(frac.padEnd(2, "0"))
 }
 
-const ZERO: Fraction = { num: BigInt(0), den: BigInt(1) }
-
 /**
  * Greatest common divisor of two non-negative BigInts.
  * @param a first value
@@ -171,43 +180,32 @@ function gcd(a: bigint, b: bigint): bigint {
 }
 
 /**
- * Exact sum of two fractions, reduced so repeated sums stay small.
- * @param a first fraction
- * @param b second fraction
+ * Add `score` (hundredths) to the running sum for exams out of `total` (hundredths).
+ * @param sums per-total score sums to mutate
+ * @param total the exam total, in hundredths (non-zero)
+ * @param score score sum to add, in hundredths
  */
-function addFractions(a: Fraction, b: Fraction): Fraction {
-  const num = a.num * b.den + b.num * a.den
-  const den = a.den * b.den
-  const g = gcd(num, den)
-  return g > BigInt(1) ? { num: num / g, den: den / g } : { num, den }
+function addToTotal(sums: Map<bigint, bigint>, total: bigint, score: bigint): void {
+  sums.set(total, (sums.get(total) ?? BigInt(0)) + score)
 }
 
 /**
- * A score/total ratio as an exact fraction, or null when either value is not
- * a valid decimal or the total is 0.
- * @param score the child's score
- * @param totalMarks the exam's total
- */
-function scoreRatio(score: string, totalMarks: string): Fraction | null {
-  const s = hundredths(score)
-  const t = hundredths(totalMarks)
-  if (s === null || t === null || t === BigInt(0)) return null
-  const g = gcd(s, t)
-  return g > BigInt(1) ? { num: s / g, den: t / g } : { num: s, den: t }
-}
-
-/**
- * Build an ExamSummary from the exact ratio sum; the average is rounded half
- * up once: round(sum * 100 / results).
+ * Build an ExamSummary from per-total score sums; the average is rounded half
+ * up once: round(sum(score/total) * 100 / results). The common denominator
+ * (LCM of the distinct totals) is only formed here, never stored or accumulated.
  * @param results number of results counted
- * @param ratioSum exact sum of their score/total ratios
+ * @param ratioSum score sums (hundredths) keyed by exam total (hundredths)
  * @param skipped number of results not counted (invalid score or total)
  */
-function examSummary(results: number, ratioSum: Fraction, skipped: number): ExamSummary {
+function examSummary(results: number, ratioSum: ReadonlyMap<bigint, bigint>, skipped: number): ExamSummary {
   if (results === 0) return { results, skipped, ratioSum, averagePercent: null }
+  let den = BigInt(1)
+  for (const t of ratioSum.keys()) den = (den / gcd(den, t)) * t
+  let num = BigInt(0)
+  for (const [t, s] of ratioSum) num += s * (den / t)
   const n = BigInt(results)
   // round(num * 100 / (den * n)) in integers: (2*num*100 + den*n) / (2*den*n)
-  const avg = (BigInt(200) * ratioSum.num + ratioSum.den * n) / (BigInt(2) * ratioSum.den * n)
+  const avg = (BigInt(200) * num + den * n) / (BigInt(2) * den * n)
   return { results, skipped, ratioSum, averagePercent: Number(avg) }
 }
 
@@ -217,15 +215,17 @@ function examSummary(results: number, ratioSum: Fraction, skipped: number): Exam
  * @param results one score/total pair per result
  */
 export function summariseExams(results: readonly { score: string; totalMarks: string }[]): ExamSummary {
-  let n = 0, sum = ZERO, skipped = 0
+  let n = 0, skipped = 0
+  const sum = new Map<bigint, bigint>()
   for (const r of results) {
-    const v = scoreRatio(r.score, r.totalMarks)
-    if (v === null) {
+    const s = hundredths(r.score)
+    const t = hundredths(r.totalMarks)
+    if (s === null || t === null || t === BigInt(0)) {
       skipped++
       continue
     }
     n++
-    sum = addFractions(sum, v)
+    addToTotal(sum, t, s)
   }
   return examSummary(n, sum, skipped)
 }
@@ -235,10 +235,11 @@ export function summariseExams(results: readonly { score: string; totalMarks: st
  * @param parts summaries to add up
  */
 export function mergeExams(parts: readonly ExamSummary[]): ExamSummary {
-  let n = 0, sum = ZERO, skipped = 0
+  let n = 0, skipped = 0
+  const sum = new Map<bigint, bigint>()
   for (const p of parts) {
     n += p.results
-    sum = addFractions(sum, p.ratioSum)
+    for (const [t, s] of p.ratioSum) addToTotal(sum, t, s)
     skipped += p.skipped
   }
   return examSummary(n, sum, skipped)
@@ -266,8 +267,10 @@ export function formatPercent(p: number | null): string {
  * count, so a child who moved out doesn't skew this class's numbers, and the
  * class totals always equal the sum of the rows shown.
  * @param input the class's raw rows
+ * @param opts `students: false` skips building per-child summaries (`students` is
+ *   empty); class totals are then merged straight from the raw rows and are identical.
  */
-export function classStats(input: ClassStatsInput): ClassStats {
+export function classStats(input: ClassStatsInput, opts: { students?: boolean } = {}): ClassStats {
   const marks = new Map<number, { present: number; late: number; absent: number }>()
   const scores = new Map<number, { score: string; totalMarks: string }[]>()
   for (const s of input.students) {
@@ -279,13 +282,28 @@ export function classStats(input: ClassStatsInput): ClassStats {
     if (!c) continue
     // `count` is a non-negative integer; anything else (negative, fractional, NaN) counts as 0.
     const raw = a.count ?? 1
-    const n = Number.isInteger(raw) && raw > 0 ? raw : 0
-    if (a.status === "PRESENT") c.present += n
-    else if (a.status === "LATE") c.late += n
-    else if (a.status === "ABSENT") c.absent += n
+    tally(c, a.status, Number.isInteger(raw) && raw > 0 ? raw : 0)
   }
   for (const e of input.exams) {
     for (const r of e.results) scores.get(r.personId)?.push({ score: r.score, totalMarks: e.totalMarks })
+  }
+  if (opts.students === false) {
+    const total = { present: 0, late: 0, absent: 0 }
+    for (const c of marks.values()) {
+      total.present += c.present
+      total.late += c.late
+      total.absent += c.absent
+    }
+    return {
+      id: input.id,
+      name: input.name,
+      level: input.level,
+      location: input.location,
+      enrolled: input.students.length,
+      attendance: withRate(total),
+      exams: summariseExams([...scores.values()].flat()),
+      students: [],
+    }
   }
   const students = input.students.map((s) => ({
     personId: s.personId,
