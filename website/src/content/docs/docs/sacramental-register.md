@@ -31,7 +31,7 @@ Numbers are assigned when you save and are never reused. If you delete an entry,
 
 ## Browse the register
 
-Open **Sacraments** in the sidebar. The list shows register number, rite, person, date and place, newest first. Use the **Sacrament** and **Year** filters to narrow it. The page shows the latest 500 entries and says so when there are more; filter to see the rest. Select a register number for the entry's detail page.
+Open **Sacraments** in the sidebar. The list shows register number, rite, person, date and place, newest first. Use the **Sacrament** and **Year** filters to narrow it. The page shows 500 entries at a time; when there are more, **Previous** and **Next** links appear below the list and keep your filters. Select a register number for the entry's detail page.
 
 ## Add an entry (ADMIN, PASTOR)
 

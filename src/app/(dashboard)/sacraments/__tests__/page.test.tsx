@@ -24,7 +24,7 @@ const ROW = {
 }
 
 /** Render the page for given search params. */
-async function render(sp: { type?: string; year?: string } = {}): Promise<string> {
+async function render(sp: { type?: string; year?: string; page?: string } = {}): Promise<string> {
   return renderToStaticMarkup((await SacramentsPage({ searchParams: Promise.resolve(sp) })) as React.ReactElement)
 }
 
@@ -76,9 +76,45 @@ describe("SacramentsPage", () => {
     expect(JSON.stringify(findMany.mock.calls[0][0].select)).not.toMatch(/notes|godparents|spouseName/)
   })
 
-  it("shows a cap notice when more than 500 rows exist", async () => {
+  it("offers a next link keeping the filters when more than 500 rows exist", async () => {
     findMany.mockResolvedValue(Array.from({ length: 501 }, (_, i) => ({ ...ROW, id: i + 1 })))
-    expect(await render()).toContain("Showing the latest 500 entries")
+    const html = await render({ type: "MARRIAGE", year: "2026" })
+    expect(html).toContain("Page 1")
+    expect(html).toContain("/sacraments?type=MARRIAGE&amp;year=2026&amp;page=2")
+    expect(html).not.toContain("Previous")
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 501 }))
+  })
+
+  it("page 2 skips the first 500 and links back, with no next link on the last page", async () => {
+    findMany.mockResolvedValue([ROW])
+    const html = await render({ page: "2" })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 500, take: 501 }))
+    expect(html).toContain("Page 2")
+    expect(html).toContain('href="/sacraments"')
+    expect(html).not.toContain("Next")
+  })
+
+  it("an out-of-range page says so and links to the first page", async () => {
+    findMany.mockResolvedValue([])
+    const html = await render({ page: "9", type: "BAPTISM" })
+    expect(html).toContain("No entries on this page.")
+    expect(html).toContain('href="/sacraments?type=BAPTISM"')
+    expect(html).not.toContain("No entries in the register yet.")
+  })
+
+  it("caps a huge page number", async () => {
+    await render({ page: "9999" })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 999 * 500 }))
+  })
+
+  it("Previous keeps the filters", async () => {
+    const html = await render({ page: "3", type: "MARRIAGE", year: "2026" })
+    expect(html).toContain("/sacraments?type=MARRIAGE&amp;year=2026&amp;page=2")
+  })
+
+  it("treats a malformed page as page 1", async () => {
+    await render({ page: "-3" })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0 }))
   })
 
   it("shows the empty state", async () => {

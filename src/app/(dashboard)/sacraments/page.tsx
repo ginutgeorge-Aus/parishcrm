@@ -11,10 +11,37 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-type Props = { searchParams: Promise<{ type?: string; year?: string }> }
+type Props = { searchParams: Promise<{ type?: string; year?: string; page?: string }> }
 
-/** Most rows one page shows; a notice appears when the register is longer. */
-const LIST_CAP = 500
+/** Rows per page; Previous/Next links appear when the register is longer. */
+const PAGE_SIZE = 500
+/** Highest page number accepted (500,000 rows), so a crafted URL cannot force a huge OFFSET. */
+const MAX_PAGE = 1000
+
+/**
+ * Parse the `?page=` value: a positive integer up to MAX_PAGE (bounds the SQL
+ * offset), else 1.
+ * @param raw query-string value
+ */
+function parsePage(raw: string | undefined): number {
+  if (!raw || !/^\d{1,4}$/.test(raw)) return 1
+  return Math.min(MAX_PAGE, Math.max(1, Number(raw)))
+}
+
+/**
+ * Build a register URL that keeps the active filters.
+ * @param type rite filter, or null
+ * @param year year filter, or null
+ * @param page page number (omitted for page 1)
+ */
+function pageHref(type: string | null, year: number | null, page: number): string {
+  const qs = new URLSearchParams()
+  if (type) qs.set("type", type)
+  if (year) qs.set("year", String(year))
+  if (page > 1) qs.set("page", String(page))
+  const s = qs.toString()
+  return s ? `/sacraments?${s}` : "/sacraments"
+}
 
 const SELECT_CLASS =
   "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -38,11 +65,13 @@ export default async function SacramentsPage(props: Readonly<Props>) {
   const sp = await props.searchParams
   const type = Object.values(SacramentType).find((t) => t === sp.type) ?? null
   const year = parseYear(sp.year)
+  const page = parsePage(sp.page)
 
   const rows = await prisma.sacramentRecord.findMany({
     where: { ...(type ? { type } : {}), ...(year ? { year } : {}) },
     orderBy: [{ date: "desc" }, { id: "desc" }],
-    take: LIST_CAP + 1,
+    skip: (page - 1) * PAGE_SIZE,
+    take: PAGE_SIZE + 1,
     select: {
       id: true,
       type: true,
@@ -52,8 +81,8 @@ export default async function SacramentsPage(props: Readonly<Props>) {
       person: { select: { id: true, firstName: true, lastName: true } },
     },
   })
-  const capped = rows.length > LIST_CAP
-  const shown = capped ? rows.slice(0, LIST_CAP) : rows
+  const hasNext = rows.length > PAGE_SIZE
+  const shown = hasNext ? rows.slice(0, PAGE_SIZE) : rows
 
   return (
     <div className="space-y-4">
@@ -88,7 +117,12 @@ export default async function SacramentsPage(props: Readonly<Props>) {
         )}
       </form>
 
-      {shown.length === 0 ? (
+      {shown.length === 0 && page > 1 ? (
+        <p className="text-sm text-muted-foreground">
+          No entries on this page.{" "}
+          <Link href={pageHref(type, year, 1)} className="underline">Back to the first page</Link>
+        </p>
+      ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {type || year ? "No entries match these filters." : "No entries in the register yet."}
         </p>
@@ -122,10 +156,20 @@ export default async function SacramentsPage(props: Readonly<Props>) {
               ))}
             </TableBody>
           </Table>
-          {capped && (
-            <p className="text-sm text-muted-foreground">
-              Showing the latest {LIST_CAP} entries. Filter by sacrament or year to narrow the list.
-            </p>
+          {(page > 1 || hasNext) && (
+            <nav aria-label="Register pages" className="flex items-center gap-3 text-sm text-muted-foreground">
+              {page > 1 && (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={pageHref(type, year, page - 1)}>Previous</Link>
+                </Button>
+              )}
+              <span>Page {page}</span>
+              {hasNext && (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={pageHref(type, year, page + 1)}>Next</Link>
+                </Button>
+              )}
+            </nav>
           )}
         </>
       )}
