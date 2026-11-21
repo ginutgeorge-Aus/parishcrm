@@ -40,8 +40,37 @@ jest.mock("@/lib/prisma", () => ({
 
 const p2002 = () => Object.assign(new Error("unique"), { code: "P2002" })
 
+/**
+ * Drive `addEntry` through one P2034 serialization abort and assert the jittered backoff:
+ * exactly one timer is armed, the retry has not run one ms before the jitter elapses, and
+ * it succeeds once the jitter has elapsed. Owns the fake-timer lifecycle.
+ *
+ * @param input - Input passed to `addEntry`.
+ * @param jitterMs - Value the mocked `randomInt` returns for the backoff.
+ */
+async function expectP2034BackoffThenSuccess(input: Parameters<typeof addEntry>[1], jitterMs: number) {
+  jest.useFakeTimers()
+  try {
+    prismaMock.$transaction
+      .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+      .mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
+    jest.mocked(randomInt).mockReturnValueOnce(jitterMs as never)
+    const pending = addEntry(3, input)
+    await jest.advanceTimersByTimeAsync(jitterMs - 1)
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1) // still waiting on the backoff
+    expect(jest.getTimerCount()).toBe(1)
+    await jest.advanceTimersByTimeAsync(1)
+    expect(await pending).toBeUndefined()
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
+    expect(jest.getTimerCount()).toBe(0)
+  } finally {
+    jest.useRealTimers()
+  }
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
+  jest.mocked(randomInt).mockReset() // clearAllMocks keeps mockReturnValue, so jitter must not leak between tests
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "ADMIN" } })
   prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
   prismaMock.$queryRaw.mockResolvedValue([{ id: 11 }])
@@ -126,26 +155,9 @@ describe("addEntry", () => {
   })
 
   it("retries a P2034 serialization abort with backoff and then succeeds", async () => {
-    // Fake timers: no real jittered wait, and the delay is asserted from the timer the backoff arms.
-    jest.useFakeTimers()
-    try {
-      // Serialization aborts surface from $transaction (commit time), not from the row insert.
-      prismaMock.$transaction
-        .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
-        .mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
-      ;(randomInt as jest.Mock).mockReturnValueOnce(10) // known jitter so the wait is observable
-      const pending = addEntry(3, { outsideName: "Visitor", quantity: "1" })
-      await jest.advanceTimersByTimeAsync(9)
-      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1) // still waiting on the backoff
-      expect(jest.getTimerCount()).toBe(1)
-      await jest.advanceTimersByTimeAsync(1)
-      expect(await pending).toBeUndefined()
-      expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
-      expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(1)
-      expect(jest.getTimerCount()).toBe(0)
-    } finally {
-      jest.useRealTimers()
-    }
+    // Serialization aborts surface from $transaction (commit time), not from the row insert.
+    await expectP2034BackoffThenSuccess({ outsideName: "Visitor", quantity: "1" }, 10)
+    expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(1)
   })
 
   it("two parallel adds that collide once on bankRef both succeed", async () => {
@@ -300,23 +312,9 @@ describe("addEntry concurrency", () => {
   })
 
   it("a P2034 abort from $transaction is retried after a jittered backoff", async () => {
-    jest.useFakeTimers()
-    jest.mocked(randomInt).mockReturnValue(12 as never)
-    try {
-      prismaMock.$transaction
-        .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
-        .mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
-      const pending = addEntry(3, { familyId: 2, quantity: "1" })
-      await jest.advanceTimersByTimeAsync(0)
-      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1) // waiting out the backoff
-      await jest.advanceTimersByTimeAsync(11) // just short of the 12ms backoff
-      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
-      await jest.advanceTimersByTimeAsync(1)
-      expect(await pending).toBeUndefined()
-      expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
-    } finally {
-      jest.useRealTimers()
-    }
+    await expectP2034BackoffThenSuccess({ familyId: 2, quantity: "1" }, 12)
+    expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(1) // the aborted attempt wrote nothing
+    expect(randomInt).toHaveBeenCalledTimes(1) // one jitter draw for the one retry
   })
 
   it("gives up with BUSY after repeated P2034 aborts", async () => {
