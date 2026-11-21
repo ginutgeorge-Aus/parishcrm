@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type ChangeEvent, type FormEvent } from "react"
 import { Button } from "@/components/ui/button"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { SettingsCard } from "./ui/SettingsCard"
 import { SettingsRow } from "./ui/SettingsRow"
@@ -51,6 +52,18 @@ export function BrandingForm() {
         onSuccess?.()
       }
     })
+
+  /** Resets one slot. Runs inside the confirm dialog; returns `{ error }` so the dialog stays open on failure. */
+  const reset = async (param: string): Promise<{ error?: string }> => {
+    const r = await resetBranding(param)
+    if (r && "error" in r) {
+      setMsg((m) => ({ ...m, [param]: { error: r.error } }))
+      return { error: r.error }
+    }
+    setMsg((m) => ({ ...m, [param]: { success: r?.success ?? "Updated." } }))
+    setVer((v) => ({ ...v, [param]: (v[param] ?? 0) + 1 }))
+    return {}
+  }
 
   /**
    * Validates then uploads one slot's file. Uses onSubmit (not a form action):
@@ -108,15 +121,18 @@ export function BrandingForm() {
                     className="min-h-11 text-xs file:mr-2 file:min-h-9 file:rounded file:border file:border-border file:bg-background file:px-3 file:py-2 file:text-xs"
                   />
                   <Button type="submit" className="min-h-11" disabled={pending}>Upload</Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11"
+                  <DeleteConfirmButton
+                    onConfirm={() => reset(s.param)}
                     disabled={pending}
-                    onClick={() => run(s.param, () => resetBranding(s.param))}
-                  >
-                    Reset
-                  </Button>
+                    title={`Reset ${s.label} to the default?`}
+                    description={`This removes your uploaded ${s.label.toLowerCase()} image and restores the neutral default at once. This cannot be undone.`}
+                    triggerLabel="Reset"
+                    triggerVariant="outline"
+                    triggerSize="default"
+                    triggerClassName="min-h-11"
+                    confirmLabel="Reset"
+                    pendingLabel="Resetting…"
+                  />
                 </form>
                 <FormFeedback state={m} className="mt-1 text-xs" />
               </div>

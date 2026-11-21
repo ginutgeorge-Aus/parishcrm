@@ -493,6 +493,8 @@ export type DgrReceiptListRow = {
   receiptNo: string
   fyLabel: string
   donorName: string
+  /** Decrypted; shown only in the send-confirm dialog to accounting users. */
+  donorEmail: string | null
   total: number
   status: string
   sentAt: Date | null
@@ -518,6 +520,7 @@ export async function listDgrReceipts(
       receiptNo: true,
       fyEndYear: true,
       donorName: true,
+      donorEmail: true,
       totalAmount: true,
       status: true,
       sentAt: true,
@@ -529,6 +532,7 @@ export async function listDgrReceipts(
     receiptNo: r.receiptNo,
     fyLabel: fyLabel(r.fyEndYear),
     donorName: r.donorName,
+    donorEmail: r.donorEmail ? safeDecrypt(r.donorEmail) : null,
     total: Number(r.totalAmount),
     status: r.status,
     sentAt: r.sentAt,
