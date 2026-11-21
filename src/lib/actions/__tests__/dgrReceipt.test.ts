@@ -748,7 +748,7 @@ describe("sendDgrReceipt", () => {
     const res = await sendDgrReceipt(5)
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1)
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 5, status: "SENDING" }, data: expect.objectContaining({ status: "FAILED" }) })
+      expect.objectContaining({ where: { id: 5, status: "SENDING", sentAt: expect.any(Date) }, data: expect.objectContaining({ status: "FAILED" }) })
     )
     expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
   })
