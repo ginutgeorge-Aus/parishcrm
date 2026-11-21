@@ -43,6 +43,36 @@ jobs:
           cache: 'npm'
       # No secrets in this step: install scripts must not see the demo DB.
       - run: npm ci --no-audit --no-fund
+      # `migrate reset` erases whatever database DEMO_DATABASE_URL points at.
+      # Refuse unless (1) its host equals repo variable DEMO_DB_HOST and (2) the
+      # DB is empty or carries the sentinel that seed-demo.ts writes. The URL
+      # is never echoed. Needs psql (preinstalled on ubuntu-latest).
+      - name: Guard - target must be the demo database
+        env:
+          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          EXPECTED_HOST: ${{ vars.DEMO_DB_HOST }}
+        run: |
+          if [ -z "$EXPECTED_HOST" ]; then
+            echo "::error::Repo variable DEMO_DB_HOST is not set; refusing to wipe a database"
+            exit 1
+          fi
+          host=$(node -e 'try { process.stdout.write(new URL(process.env.DATABASE_URL).hostname) } catch { process.exit(1) }') || {
+            echo "::error::DEMO_DATABASE_URL is not a valid URL"
+            exit 1
+          }
+          if [ "$host" != "$EXPECTED_HOST" ]; then
+            echo "::error::DEMO_DATABASE_URL host does not match DEMO_DB_HOST; refusing to wipe"
+            exit 1
+          fi
+          has_table=$(psql "$DATABASE_URL" -tAX -c "SELECT to_regclass('public.\"AppSetting\"') IS NOT NULL")
+          if [ "$has_table" = "t" ]; then
+            has_sentinel=$(psql "$DATABASE_URL" -tAX -c "SELECT EXISTS (SELECT 1 FROM \"AppSetting\" WHERE key = 'demoSentinel' AND value = 'true')")
+            if [ "$has_sentinel" != "t" ]; then
+              echo "::error::Database has no demoSentinel in AppSetting; not the demo DB, refusing to wipe"
+              exit 1
+            fi
+          fi
+          echo "Guard passed: host matches and database is the demo DB (or empty)"
       - name: Reset and seed
         env:
           # Neon DIRECT (unpooled) URL: `migrate reset` needs a session-level

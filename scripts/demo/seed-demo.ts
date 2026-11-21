@@ -28,6 +28,11 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: proc
  * transaction, so a failed run leaves the DB unchanged and can simply be rerun.
  */
 async function main() {
+  // Marks this database as the demo. .github/workflows/demo-reset.yml refuses to
+  // `migrate reset` any non-empty database that lacks it. Written first, so a
+  // failed seed below still leaves the DB wipeable by the next nightly run.
+  await prisma.appSetting.upsert({ where: { key: "demoSentinel" }, update: { value: "true" }, create: { key: "demoSentinel", value: "true" } })
+
   const extra = await prisma.family.count({ where: { name: { not: "Sample" } } })
   if (extra > 0) throw new Error(`${extra} families already present — run after a reset (prisma migrate reset + db:seed).`)
 
