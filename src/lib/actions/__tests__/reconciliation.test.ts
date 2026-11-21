@@ -20,6 +20,8 @@ jest.mock("@/lib/prisma", () => ({
     // Existence check on the client-supplied paymentAccountId, ahead of the
     // transaction — defaults to "found" so existing tests don't all need it.
     paymentAccount: { findUnique: jest.fn().mockResolvedValue({ id: 1 }) },
+    // Lock date is read through the shared client (not tx) after the advisory lock is held.
+    appSetting: { findUnique: jest.fn() },
   },
 }))
 
@@ -42,16 +44,15 @@ function withTx(opts: {
   updatedCount?: number
   // unreconciled rows on/before the lock date (skipped)
   skippedCount?: number
-  // locked-range guard's lock-date read via tx.appSetting. Undefined →
+  // lock-date read (via the shared client, after the advisory lock). Undefined →
   // no lock configured (default).
   lockDate?: string
 }) {
+  ;(prisma.appSetting.findUnique as jest.Mock).mockResolvedValue(opts.lockDate ? { value: opts.lockDate } : null)
   const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
     reconciliationStatement: { upsert: jest.fn().mockResolvedValue({ id: 10 }) },
     accountOpeningBalance: { findUnique: jest.fn().mockResolvedValue(opts.opening) },
-    appSetting: {
-      findUnique: jest.fn().mockResolvedValue(opts.lockDate ? { value: opts.lockDate } : null),
-    },
     transaction: {
       aggregate: jest
         .fn()
@@ -108,7 +109,29 @@ test("reconciles the period when the book balance matches to the cent", async ()
 })
 
 // --- locked-period range guard ---
-test("reconciles rows after the lock date when the lock is later than the opening balance", async () => {
+// Regression (AUD-3-01): a save used to read the lock with no ordering against
+// setAccountingLockDate, so a lock committed mid-save could be missed.
+test("AUD-3-01: holds the shared accounting-lock advisory lock before the upsert and reads the lock after it", async () => {
+  const tx = withTx({ opening: null })
+  const order: string[] = []
+  tx.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+    order.push(`lock:${strings.join("")}`)
+    return []
+  })
+  tx.reconciliationStatement.upsert.mockImplementation(async () => {
+    order.push("upsert")
+    return { id: 10 }
+  })
+  ;(prisma.appSetting.findUnique as jest.Mock).mockImplementation(async () => {
+    order.push("read-lock")
+    return null
+  })
+  await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "100.00")
+  expect(order[0]).toMatch(/^lock:.*pg_advisory_xact_lock_shared/)
+  expect(order).toEqual([order[0], "upsert", "read-lock"])
+})
+
+test("AUD-3-01: reconciles rows after the lock date when the lock is later than the opening balance", async () => {
   const tx = withTx({
     opening: { amount: "100.00", asOfDate: new Date("2024-07-01T00:00:00Z") },
     income: "50.00",
@@ -119,8 +142,9 @@ test("reconciles rows after the lock date when the lock is later than the openin
   })
   const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
   // Book balance still uses the full range from the opening balance date.
-  const aggWhere = tx.transaction.aggregate.mock.calls[0][0].where
-  expect(aggWhere.date.gte).toEqual(new Date("2024-07-01T00:00:00Z"))
+  const fullRange = { gte: new Date("2024-07-01T00:00:00Z"), lte: new Date("2026-07-31T23:59:59.999Z") }
+  expect(tx.transaction.aggregate.mock.calls[0][0].where.date).toEqual(fullRange)
+  expect(tx.transaction.aggregate.mock.calls[1][0].where.date).toEqual(fullRange)
   expect(tx.transaction.updateMany).toHaveBeenCalled()
   expect(logAuditTx).toHaveBeenCalledWith(
     tx,
@@ -205,9 +229,10 @@ test("still reconciles when the lock date predates the opening balance", async (
     lockDate: "2025-12-31",
   })
   const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
-  expect(tx.transaction.updateMany.mock.calls[0][0].where.date.gte).toEqual(
-    new Date("2026-01-01T00:00:00Z"),
-  )
+  expect(tx.transaction.updateMany.mock.calls[0][0].where.date).toEqual({
+    gte: new Date("2026-01-01T00:00:00Z"),
+    lte: new Date("2026-07-31T23:59:59.999Z"),
+  })
   expect(tx.transaction.count).not.toHaveBeenCalled()
   expect(tx.transaction.aggregate.mock.calls[0][0].where.date).toEqual({
     gte: new Date("2026-01-01T00:00:00Z"),

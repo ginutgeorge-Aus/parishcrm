@@ -14,11 +14,13 @@ jest.mock("@/lib/prisma", () => {
     paymentAccount: {
       findUnique: jest.fn().mockResolvedValue({ id: 1 }),
     },
-    // the locked-range guard reads the lock date via `tx.appSetting`,
-    // not the outer prisma singleton — default no lock configured.
+    // the lock date is read through this client after the advisory lock
+    // is held (tx === prisma here) — default no lock configured.
     appSetting: {
       findUnique: jest.fn().mockResolvedValue(null),
     },
+    // Advisory lock (holdAccountingLock) runs on tx.
+    $queryRaw: jest.fn().mockResolvedValue([]),
     transaction: {
       aggregate: jest.fn(),
       updateMany: jest.fn(),
@@ -248,7 +250,9 @@ describe("saveStatementBalance", () => {
     const result = await saveStatementBalance(1, "2026-05-31", "2820.00")
 
     // Balance check spans the full range; only the update is narrowed.
-    expect(mockAggregate.mock.calls[0][0].where.date.gte).toEqual(new Date("2026-01-01"))
+    const fullRange = { gte: new Date("2026-01-01"), lte: new Date("2026-05-31T23:59:59.999Z") }
+    expect(mockAggregate.mock.calls[0][0].where.date).toEqual(fullRange)
+    expect(mockAggregate.mock.calls[1][0].where.date).toEqual(fullRange)
     expect(mockUpdateMany.mock.calls[0][0].where.date).toEqual({
       gt: new Date("2026-03-31T23:59:59.999Z"),
       lte: new Date("2026-05-31T23:59:59.999Z"),
@@ -256,7 +260,7 @@ describe("saveStatementBalance", () => {
     expect(result && "success" in result ? result.success : "").toMatch(/3 unreconciled transactions.*left unchanged/i)
   })
 
-  it("rejects the save (rolls back) when a concurrent lock change puts the statement date in a locked period", async () => {
+  it("returns the locked-period error and writes nothing when a concurrent lock change covers the statement date (pre-check mocked clear, so the in-transaction guard fires)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUpsert.mockResolvedValue({ id: 1 })
     mockOpening.mockResolvedValue({ amount: 1000, asOfDate: new Date("2026-01-01") })
@@ -267,6 +271,7 @@ describe("saveStatementBalance", () => {
     expect(mockAggregate).not.toHaveBeenCalled()
     expect(mockUpdateMany).not.toHaveBeenCalled()
     expect(result).toEqual({ error: expect.stringMatching(/locked accounting period/i) })
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 
   it("lock on the opening day: rows after it are reconciled, opening-day rows are skipped", async () => {

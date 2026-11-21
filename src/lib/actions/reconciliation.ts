@@ -12,7 +12,7 @@ import { endOfDayUTC } from "@/lib/dates"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { assertUnlocked, getAccountingLockDate } from "@/lib/accountingLock"
+import { assertUnlocked, getAccountingLockDate, holdAccountingLock } from "@/lib/accountingLock"
 import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isP2034 } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
@@ -128,6 +128,10 @@ async function finalizeReconciliation(
     try {
       return await prisma.$transaction(
         async (tx) => {
+          // Shared accounting-lock advisory lock, held to commit: a concurrent
+          // setAccountingLockDate (exclusive) waits for this save, so the lock read in
+          // reconcileIfBalanced stays true until the save commits.
+          await holdAccountingLock(tx, "shared")
           const record = await tx.reconciliationStatement.upsert({
             where: {
               paymentAccountId_statementDate: { paymentAccountId, statementDate },
@@ -177,12 +181,15 @@ async function finalizeReconciliation(
  * mirror the reconciliation page's equation exactly so the on-screen Difference
  * and this decision never disagree.
  *
- * Lock handling: the lock date is read via `tx`. If it covers the statement date
- * itself (a lock change racing the saveStatementBalance pre-check) this throws
+ * Lock handling: the caller already holds the shared accounting-lock advisory
+ * lock (holdAccountingLock), so the lock date read here cannot change before
+ * this transaction commits. If it covers the statement date itself (a lock
+ * change racing the saveStatementBalance pre-check) this throws
  * StatementDateLockedError so the caller rolls back the statement upsert. If the
  * lock falls inside the range, only rows dated after the lock day are marked
- * reconciled; locked rows are read-only and left untouched, and the message
- * reports how many unreconciled locked rows were skipped.
+ * reconciled (locked rows are NOT marked: they are read-only and left
+ * untouched), and the message reports how many unreconciled locked rows were
+ * skipped.
  *
  * Runs on the caller's transaction client (`tx`) so the read and the updateMany
  * are one atomic Serializable unit.
@@ -198,12 +205,13 @@ async function reconcileIfBalanced(
   closingBalance: string
 ): Promise<{ result: ActionResultWithSuccess; reconciledCount: number | null; lockApplied?: string | null }> {
   const lte = endOfDayUTC(statementDate)
-  // Read the lock date via `tx` (not the outer prisma singleton used by the
-  // assertUnlocked pre-check in saveStatementBalance) so a concurrent lock-date
-  // change can't race between that pre-check and this commit. The lock only
-  // narrows which rows get marked reconciled (below); the book-balance
-  // equation still spans the full range so it matches the reconciliation page.
-  const lockDate = await getAccountingLockDate(tx)
+  // Read via the shared client, NOT `tx`: under Serializable the tx snapshot
+  // predates any wait on the advisory lock, so a lock change committed during that
+  // wait would be invisible. The advisory lock held by the caller stops any further
+  // change until commit. The lock only narrows which rows get marked reconciled
+  // (below); the book-balance equation still spans the full range so it matches
+  // the reconciliation page.
+  const lockDate = await getAccountingLockDate()
   const lockEnd = lockDate ? endOfDayUTC(lockDate) : null
   // A lock change between the saveStatementBalance pre-check and this commit can
   // put the statement date itself in a locked period: abort so the upsert rolls back.
