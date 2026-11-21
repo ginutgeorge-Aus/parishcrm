@@ -53,7 +53,7 @@ export type ClassStatsInput = {
   name: string
   level: number
   location: string
-  /** Children counted (enrolled, not archived). Order is kept in `students`. */
+  /** Children counted (enrolled, not archived). Order is kept in `students`; a repeated `personId` is collapsed, first kept. */
   students: { personId: number; name: string }[]
   /**
    * Marks on this class's rolls; rows for children not in `students` are ignored.
@@ -265,7 +265,8 @@ export function formatPercent(p: number | null): string {
 /**
  * Per-child and class totals for one class. Only children in `students`
  * count, so a child who moved out doesn't skew this class's numbers, and the
- * class totals always equal the sum of the rows shown.
+ * class totals always equal the sum of the rows shown. A `personId` listed more
+ * than once in `input.students` is collapsed (first occurrence kept) in both paths.
  * @param input the class's raw rows
  * @param opts `students: false` skips building per-child summaries (`students` is
  *   empty); class totals are then merged straight from the raw rows and are identical.
