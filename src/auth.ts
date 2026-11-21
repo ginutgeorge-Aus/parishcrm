@@ -122,7 +122,8 @@ async function claimAttempt(userId: number, field: AttemptField, healed = false)
         data: { [field]: { increment: 1 } },
         select: { [field]: true },
       })
-      const attempts = (row as unknown as Record<AttemptField, number | undefined>)?.[field] ?? 0
+      const attempts = (row as Partial<Record<AttemptField, unknown>> | null)?.[field]
+      if (typeof attempts !== "number") throw new Error(`claimAttempt: ${field} counter is not a number`)
       if (attempts < 5) return { attempts, lockedUntil: null }
       const lockedUntil = new Date(Date.now() + LOCK_MS)
       // Reset the counter as we lock, else one wrong guess after expiry re-locks on the stale counter.
@@ -131,7 +132,10 @@ async function claimAttempt(userId: number, field: AttemptField, healed = false)
     })
   } catch (err) {
     if ((err as { code?: string })?.code !== "P2025") throw err
-    if (healed) return null
+    if (healed) {
+      logger.warn("login attempt claim rejected", { reason: "claim_rejected", field, healed: true })
+      return null
+    }
     // Heal a row stuck at counter >= 5 with no live lock (left by the pre-claim code, which wrote the
     // lock in a separate step): the `lt: 5` claim never matches it, so the account would stay locked
     // with no expiry. Live claims never leave this state (the 5th zeroes the counter), so a row the
@@ -140,7 +144,31 @@ async function claimAttempt(userId: number, field: AttemptField, healed = false)
       where: { id: userId, [field]: { gte: 5 }, OR: [{ [lockField]: null }, { [lockField]: { lte: new Date() } }] },
       data: { [field]: 0 },
     })
-    return heal?.count === 1 ? claimAttempt(userId, field, true) : null
+    if (heal?.count === 1) return claimAttempt(userId, field, true)
+    logger.warn("login attempt claim rejected", { reason: "claim_rejected", field, healed: false })
+    return null
+  }
+}
+
+/**
+ * Undoes one claimed guess slot for a failure that was not a wrong guess (server fault, or a
+ * correct code that lost the consume race). Best-effort: a failed write is logged, never thrown.
+ * @param userId the account the claim was made against
+ * @param field which counter the claim came from
+ * @param claim the claim to refund
+ */
+async function refundAttempt(userId: number, field: AttemptField, claim: Claim): Promise<void> {
+  const lockField = LOCK_FIELD[field]
+  try {
+    if (claim.lockedUntil) {
+      // The claim was the 5th and set the lock (counter reset to 0): undo that lock, matched on
+      // its exact value, and restore the 4 real failures it zeroed.
+      await prisma.user.updateMany({ where: { id: userId, [lockField]: claim.lockedUntil }, data: { [lockField]: null, [field]: 4 } })
+    } else {
+      await prisma.user.updateMany({ where: { id: userId, [field]: { gt: 0 } }, data: { [field]: { decrement: 1 } } })
+    }
+  } catch (err) {
+    logger.warn("login attempt refund failed", { field, error: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -252,13 +280,21 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   // Compare-and-swap on the value this request claimed: a concurrent wrong-password
   // increment makes this a no-op instead of being silently wiped.
   // A correct 5th password still logs in: drop the lock that claim set (matched on its exact value).
-  if (claimed.lockedUntil) {
-    await prisma.user.updateMany({ where: { id: user.id, lockedUntil: claimed.lockedUntil }, data: { lockedUntil: null } })
-  } else if (claimed.attempts > 0) {
-    await prisma.user.updateMany({
-      where: { id: user.id, failedLoginAttempts: claimed.attempts },
-      data: { failedLoginAttempts: 0 },
-    })
+  // Every claim bumped the counter, so a non-5th claim always has a value to reset. The write is
+  // retried once and is non-fatal: a correct password must not be rejected over a failed cleanup.
+  const clearWhere = claimed.lockedUntil
+    ? { id: user.id, lockedUntil: claimed.lockedUntil }
+    : { id: user.id, failedLoginAttempts: claimed.attempts }
+  const clearData = claimed.lockedUntil ? { lockedUntil: null } : { failedLoginAttempts: 0 }
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await prisma.user.updateMany({ where: clearWhere, data: clearData })
+      break
+    } catch (err) {
+      if (attempt === 2) {
+        logger.warn("login attempt reset failed", { reason: "reset_failed", error: err instanceof Error ? err.message : String(err) })
+      }
+    }
   }
   return user
 }
@@ -471,10 +507,10 @@ export async function authorizeCredentials(
     if (!user.otpCode || !user.otpExpiresAt) return null
     if (user.otpExpiresAt < new Date()) return null
 
-    // DB stores the HMAC of the OTP; hash the submitted code and compare.
-    // Timing-safe comparison — guard against length mismatch (throws if unequal lengths)
     const claimedOtp = await claimAttempt(user.id, "failedOtpAttempts")
     if (claimedOtp === null) throw new AccountLocked()
+    // DB stores the HMAC of the OTP; hash the submitted code and compare.
+    // Timing-safe comparison — guard against length mismatch (throws if unequal lengths)
     const storedBuf = Buffer.from(user.otpCode, "utf8")
     const inputBuf = Buffer.from(hashOtp(otp), "utf8")
     const otpValid = storedBuf.length === inputBuf.length && timingSafeEqual(storedBuf, inputBuf)
@@ -506,7 +542,9 @@ export async function authorizeCredentials(
     })
     if (count === 0) {
       // Lost the race (or expired at the instant of the write) — treat like
-      // an invalid code rather than minting a second session.
+      // an invalid code rather than minting a second session. The code was correct, so refund the
+      // claimed attempt: only wrong codes count towards the lockout.
+      await refundAttempt(user.id, "failedOtpAttempts", claimedOtp)
       void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "invalid_otp" }, ip)
       return null
     }
@@ -529,19 +567,7 @@ export async function authorizeCredentials(
       // Server-side fault (unreadable stored secret), not a wrong guess: don't
       // count it towards the user's OTP lockout.
       if (result.reason === "totp_secret_unreadable") {
-        if (claimedTotp.lockedUntil) {
-          // This claim was the 5th and set the lock (counter reset to 0): undo that lock, matched on
-          // its exact value, and restore the 4 real failures it zeroed.
-          await prisma.user.updateMany({
-            where: { id: user.id, otpLockedUntil: claimedTotp.lockedUntil },
-            data: { otpLockedUntil: null, failedOtpAttempts: 4 },
-          })
-        } else {
-          await prisma.user.updateMany({
-            where: { id: user.id, failedOtpAttempts: { gt: 0 } },
-            data: { failedOtpAttempts: { decrement: 1 } },
-          })
-        }
+        await refundAttempt(user.id, "failedOtpAttempts", claimedTotp)
         void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: result.reason }, ip)
         return null
       }

@@ -18,13 +18,20 @@ see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/); for the log
 3. Save. The account is created with an unusable random password — nobody can log into it
    as-is. The new user is immediately emailed a "set your password" invite link, valid for 7
    days.
-4. If the OFFICE_ADMIN creating the account is not an ADMIN, the role field is restricted to
-   non-ADMIN, non-PASTOR roles (see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/) for why).
+4. If the person creating the account is an OFFICE_ADMIN, the role field is restricted to
+   roles other than ADMIN, PASTOR and OFFICE_ADMIN (see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/) for why).
+   Only an ADMIN can create or manage OFFICE_ADMIN accounts.
 
 **Editing an account:** open the user from the Users list, change name/email/role, and
 optionally set a new password directly (this immediately signs the user out everywhere and
-clears any lockout on the account). An OFFICE_ADMIN cannot edit an ADMIN or PASTOR account,
-and cannot change anyone's role to ADMIN or PASTOR.
+clears any lockout on the account). Changing someone's email or role also signs them out
+everywhere, and an email change cancels any password-reset link or sign-in code already sent
+to the old address. An OFFICE_ADMIN cannot edit an ADMIN, PASTOR or other OFFICE_ADMIN
+account, and cannot give anyone one of those roles.
+
+**Editing your own account:** from this screen you can change only your own name. To change
+your password use **Forgot password** on the sign-in page; another administrator changes your
+email or role.
 
 **Revoking someone's passkeys:** if a staff member loses a device that holds one of their
 passkeys, click **Revoke passkeys** on their row (shown only when they have at least one).
@@ -33,6 +40,10 @@ sign in with their password and code, and add new passkeys from **My Account**.
 
 **Resending the welcome invite:** if the original invite email never arrived or expired, use
 **Resend invite** on the user's row — it issues a fresh 7-day token and re-sends the email.
+It works only for someone who has never signed in; anyone who has signed in uses
+**Forgot password** on the sign-in page instead. ("Has signed in" comes from the audit log's
+login entries, so this check is best effort: if a login's audit entry failed to save, a
+re-invite is still allowed.)
 
 **Unlocking an account:** if a staff member is locked out after repeated failed
 password/code attempts, an admin/office-admin can click **Unlock** on their row — this clears
@@ -44,7 +55,7 @@ own account this way (use a different admin, or just wait 15 minutes).
 authenticator app, click **Reset 2FA** on their row (shown only when they have one turned
 on). This removes the authenticator, its backup codes, their trusted devices and their
 passkeys, and signs them out; they sign in with emailed codes until they set it up again. Only an ADMIN can do
-this for an ADMIN or PASTOR, and you can't reset your own (use **My Account**). See
+this for an ADMIN, PASTOR or OFFICE_ADMIN, and you can't reset your own (use **My Account**). See
 [Login-and-Two-Step-Verification](/parishcrm/docs/login-and-two-step-verification/#using-it).
 
 **Deactivating a user:** delete the account from the Users list. This is a soft delete — the
@@ -60,6 +71,12 @@ User accounts live in `src/lib/actions/user.ts` (`createUser`, `updateUser`, `un
 `resetUserTotp`, `deleteUser`, `resendWelcome`), all gated by `canManageUsers` and `canAssignRole` from
 `src/lib/roleGuard.ts` — see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/) for the escalation rules those
 enforce.
+
+**Audited in the same transaction.** Every create, edit, delete, unlock, authenticator reset
+and passkey revoke writes its audit-log row inside the same database transaction as the
+change. If the audit row cannot be written, the change is rolled back and the screen shows an
+error, so no user or role change is ever saved without its history. An edit records the old
+and new role and whether the email or password changed (never the email addresses themselves).
 
 **Password-less provisioning.** `createUser` never asks for a password. It writes a random,
 unusable bcrypt hash and instead issues a single-use, HMAC-hashed, 7-day password-reset token

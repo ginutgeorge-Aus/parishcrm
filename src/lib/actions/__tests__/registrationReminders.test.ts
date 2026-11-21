@@ -46,12 +46,11 @@ function pendingRow(id: number) {
   return { id, firstName: "Anna", email: "enc:anna@x.org", paymentStatus: "PENDING", totalAmount: "25.00", publicToken: `tok-${id}` }
 }
 
-test("a PENDING registration with total 0.00 is not emailed and returns Nothing owing", async () => {
+test("AUD-4-02: a PENDING registration with total 0.00 is not emailed and returns Nothing owing", async () => {
   mRegs.mockResolvedValue([{ ...pendingRow(1), totalAmount: "0.00" }])
   const res = await sendPaymentReminders(10, [{ registrationId: 1 }], "Body")
   expect(mSend).not.toHaveBeenCalled()
-  expect(res).toMatchObject({ sent: 0, failed: 1 })
-  expect(JSON.stringify(res)).toContain("Nothing owing")
+  expect(res).toStrictEqual({ sent: 0, failed: 1, errors: [{ registrationId: 1, error: "Nothing owing" }] })
 })
 
 test("rejects when caller cannot manage the event", async () => {

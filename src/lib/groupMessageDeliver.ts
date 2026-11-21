@@ -147,7 +147,13 @@ async function sendClaimed(
   }
   if (!person || person.archivedAt || !person.emailConsent || !to || person.groupMemberships.length === 0) {
     // Terminal: burn the remaining attempts so the sweep never picks it up again.
-    await prisma.groupMessageRecipient.update({ where: { id: recipientId }, data: { status: "FAILED", attempts: MAX_DELIVERY_ATTEMPTS } })
+    try {
+      await prisma.groupMessageRecipient.update({ where: { id: recipientId }, data: { status: "FAILED", attempts: MAX_DELIVERY_ATTEMPTS } })
+    } catch (err) {
+      // Nothing was sent: release the claim as retryable FAILED so it is not later closed as an Unconfirmed (UNKNOWN) delivery, then stop the pass.
+      await resolveGroupRecipient(recipientId, "FAILED").catch(() => {})
+      throw err
+    }
     return "SKIPPED"
   }
   const text = renderGroupMessageText(person.firstName, ctx.body, ctx.groupName, ctx.churchName)
@@ -253,7 +259,7 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
       if (outcome === "STALE") { counts.unknown++; continue }
       if (outcome === "INFLIGHT") { counts.inFlight++; continue }
       if (outcome === "SENT") counts.sent++
-      else if (outcome === "UNKNOWN") counts.unknown++
+      else if (outcome === "UNKNOWN") { counts.unknown++; sawAmbiguous = true } // a send happened (ambiguous error or unrecorded SENT)
       else counts.failed++
       // Only a real send failure counts toward the streak (a skipped, no-longer-mailable person is not an SMTP problem).
       streak = outcome === "FAILED" ? streak + 1 : outcome === "SKIPPED" ? streak : 0
@@ -267,7 +273,7 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
   if (firstSendError !== undefined) {
     // One alert per pass, never per recipient. Counts only, never an address.
     const summary = `Group email "${ctx.subject}" (${ctx.groupName}): ${counts.failed} failed, ${counts.unknown} unknown${counts.aborted ? ", pass stopped early" : ""}`
-    await alertOwnerEmailFailure(summary, firstSendError, sawAmbiguous || counts.unknown > 0)
+    await alertOwnerEmailFailure(summary, firstSendError, sawAmbiguous)
   }
   if (thrown) throw thrown.reason
   return counts
@@ -292,7 +298,11 @@ export async function closeStaleRecipients(now: Date): Promise<number> {
     where: { status: "PENDING", claimedAt: { lt: new Date(now.getTime() - GROUP_MESSAGE_LEASE_MS) }, message: oldMessage },
     data: { status: "UNKNOWN" },
   })
-  return neverSent.count + staleClaim.count
+  const closed = neverSent.count + staleClaim.count
+  if (closed > 0) {
+    logger.info(`[groupMessage] sweep: closed ${closed} stale recipient(s) (${neverSent.count} never sent -> FAILED, ${staleClaim.count} stale claim -> UNKNOWN)`)
+  }
+  return closed
 }
 
 /**

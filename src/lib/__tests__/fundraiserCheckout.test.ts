@@ -242,6 +242,15 @@ it("a transient prefetch failure is busy (retryable) with no second Stripe call 
   expect(sessionsCreate).not.toHaveBeenCalled()
 })
 
+it("a DB failure in the prefetch is busy: no Stripe call and no lock taken", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockRejectedValueOnce(new Error("db down"))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toBeInstanceOf(FundraiserCheckoutBusyError)
+  expect(sessionsRetrieve).not.toHaveBeenCalled()
+  expect(prisma.$transaction).not.toHaveBeenCalled()
+  expect(sessionsCreate).not.toHaveBeenCalled()
+})
+
 it("refuses while a paid session is still awaiting its webhook", async () => {
   prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_paid", totalAmount: "30.00", surchargeCents: 0 }])
   sessionsRetrieve.mockResolvedValue({ id: "cs_paid", status: "complete", url: null, expires_at: future() })
