@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { sendDgrReceipt, deleteDgrReceipt } from "@/lib/actions/dgrReceipt"
 import { Button } from "@/components/ui/button"
@@ -10,29 +10,27 @@ import { DGR_STATUS, isDgrReceiptEditable, isDgrReceiptDeletable } from "@/lib/d
 type Props = {
   id: number
   receiptNo: string
+  /** Donor name + email, shown in the send confirm. */
+  donorName?: string
+  donorEmail?: string | null
   status: string
   /** Claim time while SENDING (sent time once SENT); decides when a stuck send is editable. */
   sentAt?: Date | null
   canManage: boolean
 }
 
-export function DgrReceiptRowActions({ id, receiptNo, status, sentAt = null, canManage }: Readonly<Props>) {
-  const [pending, startTransition] = useTransition()
+export function DgrReceiptRowActions({ id, receiptNo, donorName, donorEmail, status, sentAt = null, canManage }: Readonly<Props>) {
   const [error, setError] = useState<string | null>(null)
 
-  function handleSend() {
+  /** Sends (or resends) the receipt; runs inside the confirm dialog so errors show there. */
+  async function handleSend(): Promise<{ error?: string } | void> {
     setError(null)
-    startTransition(async () => {
-      try {
-        const res = await sendDgrReceipt(id)
-        if (res && "error" in res) setError(res.error)
-      } catch {
-        // Transport-level throw never reaches the {error} branch — surface a
-        // retry message so a failed DGR-receipt send isn't silent.
-        setError("Something went wrong, try again")
-      }
-    })
+    const res = await sendDgrReceipt(id)
+    if (res && "error" in res) return { error: res.error }
   }
+
+  const isResend = status === DGR_STATUS.SENT || status === DGR_STATUS.UNKNOWN
+  const sendVerb = isResend ? "Resend" : "Send"
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -51,9 +49,17 @@ export function DgrReceiptRowActions({ id, receiptNo, status, sentAt = null, can
               <Link href={`/accounting/dgr-receipts/${id}/edit`}>Edit</Link>
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={handleSend} disabled={pending}>
-            {status === DGR_STATUS.SENT || status === DGR_STATUS.UNKNOWN ? "Resend" : "Send"}
-          </Button>
+          <DeleteConfirmButton
+            onConfirm={handleSend}
+            title={`${sendVerb} this receipt?`}
+            description={`${sendVerb} receipt ${receiptNo}${donorName ? ` to ${donorName}` : ""}${donorEmail ? ` (${donorEmail})` : ""} by email? After sending, this receipt can no longer be edited or deleted.`}
+            triggerLabel={sendVerb}
+            triggerVariant="outline"
+            triggerSize="sm"
+            triggerClassName=""
+            confirmLabel={sendVerb}
+            pendingLabel="Sending…"
+          />
           {isDgrReceiptDeletable(status) && (
             <DeleteConfirmButton
               onConfirm={async () => {
