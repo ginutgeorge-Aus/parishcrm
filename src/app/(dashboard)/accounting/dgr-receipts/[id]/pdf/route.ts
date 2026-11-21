@@ -45,9 +45,11 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     }
   }
   if (!pdf) {
-    const church = await getChurchSettingsStrict()
-    const receipt = await getReceiptSettings()
     const snapshot = isSent ? parseIssuerSnapshot(row.issuer) : null
+    // Snapshot first: a usable snapshot needs no live church identity, so cleared settings
+    // cannot block the office copy. Previews and legacy rows keep the strict live read.
+    const church = snapshot ? null : await getChurchSettingsStrict()
+    const receipt = await getReceiptSettings()
     const model = buildDgrPdfModel(
       {
         receiptNo: row.receiptNo,
@@ -58,7 +60,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
         donorName: row.donorName,
         lines: row.lines as DgrLine[],
       },
-      church,
+      church ?? { name: snapshot!.churchName, address: snapshot!.churchAddress, abn: snapshot!.churchAbn, email: snapshot!.churchEmail },
       receipt
     )
     pdf = await renderDgrReceiptPdf(snapshot ? { ...model, ...snapshot } : model)

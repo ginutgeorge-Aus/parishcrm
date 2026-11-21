@@ -7,7 +7,7 @@ import { actorId } from "@/lib/actor"
 import { logger } from "@/lib/logger"
 import { logAudit } from "@/lib/audit"
 import { logAuditGuardedTx, auditTxErrorResult, AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
-import { encrypt, safeDecrypt, encryptBytes } from "@/lib/crypto"
+import { encrypt, safeDecrypt, encryptBytes, decryptBytes } from "@/lib/crypto"
 import { sydneyToday } from "@/lib/dates"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { revalidatePath } from "next/cache"
@@ -18,6 +18,7 @@ import {
   formatReceiptNo,
   buildDgrPdfModel,
   toIssuerSnapshot,
+  parseIssuerSnapshot,
   type DgrLine,
   DGR_STATUS,
   DGR_SEND_STALE_MS,
@@ -382,7 +383,18 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   if ("error" in churchRes) return { error: churchRes.error }
   const church = churchRes.church
   const receipt = await getReceiptSettings()
-  const model = buildDgrPdfModel(
+  // An UNKNOWN row may already have reached the donor: its first document (issuer snapshot,
+  // issue date, encrypted PDF) was stored on that attempt and a retry must resend exactly that.
+  const keptSnapshot = row.status === DGR_STATUS.UNKNOWN ? parseIssuerSnapshot(row.issuer) : null
+  let keptPdf: Uint8Array | null = null
+  if (keptSnapshot && row.frozenPdf) {
+    try {
+      keptPdf = decryptBytes(row.frozenPdf)
+    } catch {
+      keptPdf = null
+    }
+  }
+  const liveModel = buildDgrPdfModel(
     {
       receiptNo: row.receiptNo,
       fyEndYear: row.fyEndYear,
@@ -394,23 +406,27 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
     church,
     receipt
   )
+  const model = keptSnapshot && keptPdf ? { ...liveModel, ...keptSnapshot } : liveModel
 
+  // The claim time doubles as the claim token: every finalizing write below matches it, so a
+  // stale send (its row edited back to DRAFT and claimed again) cannot overwrite the newer claim.
+  const claimAt = new Date()
   const claim = await prisma.dgrReceipt.updateMany({
     where: { id, status: { in: [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN] } },
-    data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: new Date() },
+    data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: claimAt },
   })
   if (claim.count === 0)
     return { error: "This receipt is already being sent or has already been sent." }
 
-  let frozenPdf: ReturnType<typeof encryptBytes>
+  let frozenPdf: ReturnType<typeof encryptBytes> | undefined
   try {
-    const pdf = await renderDgrReceiptPdf(model)
+    const pdf = keptPdf ?? (await renderDgrReceiptPdf(model))
     // Encrypt before the email goes out: a failure here must not happen after delivery.
     frozenPdf = encryptBytes(pdf)
-    await sendDgrReceiptEmail(safeDecrypt(row.donorEmail), pdf, {
+    await sendDgrReceiptEmail(safeDecrypt(row.donorEmail), Buffer.from(pdf), {
       receiptNo: row.receiptNo,
       fyLabel: fyLabel(row.fyEndYear),
-      churchName: church.name,
+      churchName: model.churchName,
       donorName: row.donorName,
       churchAbn: model.churchAbn,
       churchAddress: model.churchAddress,
@@ -431,8 +447,9 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
       // keeps the attempt time.
       const message = "Delivery status unknown: the receipt may have been delivered, check before resending."
       await prisma.dgrReceipt.updateMany({
-        where: { id, status: DGR_STATUS.SENDING },
-        data: { status: DGR_STATUS.UNKNOWN, errorMessage: message },
+        where: { id, status: DGR_STATUS.SENDING, sentAt: claimAt },
+        // Keep the first document so a retry reuses it: number, date and PDF never change.
+        data: { status: DGR_STATUS.UNKNOWN, errorMessage: message, issuer: toIssuerSnapshot(model), ...(frozenPdf ? { frozenPdf } : {}) },
       })
       await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo, outcome: "unknown" })
       revalidatePath(LIST_PATH)
@@ -443,7 +460,7 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
       // nothing about the earlier attempt, so it stays frozen (no edit, no delete).
       const message = "Resend failed, but the earlier attempt may have been delivered. Check before resending."
       await prisma.dgrReceipt.updateMany({
-        where: { id, status: DGR_STATUS.SENDING },
+        where: { id, status: DGR_STATUS.SENDING, sentAt: claimAt },
         data: { status: DGR_STATUS.UNKNOWN, errorMessage: message },
       })
       await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo, outcome: "unknown" })
@@ -453,7 +470,7 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
     // Terminal-state recovery: write FAILED unconditionally and audit best-effort. A rolled-back
     // flip would leave the row wedged in SENDING (the claim only accepts DRAFT/FAILED).
     await prisma.dgrReceipt.updateMany({
-      where: { id, status: DGR_STATUS.SENDING },
+      where: { id, status: DGR_STATUS.SENDING, sentAt: claimAt },
       data: { status: DGR_STATUS.FAILED, errorMessage: "Email delivery failed. Please try again.", sentAt: null },
     })
     await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo })
@@ -462,7 +479,7 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   }
 
   const sent = await prisma.dgrReceipt.updateMany({
-    where: { id, status: DGR_STATUS.SENDING },
+    where: { id, status: DGR_STATUS.SENDING, sentAt: claimAt },
     data: {
       status: DGR_STATUS.SENT,
       sentAt: new Date(),

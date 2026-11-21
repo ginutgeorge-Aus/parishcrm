@@ -3,6 +3,7 @@ jest.mock("@/lib/featureFlags")
 import { GET } from "../route"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getChurchSettingsStrict } from "@/lib/churchSettings"
 import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
@@ -118,6 +119,29 @@ describe("GET dgr-receipt pdf", () => {
     expect(mockRender).toHaveBeenCalledWith(
       expect.objectContaining({ churchName: "Old Church", documentTitle: "OLD TITLE", issueDate: "1 July 2026", legalLines: ["Old legal"] })
     )
+  })
+
+  it("renders a SENT receipt from its snapshot even when live church settings are unavailable", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
+      ...row,
+      status: "SENT",
+      frozenPdf: null,
+      issuer: {
+        churchName: "Old Church",
+        churchAbn: "11111111111",
+        churchAddress: "Old addr",
+        churchEmail: "old@example.com",
+        documentTitle: "OLD TITLE",
+        totalDonationsLabel: "OLD TOTAL",
+        legalLines: ["Old legal"],
+        coveredPeriod: "old period",
+        issueDate: "1 July 2026",
+      },
+    })
+    const res = await call("5")
+    expect(res.status).toBe(200)
+    expect(mockRender).toHaveBeenCalledWith(expect.objectContaining({ churchName: "Old Church", issueDate: "1 July 2026" }))
+    expect(getChurchSettingsStrict).not.toHaveBeenCalled()
   })
 
   it("a legacy SENT row (no snapshot) still renders live", async () => {
