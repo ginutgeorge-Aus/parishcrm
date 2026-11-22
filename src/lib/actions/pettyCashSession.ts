@@ -253,42 +253,46 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
   // (DD-MMM-YYYY) — titles are 1:1 with dates — and we take the session dated
   // latest but strictly before this Sunday. Session count is weekly-bounded, so
   // scanning titles in memory is cheap.
-  const candidates = await prisma.pettyCashSession.findMany({
-    select: { id: true, title: true, openedAt: true },
-  })
-  const priorId = findPriorSessionId(candidates, thisDate)
-  const prior = priorId
-    ? await prisma.pettyCashSession.findUnique({
-        where: { id: priorId },
-        select: {
-          status: true,
-          countedCash: true,
-          openingBalance: true,
-          receipts: { select: { amount: true } },
-          expenses: { select: { amount: true } },
-          transfers: { select: { amount: true } },
-        },
-      })
-    : null
-  // AUD-3-04: a CLOSED prior with a physical count opens from the count — that is
-  // the cash actually in the tin (pending PO confirmation, #3341). Without a count,
-  // or while the prior is still OPEN, use its running balance; an OPEN prior makes
-  // the figure provisional until its close rolls the final one forward.
-  const provisional = prior?.status === "OPEN"
-  let openingBalance = 0
-  if (prior) {
-    openingBalance =
-      prior.status === "CLOSED" && prior.countedCash !== null
-        ? centsToNumber(toCents(prior.countedCash))
-        : calcRunningBalance(prior.openingBalance, prior.receipts, prior.expenses, prior.transfers)
-  }
-
-  // The check + create aren't atomic; the @@unique([title]) constraint makes the
+  // The prior read and the create share ONE Serializable transaction: closeSession
+  // writes the prior's status and reads the AUTO_OPENED row this writes, so a close
+  // racing this auto-open forms a cycle and one side retries against committed
+  // state — the new session never keeps a pre-close opening that no roll-forward fixes.
+  // The title check + create aren't atomic; the @@unique([title]) constraint makes the
   // race safe — a concurrent double-load loses with P2002, which we treat as
   // "already exists" (the winner created it). Rethrow anything else so real
   // failures aren't hidden.
+  let provisional = false
   try {
-    await prisma.$transaction(async (tx) => {
+    const outcome = await serializableWrite<{ ok: true }>(async (tx) => {
+      const candidates = await tx.pettyCashSession.findMany({
+        select: { id: true, title: true, openedAt: true },
+      })
+      const priorId = findPriorSessionId(candidates, thisDate)
+      const prior = priorId
+        ? await tx.pettyCashSession.findUnique({
+            where: { id: priorId },
+            select: {
+              status: true,
+              countedCash: true,
+              openingBalance: true,
+              receipts: { select: { amount: true } },
+              expenses: { select: { amount: true } },
+              transfers: { select: { amount: true } },
+            },
+          })
+        : null
+      // AUD-3-04: a CLOSED prior with a physical count opens from the count — that is
+      // the cash actually in the tin (pending PO confirmation, #3341). Without a count,
+      // or while the prior is still OPEN, use its running balance; an OPEN prior makes
+      // the figure provisional until its close rolls the final one forward.
+      provisional = prior?.status === "OPEN"
+      let openingBalance = 0
+      if (prior) {
+        openingBalance =
+          prior.status === "CLOSED" && prior.countedCash !== null
+            ? centsToNumber(toCents(prior.countedCash))
+            : calcRunningBalance(prior.openingBalance, prior.receipts, prior.expenses, prior.transfers)
+      }
       const created = await tx.pettyCashSession.create({
         data: { title, custodianId, openingBalance },
       })
@@ -301,13 +305,15 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
         ...(priorId ? { carriedFromSessionId: priorId } : {}),
         ...(provisional ? { provisional: true } : {}),
       })
-    })
+      return { ok: true }
+    }, { error: "busy" })
+    // Every attempt conflicted: the session rolled back; render without it, the next load retries.
+    if ("error" in outcome) return { status: "exists" }
   } catch (e) {
     if (isUniqueViolation(e)) return { status: "exists" }
     // This runs during the page's server render: a failing audit insert (rolled the
     // session back) must not make every visit throw. Log it and render without the
     // auto-opened session; the next load retries.
-    // A serialization conflict (P2034) rolls the session back the same way: recoverable.
     if (isP2034(e)) return { status: "exists" }
     if (e instanceof AuditWriteError) {
       auditWriteFailedResult(e, "ensureWeeklySession")

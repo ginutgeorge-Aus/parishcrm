@@ -54,6 +54,10 @@ export function ExpenseForm({
 
   return (
     <form action={formAction} className="max-w-lg space-y-4">
+      {/* Implicit submission (Enter in a field) clicks the FIRST submit button in tree
+          order. The "Post anyway"/"Record anyway" confirms render above the real submit,
+          so a nameless default button first keeps Enter on the ordinary, re-validating path. */}
+      <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" disabled={isPending} />
       {state?.error && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2">
           <p className="text-sm text-destructive">{state.error}</p>

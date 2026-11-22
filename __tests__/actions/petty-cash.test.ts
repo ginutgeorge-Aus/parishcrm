@@ -1762,9 +1762,14 @@ describe("ensureWeeklySession", () => {
     ;(prisma.pettyCashSession.findFirst as jest.Mock).mockResolvedValue(null)
     mockFindManySession.mockResolvedValue([])
     ;(prisma.pettyCashSession.create as jest.Mock).mockResolvedValue({ id: 99 })
-    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    // serializableWrite retries P2034 (3 attempts); only exhausting them degrades to "exists".
+    mockLogAuditTx
+      .mockRejectedValueOnce({ code: "P2034" })
+      .mockRejectedValueOnce({ code: "P2034" })
+      .mockRejectedValueOnce({ code: "P2034" })
     const res = await ensureWeeklySession()
     expect(res).toEqual({ status: "exists" })
+    expect(mockLogAuditTx).toHaveBeenCalledTimes(3)
   })
 
   it("carries forward the prior session's closing balance as the opening balance", async () => {
@@ -1854,7 +1859,8 @@ describe("ensureWeeklySession", () => {
     ;(prisma.pettyCashSession.findFirst as jest.Mock).mockResolvedValue(null)
     mockFindManySession.mockResolvedValue([])
     ;(prisma.pettyCashSession.create as jest.Mock).mockRejectedValue(
-      Object.assign(new Error("boom"), { code: "P2003" })
+      // P2003/P2034 are retried by serializableWrite; any other code must still surface.
+      Object.assign(new Error("boom"), { code: "P2010" })
     )
     await expect(ensureWeeklySession()).rejects.toThrow("boom")
   })
