@@ -61,8 +61,19 @@ describe("buildWelcomeLetterDraft", () => {
   })
 })
 
+const VALID_MODEL = {
+  date: "1 January 2026", addresseeName: "Mr. Daniel Carter & Family", addressLines: ["5 Sample Avenue"],
+  greetingName: "Daniel", memberNo: "A10/12", includeTransfer: false, transferChurch: "",
+  members: ["Mr. Daniel Carter"], bodyIntro: "a", contributionsIntro: "b", bodyClosing: "c", bankAccounts: [],
+  signerName: "Sec", signerTitle: "Secretary",
+  church: { name: "Example Church", address: "3 Example St", abn: "1", email: "c@x.com" },
+}
+
 describe("sendWelcomeLetter", () => {
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFamily.mockResolvedValue({ id: 7, archivedAt: null })
+  })
 
   it("rejects non-editor roles", async () => {
     mockAuth.mockResolvedValue({ user: { role: "AUDITOR" } })
@@ -73,7 +84,7 @@ describe("sendWelcomeLetter", () => {
   it("re-resolves recipient emails server-side, sends, and audits", async () => {
     mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     mockPersons.mockResolvedValue([{ id: 1, email: "enc:daniel@x.com" }])
-    const r = await sendWelcomeLetter({ familyId: 7, model: { members: [] } as never, recipientPersonIds: [1] })
+    const r = await sendWelcomeLetter({ familyId: 7, model: VALID_MODEL, recipientPersonIds: [1] })
     expect(sendWelcomeLetterEmail).toHaveBeenCalledWith("daniel@x.com", expect.anything(), expect.any(Buffer))
     expect(r).toEqual({ success: expect.stringContaining("sent") })
   })
@@ -81,7 +92,54 @@ describe("sendWelcomeLetter", () => {
   it("errors when no recipient has an email", async () => {
     mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     mockPersons.mockResolvedValue([{ id: 1, email: null }])
-    const r = await sendWelcomeLetter({ familyId: 7, model: { members: [] } as never, recipientPersonIds: [1] })
+    const r = await sendWelcomeLetter({ familyId: 7, model: VALID_MODEL, recipientPersonIds: [1] })
     expect(r).toEqual({ error: expect.stringContaining("email") })
+  })
+
+  describe("input validation (AUD-2-02)", () => {
+    beforeEach(() => mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } }))
+
+    const expectNothingSent = () => {
+      expect(mockPersons).not.toHaveBeenCalled()
+      expect(sendWelcomeLetterEmail).not.toHaveBeenCalled()
+    }
+
+    it("rejects a missing familyId", async () => {
+      const r = await sendWelcomeLetter({ model: VALID_MODEL, recipientPersonIds: [1] } as never)
+      expect(r).toEqual({ error: "Invalid family" })
+      expectNothingSent()
+    })
+
+    it("rejects an object familyId", async () => {
+      const r = await sendWelcomeLetter({ familyId: { not: 0 }, model: VALID_MODEL, recipientPersonIds: [1] } as never)
+      expect(r).toEqual({ error: "Invalid family" })
+      expectNothingSent()
+    })
+
+    it("rejects a non-integer recipient id", async () => {
+      const r = await sendWelcomeLetter({ familyId: 7, model: VALID_MODEL, recipientPersonIds: [1, 1.5] })
+      expect(r).toEqual({ error: "Invalid recipient" })
+      expectNothingSent()
+    })
+
+    it("rejects an archived family", async () => {
+      mockFamily.mockResolvedValue({ id: 7, archivedAt: new Date() })
+      const r = await sendWelcomeLetter({ familyId: 7, model: VALID_MODEL, recipientPersonIds: [1] })
+      expect(r).toEqual({ error: "Family not found" })
+      expectNothingSent()
+    })
+
+    it("rejects a missing family", async () => {
+      mockFamily.mockResolvedValue(null)
+      const r = await sendWelcomeLetter({ familyId: 7, model: VALID_MODEL, recipientPersonIds: [1] })
+      expect(r).toEqual({ error: "Family not found" })
+      expectNothingSent()
+    })
+
+    it("rejects an invalid model", async () => {
+      const r = await sendWelcomeLetter({ familyId: 7, model: { members: [] } as never, recipientPersonIds: [1] })
+      expect(r).toEqual({ error: "Invalid letter" })
+      expectNothingSent()
+    })
   })
 })
