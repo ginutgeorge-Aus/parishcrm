@@ -30,14 +30,20 @@ export function createWebhookFailureTracker(deps: WebhookAlertDeps) {
   let cooldownUntil = 0
   let sending = false
 
-  return async function recordFailure(): Promise<void> {
+  /**
+   * @param signed true when the request carried a `stripe-signature` header (a
+   * real Stripe delivery or a forgery): alert on the first one, since at church
+   * volume a wrong secret may only ever see one delivery. Unsigned requests are
+   * routine scanner noise and keep the FAILURE_THRESHOLD-in-window rule.
+   */
+  return async function recordFailure(signed = false): Promise<void> {
     try {
       const now = deps.now()
       // During cooldown nothing is retained: the array stays bounded and the hot path is O(1).
       if (now < cooldownUntil) return
       // Only the newest FAILURE_THRESHOLD timestamps matter, so cap the array.
       failures = [...failures.filter((t) => now - t < FAILURE_WINDOW_MS), now].slice(-FAILURE_THRESHOLD)
-      if (failures.length < FAILURE_THRESHOLD || sending) return
+      if ((!signed && failures.length < FAILURE_THRESHOLD) || sending) return
 
       sending = true
       try {
@@ -72,7 +78,7 @@ async function sendAdminAlert(): Promise<void> {
   if (recipients.length === 0) throw new Error("no active ADMIN to email")
   const churchName = await getChurchName()
   const text = [
-    `Stripe webhook verification is failing on ${churchName}: ${FAILURE_THRESHOLD} deliveries were rejected within ${FAILURE_WINDOW_MS / 60_000} minutes.`,
+    `Stripe webhook verification is failing on ${churchName}: a signed delivery was rejected.`,
     "",
     "Check that STRIPE_WEBHOOK_SECRET matches the signing secret of this site's webhook endpoint in the Stripe Dashboard (Developers > Webhooks).",
     "Until it is fixed, card payments still complete at Stripe but registrations stay unpaid and no confirmation email is sent.",
@@ -117,7 +123,7 @@ const defaultTracker = createWebhookFailureTracker({
   sendAlert: sendAdminAlert,
 })
 
-/** Fire-and-forget from the webhook: counts one signature-verification failure. */
-export function recordWebhookVerificationFailure(): void {
-  void defaultTracker()
+/** Fire-and-forget from the webhook: counts one signature-verification failure (`signed`: request had a stripe-signature header). */
+export function recordWebhookVerificationFailure(signed = false): void {
+  void defaultTracker(signed)
 }

@@ -43,6 +43,37 @@ it("does not email below the threshold", async () => {
   expect(t.sendAlert).not.toHaveBeenCalled()
 })
 
+it("first failure with a signature header sends one alert", async () => {
+  const t = setup()
+  await t.record(true)
+  expect(t.sendAlert).toHaveBeenCalledTimes(1)
+  expect(t.setLastSentAt).toHaveBeenCalledTimes(1)
+})
+
+it("second signed failure inside the cooldown sends none", async () => {
+  const t = setup()
+  await t.record(true)
+  await t.record(true)
+  t.advance(ALERT_COOLDOWN_MS - 1000)
+  await t.record(true)
+  expect(t.sendAlert).toHaveBeenCalledTimes(1)
+})
+
+it("signed failure respects a persisted cooldown after restart", async () => {
+  const t = setup(1_000_000 - 1000)
+  await t.record(true)
+  expect(t.sendAlert).not.toHaveBeenCalled()
+})
+
+it("unsigned failures do not alert until the threshold", async () => {
+  const t = setup()
+  await t.record(false)
+  await t.record(false)
+  expect(t.sendAlert).not.toHaveBeenCalled()
+  await t.record(false)
+  expect(t.sendAlert).toHaveBeenCalledTimes(1)
+})
+
 it("emails once on the 3rd failure in the window and persists the timestamp", async () => {
   const t = setup()
   await t.record()
@@ -110,8 +141,8 @@ describe("default tracker (prisma + email wiring)", () => {
   const { getChurchName } = require("@/lib/emailTemplateStore")
 
   /** Loads a fresh module so the in-memory tracker state is clean. */
-  function load(): { recordWebhookVerificationFailure: () => void } {
-    let mod: { recordWebhookVerificationFailure: () => void } | undefined
+  function load(): { recordWebhookVerificationFailure: (signed?: boolean) => void } {
+    let mod: { recordWebhookVerificationFailure: (signed?: boolean) => void } | undefined
     jest.isolateModules(() => { mod = require("@/lib/stripeWebhookAlert") })
     return mod!
   }
@@ -136,6 +167,11 @@ describe("default tracker (prisma + email wiring)", () => {
     expect(prisma.appSetting.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { key: "stripeWebhookAlertLastSentAt" } }),
     )
+  })
+
+  it("default tracker alerts on the first signed failure", async () => {
+    await fire(1, { recordWebhookVerificationFailure: () => load().recordWebhookVerificationFailure(true) })
+    expect(sendEmail).toHaveBeenCalledTimes(2)
   })
 
   it("honours a persisted last-sent time (valid number)", async () => {

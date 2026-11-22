@@ -135,10 +135,11 @@ registration stays unpaid and no confirmation email goes out.
   with the new signing secret.
 - Boot warning: if `STRIPE_SECRET_KEY` is set but `STRIPE_WEBHOOK_SECRET` is unset or blank, startup logs a
   warning.
-- Admin alert: 3 signature-verification failures within 10 minutes email every active ADMIN once, then
-  stay quiet for 1 hour (the last-sent time is kept in the `stripeWebhookAlertLastSentAt` app setting).
-  Deliveries with no signature header are routine junk traffic and are not counted. Failures are counted
-  in memory per process, so with several replicas the 3-failure threshold applies per replica.
+- Admin alert: the first signature-verification failure on a request that carried a `stripe-signature`
+  header emails every active ADMIN, then stays quiet for 1 hour (the last-sent time is kept in the
+  `stripeWebhookAlertLastSentAt` app setting, so a restart does not reset it). Each failure also logs one
+  `[stripe-webhook] signature verification failed` warning line (no body, header value or secret).
+  Deliveries with no signature header are routine junk traffic and are not alerted.
 - Self-hosters: also alert on the log line `STRIPE_WEBHOOK_SECRET unset/corrupt` in your log platform.
 
 ## Availability Monitoring
