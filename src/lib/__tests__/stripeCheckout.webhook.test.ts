@@ -31,6 +31,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: {
 jest.mock("@/lib/crypto", () => ({ decrypt: (s: string) => s.replace("enc:", "") }))
 jest.mock("@/lib/notifications", () => ({ notifyStripeAlert: jest.fn() }))
 jest.mock("@/lib/stripeWebhookAlert", () => ({ recordWebhookVerificationFailure: jest.fn() }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 
 const { prisma } = require("@/lib/prisma")
 const { persistRegistration } = require("@/lib/eventRegistrationPersist")
@@ -67,6 +68,23 @@ it("counts a bad signature toward the admin alert", async () => {
   constructEvent.mockImplementation(() => { throw new Error("bad sig") })
   await handleStripeWebhook("{}", "t=1,v1=bad")
   expect(recordWebhookVerificationFailure).toHaveBeenCalledTimes(1)
+})
+
+it("flags a signed failure so the alert fires on the first one", async () => {
+  constructEvent.mockImplementation(() => { throw new Error("bad sig") })
+  await handleStripeWebhook("{}", "t=1,v1=bad")
+  expect(recordWebhookVerificationFailure).toHaveBeenCalledWith(true)
+})
+
+it("signature failure logs one line with no header value, body or secret", async () => {
+  const { logger } = require("@/lib/logger")
+  constructEvent.mockImplementation(() => { throw new Error("bad sig whsec_x") })
+  await handleStripeWebhook('{"secret_body":1}', "t=1,v1=sentinelsig")
+  expect(logger.error).toHaveBeenCalledTimes(1)
+  const logged = JSON.stringify(logger.error.mock.calls[0])
+  expect(logged).not.toContain("sentinelsig")
+  expect(logged).not.toContain("secret_body")
+  expect(logged).not.toContain("whsec_x")
 })
 
 it("counts an unset secret toward the admin alert", async () => {

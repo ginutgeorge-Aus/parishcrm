@@ -15,6 +15,7 @@ import { EVENT_CAPACITY_INCLUDE } from "@/lib/eventCapacityInclude"
 import { notifyStripeAlert } from "@/lib/notifications"
 import { completeFundraiserPayment } from "@/lib/fundraiserWebhook"
 import { recordWebhookVerificationFailure } from "@/lib/stripeWebhookAlert"
+import { logger } from "@/lib/logger"
 import {
   isLateClaimable,
   isPayNowLateClaimable,
@@ -360,7 +361,10 @@ export async function handleStripeWebhook(
     // app-level signal — registrations silently stop completing. Log it
     // loud, like the sibling secret-gated cron entrypoints.
     console.error("STRIPE_WEBHOOK_SECRET unset/corrupt — all webhook deliveries will 400")
-    if (signature) recordWebhookVerificationFailure()
+    if (signature) {
+      logger.error("[stripe-webhook] signature verification failed", { reason: "secret_unset" })
+      recordWebhookVerificationFailure(true)
+    }
     return { status: 400 }
   }
   if (!signature) return { status: 400 } // routine bad/forged traffic — never log
@@ -370,8 +374,10 @@ export async function handleStripeWebhook(
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, secret)
   } catch {
-    recordWebhookVerificationFailure()
-    return { status: 400 } // bad signature — never log the raw body
+    // One structured line per failure: no body, no header value, no secret.
+    logger.error("[stripe-webhook] signature verification failed", { reason: "bad_signature" })
+    recordWebhookVerificationFailure(true)
+    return { status: 400 }
   }
   warnOnApiVersionMismatch(event.api_version)
 
