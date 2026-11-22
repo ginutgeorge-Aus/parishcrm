@@ -182,6 +182,44 @@ describe("classStats", () => {
     expect(lean.students).toEqual([])
     expect(lean).toEqual({ ...full, students: [] })
   })
+  it("lean and full paths agree on grouped counts, skipped results, mixed totals and an unmarked child", () => {
+    const input: ClassStatsInput = {
+      ...kindy,
+      students: [
+        { personId: 10, name: "Ann" },
+        { personId: 11, name: "Ben" },
+        { personId: 12, name: "Cat" }, // unmarked, no results
+      ],
+      attendance: [
+        { personId: 10, status: "PRESENT", count: 4 },
+        { personId: 10, status: "ABSENT", count: 2 },
+        { personId: 11, status: "LATE", count: 3 },
+        { personId: 11, status: "ABSENT" },
+        { personId: 99, status: "ABSENT", count: 5 },
+      ],
+      exams: [
+        { totalMarks: "3", results: [{ personId: 10, score: "1" }, { personId: 11, score: "x" }] },
+        { totalMarks: "6", results: [{ personId: 11, score: "1" }, { personId: 99, score: "6" }] },
+        { totalMarks: "0", results: [{ personId: 10, score: "1" }] },
+      ],
+    }
+    const full = classStats(input)
+    const lean = classStats(input, { students: false })
+    expect(full.exams.skipped).toBe(2)
+    expect(full.exams.ratioSum.size).toBe(2)
+    expect(lean.attendance).toEqual(full.attendance)
+    expect(lean.exams).toEqual(full.exams)
+    expect(lean.exams.ratioSum).toEqual(full.exams.ratioSum)
+    expect(lean).toEqual({ ...full, students: [] })
+  })
+  it("a child listed twice is counted once in both paths", () => {
+    const input = { ...kindy, students: [...kindy.students, { personId: 10, name: "Ann Adams" }] }
+    const full = classStats(input)
+    expect(full.enrolled).toBe(2)
+    expect(full.students).toHaveLength(2)
+    expect(full).toEqual(classStats(kindy))
+    expect(classStats(input, { students: false })).toEqual({ ...full, students: [] })
+  })
   it("a class with no rolls or exams has null rates", () => {
     const s = classStats({ ...kindy, attendance: [], exams: [] })
     expect(s.attendance.rate).toBeNull()

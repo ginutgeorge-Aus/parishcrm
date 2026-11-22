@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { owesPayment, paymentStatusColour, paymentStatusLabel } from "@/lib/registrationPayment"
 
 describe("owesPayment", () => {

@@ -31,7 +31,7 @@ export async function markPaid(registrationId: number, eventId: number): Promise
   const off = await featureGuard("events")
   if (off) return off
 
-  const reg = await prisma.registration.findUnique({ where: { id: registrationId }, select: { eventId: true, paymentStatus: true } })
+  const reg = await prisma.registration.findUnique({ where: { id: registrationId }, select: { eventId: true, paymentStatus: true, totalAmount: true } })
   if (reg?.eventId !== eventId) return { error: "Registration not found" }
 
   // State machine: already PAID → idempotent no-op (no re-write, no duplicate
@@ -39,6 +39,8 @@ export async function markPaid(registrationId: number, eventId: number): Promise
   // never silently flipped back to PAID).
   if (reg.paymentStatus === "PAID") return
   if (reg.paymentStatus === "CANCELLED") return { error: "Cannot mark a cancelled registration as paid" }
+  // AUD-4-02: a free ($0) PENDING registration owes nothing, so it can never be "paid".
+  if (!owesPayment(reg)) return { error: "Nothing owing" }
 
   // Guarded transition — only flip a still-PENDING row (updateMany with the
   // source state in the predicate). The read above can go stale: a concurrent

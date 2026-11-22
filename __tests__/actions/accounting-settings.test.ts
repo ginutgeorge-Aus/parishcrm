@@ -14,6 +14,8 @@ jest.mock("@/lib/prisma", () => ({
     appSetting: {
       upsert: jest.fn(),
     },
+    // Advisory lock (holdAccountingLock) runs on tx.
+    $queryRaw: jest.fn().mockResolvedValue([]),
     // Interactive transactions run their callback against the same mocks (the tx client mirrors prisma).
     $transaction: jest.fn(),
   },
@@ -169,6 +171,23 @@ describe("setAccountingLockDate", () => {
     expect(mockLogAudit).toHaveBeenCalledWith(prisma, 1, "ACCOUNTING_LOCK_DATE_SET", "AppSetting", undefined, {
       lockDate: "2026-06-30",
     })
+  })
+
+  it("AUD-3-01: takes the exclusive accounting-lock advisory lock before writing the setting", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    const order: string[] = []
+    ;(prisma.$queryRaw as jest.Mock).mockImplementationOnce(async (strings: TemplateStringsArray) => {
+      order.push(strings.join(""))
+      return []
+    })
+    mockAppSettingUpsert.mockImplementationOnce(async () => {
+      order.push("upsert")
+      return {}
+    })
+    await setAccountingLockDate(undefined, fd({ date: "2026-06-30" }))
+    expect(order).toHaveLength(2)
+    expect(order[0]).toMatch(/pg_advisory_xact_lock\(/)
+    expect(order[1]).toBe("upsert")
   })
 
   it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {

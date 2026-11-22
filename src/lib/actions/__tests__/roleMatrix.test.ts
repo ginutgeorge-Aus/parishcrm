@@ -14,6 +14,7 @@
  */
 import fs from "node:fs"
 import path from "node:path"
+import ts from "typescript"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import * as roleGuard from "@/lib/roleGuard"
 
@@ -25,6 +26,7 @@ const WRITE_METHODS = new Set([
   "createManyAndReturn",
   "update",
   "updateMany",
+  "updateManyAndReturn",
   "upsert",
   "delete",
   "deleteMany",
@@ -39,6 +41,13 @@ const WRITE_METHODS = new Set([
 const RAW_WRITE_SQL =
   /\b(insert|update|delete|truncate|alter|drop|create|merge|copy|lock|set_config|nextval|setval)\b|\bfor\s+(key\s+share|share)\b|\binto\b|pg_(try_)?advisory/i
 
+/** Words that may precede `(` in a read-only SELECT: keywords and pure aggregate/scalar functions. */
+const SAFE_SQL_WORDS = new Set([
+  "any", "all", "in", "exists", "and", "or", "not", "on", "as", "from", "where", "select", "join", "using", "by",
+  "count", "min", "max", "sum", "coalesce", "lower", "upper", "cast", "distinct", "over", "partition", "having",
+  "limit", "offset", "union", "values", "array", "case", "when", "then", "else", "end", "with", "unnest",
+])
+
 /**
  * True when a `$queryRaw` / `$queryRawUnsafe` call carries SQL that writes. Tagged templates pass a
  * strings array first; the Unsafe form passes the SQL string itself.
@@ -49,7 +58,14 @@ function rawQueryWrites(args: unknown[]): boolean {
   // Any other shape (e.g. a Prisma.sql object) cannot be inspected here: count it as a write.
   if (!Array.isArray(first) && typeof first !== "string") return true
   const sql = Array.isArray(first) ? first.join(" ") : first
-  return RAW_WRITE_SQL.test(sql)
+  if (RAW_WRITE_SQL.test(sql)) return true
+  // Allowlist, not just a denylist: only a plain SELECT/WITH that calls no unknown function is a read,
+  // so `SELECT pg_notify(...)` and other mutating functions count as writes.
+  if (!/^\s*(select|with)\b/i.test(sql)) return true
+  for (const m of sql.matchAll(/\b([a-z_][a-z0-9_]*)\s*\(/gi)) {
+    if (!SAFE_SQL_WORDS.has(m[1].toLowerCase())) return true
+  }
+  return false
 }
 const writes: string[] = []
 /** Every Prisma call (read or write): a guard refusal happens before any of them. */
@@ -135,158 +151,68 @@ jest.mock("@/lib/stripe", () => new Proxy({ __esModule: true }, { get: (t, k) =>
 
 const ACTIONS_DIR = path.join(__dirname, "..")
 const HELPERS = Object.entries(roleGuard)
-  .filter(([, v]) => typeof v === "function")
+  // One-argument helpers only: `canAssignRole` takes two (per-target; covered in user.ts tests), and
+  // any future multi-argument helper is excluded by arity rather than by name.
+  .filter(([, v]) => typeof v === "function" && (v as (...a: unknown[]) => unknown).length === 1)
   .map(([k]) => k)
-  .filter((k) => k !== "canAssignRole") // two-arg helper, per-target; covered in user.ts tests
 const ALL_ROLES = Object.values(UserRole) as Role[]
 // The six roles named in the audit; Sunday-school roles are included via ALL_ROLES.
 const AUDIT_ROLES: Role[] = ["ADMIN", "PASTOR", "OFFICE_ADMIN", "AUDITOR", "VIEWER", "EVENT_ORGANISER"] as Role[]
 
 type Entry = { file: string; fn: string; guards: string[] }
 
-/** Source of a top-level function: from its start to the first column-0 closing brace. */
+/**
+ * Source of a top-level function: from its start to the end of its body, taken from the parsed
+ * declaration so a column-0 literal/comment or a brace in the signature cannot truncate it.
+ * @param src full file source
+ * @param start index where the function starts
+ */
 function bodyOf(src: string, start: number): string {
-  const end = src.indexOf("\n}\n", start)
-  return src.slice(start, end === -1 ? src.length : end + 2)
+  const rest = src.slice(start)
+  const sf = ts.createSourceFile("x.ts", rest, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const first = sf.statements[0]
+  if (first && ts.isFunctionDeclaration(first) && first.body) return rest.slice(0, first.body.end)
+  return rest
 }
 
 /**
- * Blank out comments and string/template literals (keeping length) so a guard-looking token inside
- * them is not mistaken for code.
+ * Blank out comments and string/template/regex literals (keeping length) so a guard-looking token
+ * inside them is not mistaken for code. Uses the TypeScript parser, so regex-vs-division is decided
+ * by the grammar rather than a heuristic.
  * @param src source text
  */
 function stripCommentsAndStrings(src: string): string {
   const out = src.split("")
-  const n = src.length
+  const sf = ts.createSourceFile("x.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const LITERALS = new Set<ts.SyntaxKind>([
+    ts.SyntaxKind.StringLiteral,
+    ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+    ts.SyntaxKind.TemplateHead,
+    ts.SyntaxKind.TemplateMiddle,
+    ts.SyntaxKind.TemplateTail,
+    ts.SyntaxKind.RegularExpressionLiteral,
+  ])
   /** Blank [from, to) with spaces, keeping newlines so offsets and line shape survive. */
   const blank = (from: number, to: number): void => {
-    for (let k = from; k < Math.min(to, n); k++) if (out[k] !== "\n") out[k] = " "
+    for (let k = from; k < Math.min(to, out.length); k++) if (out[k] !== "\n") out[k] = " "
   }
-  const ident = /[A-Za-z0-9_$]/
-  // Keywords after which a `/` starts a regex literal rather than a division.
-  const REGEX_AFTER = new Set(["return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "else", "do", "yield", "await"])
-
   /**
-   * Scan template text from just after the opening backtick, blanking it. `${ ... }` holes are scanned
-   * as code (recursively, so nested templates work). Returns the index after the closing backtick.
-   * @param start index just after the opening backtick
+   * Visit every token: blank literal tokens and the comments in the trivia that precedes each token.
+   * @param node the AST node to walk
    */
-  const scanTemplate = (start: number): number => {
-    let i = start
-    while (i < n) {
-      const c = src[i]
-      if (c === "\\") {
-        blank(i, i + 2)
-        i += 2
-      } else if (c === "`") {
-        blank(i, i + 1)
-        return i + 1
-      } else if (c === "$" && src[i + 1] === "{") {
-        blank(i, i + 2)
-        const close = scanCode(i + 2, true)
-        blank(close, close + 1)
-        i = close + 1
-      } else {
-        blank(i, i + 1)
-        i++
-      }
+  const walk = (node: ts.Node): void => {
+    const kids = node.getChildren(sf)
+    if (kids.length === 0) {
+      for (const c of ts.getLeadingCommentRanges(src, node.pos) ?? []) blank(c.pos, c.end)
+      // Same-line comments after the previous token are its trailing comments, not this token's leading ones.
+      for (const c of ts.getTrailingCommentRanges(src, node.end) ?? []) blank(c.pos, c.end)
+      if (LITERALS.has(node.kind)) blank(node.getStart(sf), node.end)
+      return
     }
-    return n
+    for (const k of kids) walk(k)
   }
-
-  /**
-   * Scan code from `start`, blanking comments, strings, templates and regex literals. When `inHole`
-   * is true, stops at the `}` that closes the enclosing template hole and returns its index.
-   * @param start first index to scan
-   * @param inHole true when scanning a `${ }` template hole
-   */
-  const scanCode = (start: number, inHole: boolean): number => {
-    let i = start
-    let depth = 0
-    let prev = ""
-    let before = "" // the non-space char before `prev`, to spot postfix ++/--
-    let prevPos = -1 // index of `prev`, so ++/-- needs two adjacent operator chars
-    let word = ""
-    while (i < n) {
-      const c = src[i]
-      const next = src[i + 1]
-      if (c === "/" && next === "/") {
-        const e = src.indexOf("\n", i)
-        const end = e === -1 ? n : e
-        blank(i, end)
-        i = end
-      } else if (c === "/" && next === "*") {
-        const e = src.indexOf("*/", i + 2)
-        const end = e === -1 ? n : e + 2
-        blank(i, end)
-        i = end
-      } else if (c === '"' || c === "'") {
-        let j = i + 1
-        while (j < n && src[j] !== c && src[j] !== "\n") j += src[j] === "\\" ? 2 : 1
-        blank(i, j + 1)
-        i = j + 1
-        prev = '"'
-        word = ""
-      } else if (c === "`") {
-        blank(i, i + 1)
-        i = scanTemplate(i + 1)
-        prev = '"'
-        word = ""
-      } else if (c === "/" && (prev === "" || !(ident.test(prev) || prev === ")" || prev === "]" || prev === '"' || prev === "}") || REGEX_AFTER.has(word))) {
-        let j = i + 1
-        let inClass = false
-        while (j < n && src[j] !== "\n" && (inClass || src[j] !== "/")) {
-          if (src[j] === "\\") j++
-          else if (src[j] === "[") inClass = true
-          else if (src[j] === "]") inClass = false
-          j++
-        }
-        blank(i, j + 1)
-        i = j + 1
-        prev = '"'
-        word = ""
-      } else {
-        if (c === "{") depth++
-        else if (c === "}") {
-          if (inHole && depth === 0) return i
-          depth--
-        }
-        if (!/\s/.test(c)) {
-          word = ident.test(c) ? (ident.test(prev) ? word + c : c) : ""
-          // `x++ / 2`: a postfix ++/-- ends an operand, so a following `/` is division.
-          const postfix = (c === "+" || c === "-") && prev === c && prevPos === i - 1 && (ident.test(before) || before === ")" || before === "]")
-          before = prev
-          prev = postfix ? ")" : c
-          prevPos = i
-        }
-        i++
-      }
-    }
-    return n
-  }
-
-  scanCode(0, false)
+  walk(sf)
   return out.join("")
-}
-
-/**
- * True when `code` contains a call `helper(...)` whose balanced closing paren is followed by
- * `=== false` / `== false`, at any paren nesting depth.
- * @param code comment/string-stripped source
- * @param helper the roleGuard helper name
- */
-function hasCallComparedToFalse(code: string, helper: string): boolean {
-  for (const m of code.matchAll(new RegExp(`\\b${helper}\\(`, "g"))) {
-    let depth = 1
-    let i = m.index! + m[0].length
-    while (i < code.length && depth > 0) {
-      if (code[i] === "(") depth++
-      else if (code[i] === ")") depth--
-      i++
-    }
-    if (depth === 0 && /^\s*===?\s*false\b/.test(code.slice(i))) return true
-  }
-  return false
 }
 
 /**
@@ -296,7 +222,96 @@ function hasCallComparedToFalse(code: string, helper: string): boolean {
  */
 function leadingGuards(body: string): string[] {
   const head = headBeforeDb(body)
-  return HELPERS.filter((h) => new RegExp(`(?<!!)!\\s*${h}\\(|\\bfalse\\s*===?\\s*${h}\\(`).test(head) || hasCallComparedToFalse(head, h))
+  return HELPERS.filter((h) => hasRefusal(head, h)).sort()
+}
+
+/**
+ * Index just after the `)` that closes the call whose `(` is at `open`, or -1 when unbalanced.
+ * @param code comment/string-stripped source
+ * @param open index of the opening paren
+ */
+function closeOfCall(code: string, open: number): number {
+  let depth = 0
+  for (let i = open; i < code.length; i++) {
+    if (code[i] === "(") depth++
+    else if (code[i] === ")" && --depth === 0) return i + 1
+  }
+  return -1
+}
+
+/**
+ * If a roleGuard refusal term starts at `i`, return the index just after it, else -1. A term is
+ * `!canX(...)` (not `!!`), `canX(...) === false` or `false === canX(...)`.
+ * @param code comment/string-stripped source
+ * @param i candidate start index
+ */
+function guardTermEnd(code: string, i: number): number {
+  const names = HELPERS.join("|")
+  const rest = code.slice(i)
+  let m = new RegExp(`^!\\s*(?:${names})\\(`).exec(rest)
+  if (m && code[i - 1] !== "!") return closeOfCall(code, i + m[0].length - 1)
+  m = new RegExp(`^(?:${names})\\(`).exec(rest)
+  if (m) {
+    const end = closeOfCall(code, i + m[0].length - 1)
+    const cmp = end === -1 ? null : /^\s*===?\s*false\b/.exec(code.slice(end))
+    return cmp ? end + cmp[0].length : -1
+  }
+  m = new RegExp(`^false\\s*===?\\s*(?:${names})\\(`).exec(rest)
+  return m ? closeOfCall(code, i + m[0].length - 1) : -1
+}
+
+/**
+ * Start index of the refusal term that ends at `end` (whitespace before `end` ignored), or -1.
+ * @param code comment/string-stripped source
+ * @param end index just after the term
+ */
+function guardTermStartBefore(code: string, end: number): number {
+  const stop = code.slice(0, end).trimEnd().length
+  for (let i = stop - 1; i >= 0; i--) if (guardTermEnd(code, i) === stop) return i
+  return -1
+}
+
+/**
+ * True when the refusal term spanning [start, end) is not AND-ed with any operand that is not itself
+ * a refusal term (`if (x && !canEdit(r))` lets a refused role through when `x` is false). `||` is
+ * fine, since either side alone refuses.
+ * @param head code before the first DB access
+ * @param start start of the term
+ * @param end index just after the term
+ */
+function andChainAllGuards(head: string, start: number, end: number): boolean {
+  let e = end
+  for (;;) {
+    const after = head.slice(e).replace(/^[\s)]+/, "")
+    if (!after.startsWith("&&")) break
+    let k = head.length - after.length + 2
+    while (k < head.length && /[\s(]/.test(head[k])) k++
+    const next = guardTermEnd(head, k)
+    if (next === -1) return false
+    e = next
+  }
+  let s = start
+  for (;;) {
+    const before = head.slice(0, s).replace(/[\s(]+$/, "")
+    if (!before.endsWith("&&")) break
+    const prev = guardTermStartBefore(head, before.length - 2)
+    if (prev === -1) return false
+    s = prev
+  }
+  return true
+}
+
+/**
+ * True when `head` has a refusal term for `helper` that is not AND-ed with a non-guard operand.
+ * @param head code before the first DB access
+ * @param helper the roleGuard helper name
+ */
+function hasRefusal(head: string, helper: string): boolean {
+  for (const m of head.matchAll(new RegExp(`!\\s*${helper}\\(|\\b${helper}\\(|\\bfalse\\s*===?\\s*${helper}\\(`, "g"))) {
+    const end = guardTermEnd(head, m.index!)
+    if (end !== -1 && andChainAllGuards(head, m.index!, end)) return true
+  }
+  return false
 }
 
 /**
@@ -715,6 +730,44 @@ describe("role matrix: generated from src/lib/actions", () => {
     // canX(...) === false with three or more paren levels.
     expect(leadingGuards("if (isAdmin(f(g(h(1)), (2))) === false) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
     expect(leadingGuards("if (isAdmin(f(g(1))) === true) return\nawait prisma.x.create()")).toEqual([])
+  })
+
+  it("leadingGuards ignores a negated guard AND-ed with a non-guard operand, but keeps || and guard-only &&", () => {
+    expect(leadingGuards("if (x && !isAdmin(r)) return\nawait prisma.x.create()")).toEqual([])
+    expect(leadingGuards("if (!isAdmin(r) && x) return\nawait prisma.x.create()")).toEqual([])
+    expect(leadingGuards("if (Number.isNaN(id) || !isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("if (!canEdit(r) && !isAdmin(r)) return\nawait prisma.x.create()").sort()).toEqual(["canEdit", "isAdmin"])
+  })
+
+  it("leadingGuards handles same-line comments, longer && chains and === false operands", () => {
+    expect(leadingGuards("const s = await auth() // TODO prisma lookup\nif (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("const s = await auth() // if (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual([])
+    expect(leadingGuards("if (!canEdit(r) && !isAdmin(r) && opts.strict) return\nawait prisma.x.create()")).toEqual([])
+    expect(leadingGuards("if (x && (!isAdmin(r))) return\nawait prisma.x.create()")).toEqual([])
+    expect(leadingGuards("if (flag && isAdmin(r) === false) return\nawait prisma.x.create()")).toEqual([])
+    expect(leadingGuards("if (isAdmin(r) === false || flag) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+  })
+
+  it("bodyOf is not truncated by a column-0 brace inside a literal or comment", () => {
+    const src = 'export async function f() {\n  const s = `\n}\n`\n  /*\n}\n*/\n  if (!isAdmin(r)) return\n  await prisma.x.create()\n}\nexport async function g() {}\n'
+    expect(bodyOf(src, 0)).toContain("prisma.x.create()")
+    expect(bodyOf(src, 0)).not.toContain("function g")
+  })
+
+  it("stripCommentsAndStrings reads a regex literal after `)` or `}` as a regex", () => {
+    expect(leadingGuards("if (x) /`/.test(y)\nif (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+    expect(leadingGuards("{ }\n/`/.test(y)\nif (!isAdmin(r)) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+  })
+
+  it("HELPERS keeps only one-argument roleGuard helpers", () => {
+    expect(HELPERS).not.toContain("canAssignRole")
+    expect(HELPERS).toContain("isAdmin")
+  })
+
+  it("rawQueryWrites treats a SELECT calling a mutating function as a write", () => {
+    expect(rawQueryWrites([["SELECT pg_notify('c', 'p')"]])).toBe(true)
+    expect(rawQueryWrites([["SELECT id FROM t WHERE id = ANY(", "::int[])"]])).toBe(false)
+    expect(rawQueryWrites([["SELECT count(*) FROM t"]])).toBe(false)
   })
 
   it("rawQueryWrites treats SELECT as a read and writes, locks and unknown shapes as writes", () => {

@@ -26,6 +26,19 @@ it("renders for ADMIN", async () => {
   expect(ui).toBeTruthy()
 })
 
+it("redirects an OFFICE_ADMIN away from a peer OFFICE_ADMIN", async () => {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "1" } })
+  ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Peer", role: "OFFICE_ADMIN", archivedAt: null })
+  await expect(Page({ params: Promise.resolve({ id: "2" }) })).rejects.toThrow("REDIRECT")
+})
+
+it("lets an OFFICE_ADMIN open their own account as a name-only self edit", async () => {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "2" } })
+  ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Me", role: "OFFICE_ADMIN", archivedAt: null })
+  const ui = await Page({ params: Promise.resolve({ id: "2" }) })
+  expect(JSON.stringify(ui)).toContain('"isSelf":true')
+})
+
 it("notFound when user missing", async () => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
   ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)

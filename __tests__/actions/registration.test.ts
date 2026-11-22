@@ -44,7 +44,7 @@ describe("markPaid", () => {
 
   it("transitions PENDING → PAID with a status-guarded updateMany", async () => {
     mockSession("PASTOR")
-    ;(prisma.registration.findUnique as jest.Mock).mockResolvedValue({ eventId: 1, paymentStatus: "PENDING" })
+    ;(prisma.registration.findUnique as jest.Mock).mockResolvedValue({ eventId: 1, paymentStatus: "PENDING", totalAmount: "10.00" })
     ;(prisma.registration.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await markPaid(1, 1)
     expect(prisma.registration.updateMany).toHaveBeenCalledWith({
@@ -55,12 +55,21 @@ describe("markPaid", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/events/1/registrations")
   })
 
+  it("AUD-4-02: refuses to mark a free ($0) PENDING registration paid", async () => {
+    mockSession("PASTOR")
+    ;(prisma.registration.findUnique as jest.Mock).mockResolvedValue({ eventId: 1, paymentStatus: "PENDING", totalAmount: "0.00" })
+    const result = await markPaid(1, 1)
+    expect(result).toEqual({ error: "Nothing owing" })
+    expect(prisma.registration.updateMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
   it("does not overwrite a registration cancelled after the status read ( race)", async () => {
     mockSession("ADMIN")
     // Read sees PENDING, but a concurrent cancel lands before the write, so the
     // guarded updateMany matches 0 rows and the re-read now shows CANCELLED.
     ;(prisma.registration.findUnique as jest.Mock)
-      .mockResolvedValueOnce({ eventId: 1, paymentStatus: "PENDING" })
+      .mockResolvedValueOnce({ eventId: 1, paymentStatus: "PENDING", totalAmount: "10.00" })
       .mockResolvedValueOnce({ paymentStatus: "CANCELLED" })
     ;(prisma.registration.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
     const result = await markPaid(1, 1)

@@ -26,8 +26,10 @@ export default async function EditUserPage(props: Readonly<{ params: Promise<{ i
   if (!user || user.archivedAt) notFound()
 
   // Mirror the updateUser server guard (canAssignRole: non-ADMIN may not edit
-  // ADMIN or PASTOR) so OFFICE_ADMIN never lands on a form that would fail.
-  if (!canAssignRole(session?.user?.role, user.role)) redirect("/users")
+  // ADMIN, PASTOR or a peer OFFICE_ADMIN) so OFFICE_ADMIN never lands on a form
+  // that would fail. Your own account is always editable, name only.
+  const isSelf = String(user.id) === session?.user?.id
+  if (!isSelf && !canAssignRole(session?.user?.role, user.role)) redirect("/users")
 
   // Don't ship archivedAt into the Client Component RSC payload.
   const { archivedAt: _archivedAt, ...userForForm } = user
@@ -36,7 +38,7 @@ export default async function EditUserPage(props: Readonly<{ params: Promise<{ i
   return (
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-6">Edit user</h2>
-      <UserForm action={action} user={userForForm} currentUserRole={session?.user?.role} />
+      <UserForm action={action} user={userForForm} currentUserRole={session?.user?.role} isSelf={isSelf} />
     </div>
   )
 }

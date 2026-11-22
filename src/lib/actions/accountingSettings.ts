@@ -8,7 +8,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
-import { ACCOUNTING_LOCK_DATE_KEY } from "@/lib/accountingLock"
+import { ACCOUNTING_LOCK_DATE_KEY, holdAccountingLock } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE, isRealCalendarDate } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
@@ -109,6 +109,9 @@ export async function setAccountingLockDate(
   const uid = actorId(session)
   try {
     await prisma.$transaction(async (tx) => {
+      // Wait for in-flight statement saves; they hold this shared until commit, so
+      // none can reconcile rows this lock is about to cover.
+      await holdAccountingLock(tx, "exclusive")
       await tx.appSetting.upsert({
         where: { key: ACCOUNTING_LOCK_DATE_KEY },
         create: { key: ACCOUNTING_LOCK_DATE_KEY, value },
