@@ -33,7 +33,8 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   const row = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const isSent = row.status === DGR_STATUS.SENT
+  // UNKNOWN (possibly delivered) is frozen like SENT: its stored document is the donor's copy.
+  const isSent = row.status === DGR_STATUS.SENT || row.status === DGR_STATUS.UNKNOWN
   let pdf: Uint8Array | null = null
   // A sent receipt serves the exact bytes the donor was emailed, so later edits to the
   // ABN, legal wording or letterhead never change the office copy.
