@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 const refresh = jest.fn()
@@ -90,6 +90,33 @@ describe("SlotCell", () => {
     await userEvent.click(select)
     expect(await screen.findByText("Not allowed")).toBeInTheDocument()
     expect(screen.queryByRole("option", { name: /Bo Kim/ })).not.toBeInTheDocument()
+  })
+
+  it("shows a retry message when loading suggestions throws", async () => {
+    r.suggestRosterAssignees.mockRejectedValue(new Error("network"))
+    render(<SlotCell slotId={5} assignments={[]} open={1} />)
+    await userEvent.click(screen.getByLabelText("Assign a person"))
+    expect(await screen.findByText("Could not load people. Please try again.")).toBeInTheDocument()
+  })
+
+  it("ignores a superseded suggestions request that fails late", async () => {
+    let reject!: (e: unknown) => void
+    r.suggestRosterAssignees.mockReturnValue(new Promise((_, rej) => { reject = rej }))
+    r.unassignRosterAssignment.mockResolvedValue({ success: "Person removed from the roster" })
+    render(<SlotCell slotId={5} assignments={people} open={1} />)
+    await userEvent.click(screen.getByLabelText("Assign a person"))
+    await userEvent.click(screen.getByRole("button", { name: "Remove Ann Lee" }))
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    await act(async () => { reject(new Error("boom")) })
+    expect(screen.queryByText("Could not load people. Please try again.")).not.toBeInTheDocument()
+  })
+
+  it("shows a generic error when a mutation throws", async () => {
+    r.unassignRosterAssignment.mockRejectedValue(new Error("boom"))
+    render(<SlotCell slotId={5} assignments={people} open={0} />)
+    await userEvent.click(screen.getByRole("button", { name: "Remove Ann Lee" }))
+    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument()
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it("says so when nobody is available", async () => {
