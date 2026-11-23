@@ -48,6 +48,21 @@ export function backAtLabel(backAt: string | null, now: Date): string {
   return `around ${time} (${city})`
 }
 
+/** Every bearer-secret-gated cron route (mirrors the cron entries in csp.ts), so none 503s in a deploy window. */
+const CRON_BYPASS_PATHS: ReadonlySet<string> = new Set([
+  "/api/cron/send-reminders",
+  "/api/cron/sweep-checkouts",
+  "/api/cron/send-group-messages",
+  "/api/cron/send-celebrations",
+  "/api/cron/error-issues",
+  "/api/cron/send-clearance-digest",
+])
+
+/**
+ * Whether a path is served normally during maintenance mode.
+ * @param pathname request pathname
+ * @returns true when the path bypasses the maintenance 503
+ */
 export function isMaintenanceBypassPath(pathname: string): boolean {
   return (
     pathname === "/api/health" ||
@@ -58,8 +73,7 @@ export function isMaintenanceBypassPath(pathname: string): boolean {
     // reason. A maintenance 503 here risks a lost/delayed Stripe payment
     // confirmation or a missed cron run during a deploy window.
     pathname === "/api/stripe/webhook" ||
-    pathname === "/api/cron/send-reminders" ||
-    pathname === "/api/cron/sweep-checkouts"
+    CRON_BYPASS_PATHS.has(pathname)
   )
 }
 
