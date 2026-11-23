@@ -32,7 +32,7 @@ these helpers, so the permission boundary lives in one place.
 |------|---------|
 | `ADMIN` | Full access. The only role that can manage other ADMIN or PASTOR accounts, and the only role that can assign either of those roles to someone else. |
 | `PASTOR` | Full content access plus pastoral notes and accounting entry, but cannot manage users. |
-| `OFFICE_ADMIN` | Day-to-day office operations: people/family/event editing, read-only accounting, and user management — except it cannot touch ADMIN or PASTOR accounts or grant either role (self-escalation guard). |
+| `OFFICE_ADMIN` | Day-to-day office operations: people/family/event editing, read-only accounting, and user management — except it cannot touch ADMIN, PASTOR or other OFFICE_ADMIN accounts or grant any of those roles (escalation and peer-takeover guard). |
 | `AUDITOR` | Accounting-only, read-only. Deliberately excluded from people/family records so it never sees decrypted member PII. |
 | `VIEWER` | Read-only people/families/events. No pastoral notes, no accounting. |
 | `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages, the members of groups linked to their login (`/my-groups`), and (legacy roll-marker logins) the rolls of assigned Sunday School classes (`/my-classes`). They can edit the public details of events they manage at /my-events/[id]/edit. |
@@ -42,20 +42,22 @@ these helpers, so the permission boundary lives in one place.
 ### Role-assignment limits (privilege escalation guard)
 
 Because `OFFICE_ADMIN` can manage users, a naive implementation would let an `OFFICE_ADMIN`
-grant themselves `ADMIN` or `PASTOR`, or take over a `PASTOR` account by resetting its
-password. `canAssignRole(actorRole, targetRole)` in `src/lib/roleGuard.ts` closes this:
+grant themselves `ADMIN` or `PASTOR`, take over a `PASTOR` account by resetting its
+password, or take over another `OFFICE_ADMIN` account the same way.
+`canAssignRole(actorRole, targetRole)` in `src/lib/roleGuard.ts` closes this:
 
 - `ADMIN` actors can assign any role to any account.
 - Any other actor (in practice `OFFICE_ADMIN`, the only other role with user-management
-  access) can only assign roles other than `ADMIN` or `PASTOR`, and can only act on target
-  accounts that do not already hold one of those two roles.
+  access) can only assign roles other than `ADMIN`, `PASTOR` and its own role, and can only
+  act on target accounts that do not already hold one of those roles. So only an `ADMIN`
+  creates or manages `OFFICE_ADMIN` accounts.
 
 This is enforced server-side in `src/lib/actions/user.ts` on every mutating path — create,
-update, delete, unlock, and resend-invite — not just in the UI. A non-ADMIN request that
-tries to create, edit, unlock, or delete an ADMIN/PASTOR account, or promote anyone to
-ADMIN/PASTOR, is rejected with "Unauthorized" regardless of what the client sends. Some
-mutations also carry the same guard into their Prisma `where` clause, so a target that gets
-promoted to ADMIN/PASTOR in the moment between the authorization check and the write simply
+update, delete, unlock, authenticator reset, passkey revoke and resend-invite — not just in
+the UI. A non-ADMIN request that tries to create, edit, unlock, or delete an
+ADMIN/PASTOR/OFFICE_ADMIN account, or give anyone one of those roles, is rejected with "Unauthorized" regardless of what the client sends. Some
+mutations also carry the same guard into their Prisma `where` clause (and edit/delete re-check
+it inside their transaction), so a target that gets promoted to ADMIN/PASTOR in the moment between the authorization check and the write simply
 fails to match any row, rather than being acted on anyway.
 
 ### Last-admin protection
@@ -98,7 +100,7 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Invoices — view; recipient contact details and PDF download | Yes | Yes | Yes | Names/totals only, no contact or PDF | No | No | No | No |
 | Venue bookings — manage bookings, send requests, approve automatic send (`/venue-usage`) | Yes | Yes | Yes | No | No | No | No | No |
 | Venue bookings — settings and calendar link create/reset | Yes | No | No | No | No | No | No | No |
-| User management (create/edit/deactivate/unlock) | Yes | No | Yes (not ADMIN/PASTOR targets) | No | No | No | No | No |
+| User management (create/edit/deactivate/unlock) | Yes | No | Yes (not ADMIN/PASTOR/OFFICE_ADMIN targets) | No | No | No | No | No |
 | Assign ADMIN or PASTOR role | Yes | No | No | No | No | No | No | No |
 | Own event: view registrations, check attendees in | Yes | Yes | Yes | No | No | Yes (own events) | No | No |
 | Full CRUD everywhere / accounting admin | Yes | No | No | No | No | No | No | No |

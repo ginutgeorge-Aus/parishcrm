@@ -169,7 +169,7 @@ Full per-feature guides (usage by role, internals, configuration) live in the **
 |---|---|
 | `ADMIN` | Full CRUD, user management, accounting admin |
 | `PASTOR` | Full CRUD + pastoral notes + accounting view/entry |
-| `OFFICE_ADMIN` | People/family/event edit, read-only accounting, user management (not ADMIN accounts), no pastoral notes |
+| `OFFICE_ADMIN` | People/family/event edit, read-only accounting, user management (not ADMIN, PASTOR or OFFICE_ADMIN accounts), no pastoral notes |
 | `AUDITOR` | Read-only accounting (transactions, reports, petty cash, CSV export) — no member PII, no mutations |
 | `VIEWER` | Read-only people/families/events (clearance status badge only) — no pastoral notes, no accounting |
 | `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in, edit public details) and members of groups linked to them; older logins assigned as Sunday School roll markers keep roll access |
