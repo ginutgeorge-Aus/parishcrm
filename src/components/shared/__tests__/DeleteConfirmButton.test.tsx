@@ -70,3 +70,14 @@ test("accepts a rich description node and renders it in the dialog", async () =>
   fireEvent.click(screen.getByRole("button", { name: "Open" }))
   expect(await screen.findByTestId("rich")).toHaveTextContent("Email preview text")
 })
+
+test("Escape does not dismiss the dialog while the action is in flight", async () => {
+  let resolve: () => void = () => {}
+  const onConfirm = jest.fn(() => new Promise<void>((r) => { resolve = r }))
+  render(<DeleteConfirmButton onConfirm={onConfirm} title="Delete this?" description="x" confirmLabel="Confirm" />)
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }))
+  fireEvent.click(await screen.findByRole("button", { name: "Confirm" }))
+  fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" })
+  expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+  await act(async () => { resolve() })
+})

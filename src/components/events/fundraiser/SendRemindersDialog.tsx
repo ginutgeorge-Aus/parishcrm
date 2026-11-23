@@ -136,7 +136,7 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
       <p className="text-foreground">
         {sendable === 0
           ? "Nobody can be reminded right now."
-          : `This will email about ${sendable} ${plural(sendable, "person who still owes", "people who still owe")} money.`}
+          : `This will email up to ${sendable} ${plural(sendable, "person who still owes", "people who still owe")} money.`}
       </p>
       {skippedNoEmail > 0 && (
         <p className="text-muted-foreground">

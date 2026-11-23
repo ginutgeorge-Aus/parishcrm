@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { BrandingForm, checkBrandingFile } from "../BrandingForm"
-import { uploadBranding } from "@/lib/actions/branding"
+import { uploadBranding, resetBranding } from "@/lib/actions/branding"
 
 jest.mock("@/lib/actions/branding", () => ({ uploadBranding: jest.fn(), resetBranding: jest.fn() }))
 
@@ -50,5 +50,15 @@ describe("BrandingForm", () => {
     await waitFor(() => expect(screen.getByText("Could not read that image.")).toBeInTheDocument())
     expect(mockUpload).toHaveBeenCalledWith("logo", expect.any(FormData))
     expect(input.files?.[0]).toBe(file)
+  })
+
+  it("resets a slot only after the confirm dialog is accepted", async () => {
+    ;(resetBranding as jest.Mock).mockResolvedValue({ success: "Reset." })
+    render(<BrandingForm />)
+    fireEvent.click(screen.getAllByRole("button", { name: "Reset" })[0])
+    expect(resetBranding).not.toHaveBeenCalled()
+    const dialog = await screen.findByRole("alertdialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset" }))
+    await waitFor(() => expect(resetBranding).toHaveBeenCalledWith("logo"))
   })
 })
