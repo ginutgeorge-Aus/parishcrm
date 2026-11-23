@@ -477,7 +477,7 @@ describe("sendVenueUsageRequest", () => {
     const r = await sendVenueUsageRequest("2026-09")
     expect(r).toHaveProperty("error")
     const call = (prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[1][0]
-    expect(call.create).toMatchObject({ status: "FAILED", errorMessage: "SMTP down" })
+    expect(call.create).toMatchObject({ status: "FAILED", errorMessage: "Email send failed" })
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined, expect.any(Object))
   })
 
