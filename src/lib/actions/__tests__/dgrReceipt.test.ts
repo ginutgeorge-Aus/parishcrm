@@ -573,6 +573,23 @@ describe("sendDgrReceipt", () => {
     expect(res).toEqual({ error: "Unauthorized" })
   })
 
+  it("rejects the send when the stored email differs from the confirmed one", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    const res = await sendDgrReceipt(5, "other@x.com")
+    expect(res).toEqual({ error: expect.stringContaining("donor email has changed") })
+    expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalled()
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it("sends when the confirmed email matches the stored one (case-insensitive)", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    const res = await sendDgrReceipt(5, " G@X.com ")
+    expect(res).toEqual({ success: expect.any(String) })
+    expect(mockSendEmail).toHaveBeenCalled()
+  })
+
   it("renders the PDF, emails it, marks SENT, and audits on success", async () => {
     ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
     mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))

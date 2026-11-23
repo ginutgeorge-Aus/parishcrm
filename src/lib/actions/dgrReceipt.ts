@@ -345,8 +345,15 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
   return { success: "Receipt deleted." }
 }
 
-/** Email a DGR receipt to the donor. ADMIN/PASTOR only. */
-export async function sendDgrReceipt(id: number): Promise<{ error: string } | { success: string }> {
+/**
+ * Email a DGR receipt to the donor. ADMIN/PASTOR only.
+ *
+ * @param id Receipt id.
+ * @param confirmedEmail Recipient the user saw and confirmed in the send dialog. When given,
+ *   the send is rejected if the stored donor email has since changed (edit or stale row),
+ *   so the receipt can only go to the address that was confirmed.
+ */
+export async function sendDgrReceipt(id: number, confirmedEmail?: string | null): Promise<{ error: string } | { success: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("dgrReceipts")
@@ -360,6 +367,11 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   // donor — a double-click or retry must never re-email it or overwrite
   // sentAt/sentById. Same freeze rule as updateDgrReceipt/deleteDgrReceipt.
   if (row.status === DGR_STATUS.SENT) return { error: "This receipt has already been sent." }
+  if (confirmedEmail != null) {
+    const stored = safeDecrypt(row.donorEmail).trim().toLowerCase()
+    if (stored !== confirmedEmail.trim().toLowerCase())
+      return { error: "The donor email has changed since you opened this. Refresh and confirm the new address." }
+  }
 
   // Atomically claim the row BEFORE the slow render+email. Only a DRAFT/FAILED
   // row is claimable, plus UNKNOWN (possibly delivered): its content is frozen, so
@@ -493,6 +505,8 @@ export type DgrReceiptListRow = {
   receiptNo: string
   fyLabel: string
   donorName: string
+  /** Decrypted; shown only in the send-confirm dialog to accounting users. */
+  donorEmail: string | null
   total: number
   status: string
   sentAt: Date | null
@@ -518,6 +532,7 @@ export async function listDgrReceipts(
       receiptNo: true,
       fyEndYear: true,
       donorName: true,
+      donorEmail: true,
       totalAmount: true,
       status: true,
       sentAt: true,
@@ -529,6 +544,7 @@ export async function listDgrReceipts(
     receiptNo: r.receiptNo,
     fyLabel: fyLabel(r.fyEndYear),
     donorName: r.donorName,
+    donorEmail: r.donorEmail ? safeDecrypt(r.donorEmail) : null,
     total: Number(r.totalAmount),
     status: r.status,
     sentAt: r.sentAt,

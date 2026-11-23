@@ -1,11 +1,11 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import { PaymentsPanel } from "@/components/events/fundraiser/PaymentsPanel"
 import type { FundraiserPaymentItem as PaymentItem } from "@/lib/fundraiserQueries"
 import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 
 const refresh = jest.fn()
-jest.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }))
+jest.mock("next/navigation", () => ({ useRouter: () => ({ refresh }), unstable_rethrow: jest.fn() }))
 jest.mock("@/lib/actions/fundraiser", () => ({ recordPayment: jest.fn(), deletePayment: jest.fn() }))
 
 const payments: PaymentItem[] = [
@@ -68,16 +68,28 @@ describe("PaymentsPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Amount too high")
   })
 
-  it("deletes a payment and shows delete error", async () => {
-    ;(deletePayment as jest.Mock).mockResolvedValueOnce({ success: "ok" }).mockResolvedValueOnce({ error: "Locked" })
-    openPanel()
-    const del = screen.getByRole("button", { name: /Delete payment/ })
-    fireEvent.click(del)
-    await waitFor(() => expect(deletePayment).toHaveBeenCalledWith(1))
-    await waitFor(() => expect(screen.getByRole("button", { name: /Delete payment/ })).toBeEnabled())
+  /** Clicks the row Delete trigger, then (optionally) the dialog's confirm button. */
+  async function clickDelete(confirm = true) {
     fireEvent.click(screen.getByRole("button", { name: /Delete payment/ }))
-    await waitFor(() => expect(deletePayment).toHaveBeenCalledTimes(2))
-    expect(await screen.findByRole("alert")).toHaveTextContent("Locked")
+    const dialog = await screen.findByRole("alertdialog")
+    if (confirm) fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }))
+    return dialog
+  }
+
+  it("does not delete on the first click, only after confirming", async () => {
+    ;(deletePayment as jest.Mock).mockResolvedValue({ success: "ok" })
+    openPanel()
+    await clickDelete(false)
+    expect(deletePayment).not.toHaveBeenCalled()
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }))
+    await waitFor(() => expect(deletePayment).toHaveBeenCalledWith(1))
+  })
+
+  it("shows the delete error inside the confirm dialog", async () => {
+    ;(deletePayment as jest.Mock).mockResolvedValue({ error: "Locked" })
+    openPanel()
+    const dialog = await clickDelete()
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Locked")
   })
 
   it("shows an inline error when recording a payment throws", async () => {
@@ -90,7 +102,7 @@ describe("PaymentsPanel", () => {
   it("shows an inline error when deleting a payment throws", async () => {
     ;(deletePayment as jest.Mock).mockRejectedValue(new Error("network"))
     openPanel()
-    fireEvent.click(screen.getByRole("button", { name: /Delete payment/ }))
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not delete the payment. Please try again.")
+    const dialog = await clickDelete()
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Something went wrong. Try again.")
   })
 })
