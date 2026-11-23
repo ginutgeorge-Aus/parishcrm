@@ -817,6 +817,35 @@ describe("sendDgrReceipt", () => {
     }
   })
 
+  it("an UNKNOWN retry with an unreadable stored PDF re-renders with the first issue date", async () => {
+    jest.useFakeTimers({ now: new Date("2026-11-22T00:00:00Z"), doNotFake: ["nextTick", "setImmediate", "setTimeout"] })
+    try {
+      ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
+        ...draftReceipt,
+        status: "UNKNOWN",
+        sentAt: new Date(),
+        frozenPdf: null,
+        issuer: {
+          churchName: "Old Church",
+          churchAbn: "11111111111",
+          churchAddress: "Old addr",
+          churchEmail: "old@example.com",
+          documentTitle: "OLD TITLE",
+          totalDonationsLabel: "OLD TOTAL",
+          legalLines: ["Old legal"],
+          coveredPeriod: "old period",
+          issueDate: "21 November 2026",
+        },
+      })
+      mockRenderPdf.mockResolvedValue(Buffer.from("re-rendered"))
+      mockSendEmail.mockResolvedValue(undefined)
+      await sendDgrReceipt(5)
+      expect(mockRenderPdf).toHaveBeenCalledWith(expect.objectContaining({ issueDate: "21 November 2026" }))
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it("a stale send cannot finalize a row that a newer claim now holds (SENT write is scoped to its claim)", async () => {
     ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
     mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))

@@ -406,7 +406,9 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
     church,
     receipt
   )
-  const model = keptSnapshot && keptPdf ? { ...liveModel, ...keptSnapshot } : liveModel
+  // Snapshot wins even when the stored PDF is unreadable: the re-render then keeps the first
+  // attempt's issue date and issuer details, so the number and date never change.
+  const model = keptSnapshot ? { ...liveModel, ...keptSnapshot } : liveModel
 
   // The claim time doubles as the claim token: every finalizing write below matches it, so a
   // stale send (its row edited back to DRAFT and claimed again) cannot overwrite the newer claim.
