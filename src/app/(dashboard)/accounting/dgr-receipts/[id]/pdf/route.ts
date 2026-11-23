@@ -4,7 +4,10 @@ import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { buildDgrPdfModel, type DgrLine } from "@/lib/dgr"
+import { buildDgrPdfModel, parseIssuerSnapshot, DGR_STATUS, type DgrLine } from "@/lib/dgr"
+import { decryptBytes } from "@/lib/crypto"
+import { logger } from "@/lib/logger"
+import { sydneyToday } from "@/lib/dates"
 import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
 import { getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
@@ -30,20 +33,39 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   const row = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const church = await getChurchSettingsStrict()
-  const receipt = await getReceiptSettings()
-  const model = buildDgrPdfModel(
-    {
-      receiptNo: row.receiptNo,
-      fyEndYear: row.fyEndYear,
-      issueDate: row.createdAt,
-      donorName: row.donorName,
-      lines: row.lines as DgrLine[],
-    },
-    church,
-    receipt
-  )
-  const pdf = await renderDgrReceiptPdf(model)
+  // UNKNOWN (possibly delivered) is frozen like SENT: its stored document is the donor's copy.
+  const isSent = row.status === DGR_STATUS.SENT || row.status === DGR_STATUS.UNKNOWN
+  let pdf: Uint8Array | null = null
+  // A sent receipt serves the exact bytes the donor was emailed, so later edits to the
+  // ABN, legal wording or letterhead never change the office copy.
+  if (isSent && row.frozenPdf) {
+    try {
+      pdf = decryptBytes(row.frozenPdf)
+    } catch (e) {
+      logger.error("dgr frozenPdf unreadable, rendering from snapshot", { id, message: e instanceof Error ? e.message : "unknown" })
+    }
+  }
+  if (!pdf) {
+    const snapshot = isSent ? parseIssuerSnapshot(row.issuer) : null
+    // Snapshot first: a usable snapshot needs no live church identity, so cleared settings
+    // cannot block the office copy. Previews and legacy rows keep the strict live read.
+    const church = snapshot ? null : await getChurchSettingsStrict()
+    const receipt = await getReceiptSettings()
+    const model = buildDgrPdfModel(
+      {
+        receiptNo: row.receiptNo,
+        fyEndYear: row.fyEndYear,
+        // Legacy SENT rows (no snapshot) keep createdAt, what the donor's copy showed. Unsent
+        // previews show today's Sydney date, which is the date the receipt would be issued.
+        issueDate: isSent ? row.createdAt : sydneyToday(),
+        donorName: row.donorName,
+        lines: row.lines as DgrLine[],
+      },
+      church ?? { name: snapshot!.churchName, address: snapshot!.churchAddress, abn: snapshot!.churchAbn, email: snapshot!.churchEmail },
+      receipt
+    )
+    pdf = await renderDgrReceiptPdf(snapshot ? { ...model, ...snapshot } : model)
+  }
 
   void logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "DgrReceipt", id, {
     report: "dgr-receipt",

@@ -61,7 +61,7 @@ describe("approveMembershipApplication — create", () => {
     ;(prisma.$transaction as jest.Mock).mockImplementation((cb) => cb(tx))
 
     const r = await approveMembershipApplication(1, { mode: "create" })
-    expect(r).toEqual({ success: "Application approved" })
+    expect(r).toEqual({ success: "Application approved", familyId: expect.any(Number) })
 
     const fam = tx.family.create.mock.calls[0][0].data
     expect(fam.name).toBe("Miller")
@@ -122,7 +122,7 @@ describe("approveMembershipApplication — merge", () => {
     ;(prisma.$transaction as jest.Mock).mockImplementation((cb) => cb(tx))
 
     const r = await approveMembershipApplication(1, { mode: "merge", familyId: 7 })
-    expect(r).toEqual({ success: "Application approved" })
+    expect(r).toEqual({ success: "Application approved", familyId: expect.any(Number) })
 
     const patch = tx.family.update.mock.calls[0][0].data
     expect(patch.address).toBeUndefined() // existing kept
@@ -134,6 +134,46 @@ describe("approveMembershipApplication — merge", () => {
 
     expect(tx.person.createMany).toHaveBeenCalledTimes(1)
     expect(tx.person.createMany.mock.calls[0][0].data).toHaveLength(2) // SPOUSE + CHILD (HEAD skipped)
+  })
+
+  function mergeTx(existing: Array<{ firstName: string; lastName: string; role: string }>) {
+    return {
+      family: {
+        findUnique: jest.fn().mockResolvedValue({ id: 7, address: null, suburb: null, state: null, postcode: null, marriageDate: null, monthlyDues: null, notes: null, archivedAt: null }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      person: { findMany: jest.fn().mockResolvedValue(existing), createMany: jest.fn().mockResolvedValue({ count: 3 }) },
+      membershipApplication: { update: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    }
+  }
+  const rolesAdded = (tx: ReturnType<typeof mergeTx>) =>
+    Object.fromEntries((tx.person.createMany.mock.calls[0][0].data as Array<{ firstName: string; role: string }>).map((d) => [d.firstName, d.role]))
+
+  it("adds the applicant as OTHER and the spouse as OTHER when the family already has an active HEAD and SPOUSE", async () => {
+    ;(prisma.membershipApplication.findUnique as jest.Mock).mockResolvedValue(makeApp())
+    const tx = mergeTx([
+      { firstName: "Paul", lastName: "Other", role: "HEAD" },
+      { firstName: "Pam", lastName: "Other", role: "SPOUSE" },
+    ])
+    ;(prisma.$transaction as jest.Mock).mockImplementation((cb) => cb(tx))
+    await approveMembershipApplication(1, { mode: "merge", familyId: 7 })
+    expect(rolesAdded(tx)).toEqual({ John: "OTHER", Mary: "OTHER", Anna: "CHILD" })
+  })
+
+  it("keeps HEAD and SPOUSE when the family has no active HEAD or SPOUSE", async () => {
+    ;(prisma.membershipApplication.findUnique as jest.Mock).mockResolvedValue(makeApp())
+    const tx = mergeTx([{ firstName: "Kid", lastName: "Other", role: "CHILD" }])
+    ;(prisma.$transaction as jest.Mock).mockImplementation((cb) => cb(tx))
+    await approveMembershipApplication(1, { mode: "merge", familyId: 7 })
+    expect(rolesAdded(tx)).toEqual({ John: "HEAD", Mary: "SPOUSE", Anna: "CHILD" })
+  })
+
+  it("returns the family id so the caller can link to it", async () => {
+    ;(prisma.membershipApplication.findUnique as jest.Mock).mockResolvedValue(makeApp())
+    const tx = mergeTx([])
+    ;(tx.family.findUnique as jest.Mock).mockResolvedValue({ id: 7, name: "Other", address: null, suburb: null, state: null, postcode: null, marriageDate: null, monthlyDues: null, notes: null, archivedAt: null })
+    ;(prisma.$transaction as jest.Mock).mockImplementation((cb) => cb(tx))
+    expect(await approveMembershipApplication(1, { mode: "merge", familyId: 7 })).toEqual({ success: "Application approved", familyId: 7 })
   })
 
   it("does not let an ARCHIVED same-name person suppress creating the active member", async () => {
@@ -150,7 +190,7 @@ describe("approveMembershipApplication — merge", () => {
     ;(prisma.$transaction as jest.Mock).mockImplementation((cb) => cb(tx))
 
     const r = await approveMembershipApplication(1, { mode: "merge", familyId: 7 })
-    expect(r).toEqual({ success: "Application approved" })
+    expect(r).toEqual({ success: "Application approved", familyId: expect.any(Number) })
 
     // The existing-person lookup must exclude archived rows...
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ familyId: 7, archivedAt: null }) }))
@@ -193,7 +233,7 @@ describe("guards", () => {
   it("is idempotent on an already-approved application", async () => {
     ;(prisma.membershipApplication.findUnique as jest.Mock).mockResolvedValue(makeApp({ status: "APPROVED", linkedFamilyId: 5 }))
     const r = await approveMembershipApplication(1, { mode: "create" })
-    expect(r).toEqual({ success: "Already approved" })
+    expect(r).toEqual({ success: "Already approved", familyId: expect.any(Number) })
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 

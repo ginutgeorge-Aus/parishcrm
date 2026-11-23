@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react"
 import { buildWelcomeLetterDraft, sendWelcomeLetter, type WelcomeLetterRecipient } from "@/lib/actions/welcomeLetter"
+import { MAX_WELCOME_RECIPIENTS } from "@/lib/welcomeLetter"
 import type { WelcomeLetterModel } from "@/lib/welcomeLetter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -36,7 +37,7 @@ export function WelcomeLetterClient({ families }: Readonly<{ families: FamilyOpt
         if ("error" in r) { setMsg({ kind: "err", text: r.error }); return }
         setModel(r.model)
         setRecipients(r.recipients)
-        setSelected(new Set(r.recipients.map((x) => x.personId)))
+        setSelected(new Set(r.recipients.slice(0, MAX_WELCOME_RECIPIENTS).map((x) => x.personId)))
       } catch {
         if (pendingIdRef.current !== id) return
         setMsg({ kind: "err", text: "Could not load the draft. Please try again." })
@@ -219,7 +220,7 @@ export function WelcomeLetterClient({ families }: Readonly<{ families: FamilyOpt
 
           <div className="flex gap-3">
             <Button type="button" variant="outline" onClick={preview}>Preview PDF</Button>
-            <Button type="button" onClick={send} disabled={sending || selected.size === 0}>
+            <Button type="button" onClick={send} disabled={sending || selected.size === 0 || selected.size > MAX_WELCOME_RECIPIENTS}>
               {sending ? "Sending…" : "Send welcome letter"}
             </Button>
           </div>

@@ -47,7 +47,7 @@ const PUBLIC_TREES = [
 // the old broad /^\/e\// — any OTHER sub-path (e.g. a future /e/[slug]/edit or
 // /e/admin) is NOT auto-public: new routes under /e/ must be added here
 // deliberately rather than silently inheriting the public bypass.
-const PUBLIC_EVENT_PAGES = /^\/e\/[^/]+(?:\/success|\/crew\/[^/]+)?$/
+export const PUBLIC_EVENT_PAGES = /^\/e\/[^/]+(?:\/success|\/crew\/[^/]+)?$/
 // Public event API endpoints: /api/events/[slug]/register, /waitlist, and
 // image/(banner|poster). Other /api/events/* routes (e.g. export-csv) carry
 // their own auth() checks and stay behind the middleware gate.
@@ -60,20 +60,20 @@ export const EVENT_IMAGE_PATH = /^\/api\/events\/[^/]+\/image\/(banner|poster)$/
 // Public family self-update form: /family/update/[token]. Bare "/family" stays
 // gated — only the token-scoped update path is exposed (no API route; submit is
 // a server action validated by the hashed token).
-const PUBLIC_FAMILY_UPDATE = /^\/family\/update\/[^/]+$/
+export const PUBLIC_FAMILY_UPDATE = /^\/family\/update\/[^/]+$/
 // Public read-only committee calendar: /venue/[token]. The secret token is the
 // only gate (constant-time compared in the page). Bare "/venue" and deeper
 // paths stay gated, as does the admin page at "/venue-usage".
-const PUBLIC_VENUE_CALENDAR = /^\/venue\/[A-Za-z0-9_-]+$/
+export const PUBLIC_VENUE_CALENDAR = /^\/venue\/[A-Za-z0-9_-]+$/
 // Public fundraiser pay page: /pay/fundraiser/[token] (linked from reminder
 // emails). The opaque entry token is the only gate; bare "/pay" and deeper
 // paths stay gated. Pay is a server action (no API route).
-const PUBLIC_FUNDRAISER_PAY = /^\/pay\/fundraiser\/[A-Za-z0-9_-]+$/
+export const PUBLIC_FUNDRAISER_PAY = /^\/pay\/fundraiser\/[A-Za-z0-9_-]+$/
 // Personal roster calendar feed: /api/roster/feed/[token] (optional .ics suffix).
 // Calendar apps poll it with no session cookie; the secret token is the only
 // gate (hashed lookup + constant-time compare in the route). Other /api/roster
 // paths stay behind the middleware gate.
-const PUBLIC_ROSTER_FEED = /^\/api\/roster\/feed\/[A-Za-z0-9_-]+(?:\.ics)?$/
+export const PUBLIC_ROSTER_FEED = /^\/api\/roster\/feed\/[A-Za-z0-9_-]+(?:\.ics)?$/
 
 // Static security headers applied to every dynamic response by middleware
 // (AUDIT-054). next.config `headers()` does not reach App-Router Route

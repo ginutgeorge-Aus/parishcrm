@@ -319,6 +319,26 @@ describe("addEntry concurrency", () => {
     }
   })
 
+  it("a P2034 thrown by create inside the transaction is retried after a jittered backoff", async () => {
+    jest.useFakeTimers()
+    jest.mocked(randomInt).mockReturnValue(12 as never)
+    try {
+      prismaMock.fundraiserEntry.create
+        .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+        .mockResolvedValue({ id: 11 })
+      const pending = addEntry(3, { familyId: 2, quantity: "1" })
+      await jest.advanceTimersByTimeAsync(0)
+      expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(1) // waiting out the backoff
+      await jest.advanceTimersByTimeAsync(11) // just short of the 12ms backoff
+      expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(1)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(await pending).toBeUndefined()
+      expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(2)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it("gives up with BUSY after repeated P2034 aborts", async () => {
     jest.useFakeTimers()
     try {

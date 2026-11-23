@@ -26,3 +26,19 @@ it("opens the detail dialog when the booker name is clicked", async () => {
   fireEvent.click(within(table).getByRole("button", { name: /Jane Doe/i }))
   await waitFor(() => expect(getRegistrationDetail).toHaveBeenCalledWith(7))
 })
+
+describe("Mark Paid confirm", () => {
+  const pending = [{ ...regs[0], paymentStatus: "PENDING", paymentRef: null }]
+
+  it("does not call markPaid on the first click, only after confirming", async () => {
+    const { markPaid } = jest.requireMock("@/lib/actions/registration")
+    markPaid.mockResolvedValue({ success: true })
+    render(<RegistrationsTable registrations={pending} eventId={3} canEdit />)
+    fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: "Mark Paid" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent("Jane Doe")
+    expect(markPaid).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mark paid" }))
+    await waitFor(() => expect(markPaid).toHaveBeenCalledWith(7, 3))
+  })
+})

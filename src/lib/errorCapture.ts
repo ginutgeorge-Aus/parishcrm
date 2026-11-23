@@ -18,8 +18,28 @@ export function normalizeMessage(msg: string): string {
   return msg.replace(UUID, "#").replace(LONGHEX, "#").replace(DIGITS, "#")
 }
 
+// Prisma validation/constraint errors echo the submitted input after the
+// `invocation` marker (names, DOBs, addresses). Keep only the call site.
+const PRISMA_INVOCATION = /(prisma\.\w+\.\w+\(\)`?\s*invocation)[\s\S]*$/i
+// Any quoted literal may be user input; code names and Prisma codes survive.
+// Escaped delimiters (\" / \') and other backslash escapes stay inside the literal.
+const DOUBLE_QUOTED = /"(?:[^"\\]|\\.)*"/g
+const SINGLE_QUOTED = /'(?:[^'\\]|\\.)*'/g
+
+/** Emails and AU phone numbers only. Light enough for free-form log fields. */
+export function scrubContact(msg: string): string {
+  return msg.replace(EMAIL, "[email]").replace(AU_PHONE, "[phone]")
+}
+
+/**
+ * Redacts quoted literals (including ones containing escaped quotes), emails, AU phones
+ * and token-like values from an error message, then caps it at 500 chars.
+ */
 export function scrubMessage(msg: string): string {
   return msg
+    .replace(PRISMA_INVOCATION, "$1")
+    .replace(DOUBLE_QUOTED, '"[redacted]"')
+    .replace(SINGLE_QUOTED, '"[redacted]"')
     .replace(EMAIL, "[email]")
     .replace(AU_PHONE, "[phone]")
     .replace(TOKEN, "$1=[redacted]")
