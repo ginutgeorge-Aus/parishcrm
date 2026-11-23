@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { submitMembershipApplication } from "@/lib/actions/membership"
 import { focusFirstInvalidField } from "@/lib/formFocus"
+import { isValidEmail, EMAIL_MSG } from "@/lib/validation"
 import { SignaturePad } from "@/components/public-membership/SignaturePad"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Input } from "@/components/ui/input"
@@ -30,6 +31,23 @@ const band = "bg-primary text-primary-foreground text-sm font-semibold px-3 py-1
 function slug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
 }
+
+// Payload path (e.g. "personal.email", "children.1.name") -> input id. `rowMap`
+// maps a filtered payload row index back to the on-screen row.
+const PERSONAL_IDS: Record<string, string> = { dateOfBirth: "dob", qualificationProfession: "profession", dateOfArrivalNsw: "arrivalNsw" }
+const SPOUSE_IDS: Record<string, string> = { name: "spouseName", dateOfBirth: "spouseDob", dateOfMarriage: "marriageDate", parish: "spouseParish", email: "spouseEmail" }
+const ROW_TITLES: Record<string, string> = { children: "C. Name of children", dependents: "D. Other dependents (to be included in the Register)", relativesInAustralia: "E. Any other relatives in Australia" }
+function inputIdForPath(path: string, rowMap: Record<string, number[]>): string | null {
+  const [section, a, b] = path.split(".")
+  if (section === "personal") return PERSONAL_IDS[a] ?? a
+  if (section === "spouse") return SPOUSE_IDS[a] ?? null
+  if (section === "subscription") return "subscription"
+  if (section === "declaration") return a === "date" ? "declDate" : a
+  const title = ROW_TITLES[section]
+  if (title && b) return `${slug(title)}-${b}-${rowMap[section]?.[Number(a)] ?? Number(a)}`
+  return null
+}
+type FieldError = { id: string; message: string }
 
 type Child = { name: string; sex: string; dateOfBirth: string; occupation: string; phoneEmail: string }
 type Dependent = { name: string; sex: string; dateOfBirth: string; relationship: string; phoneEmail: string }
@@ -60,6 +78,13 @@ export function MembershipForm({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState<FieldError | null>(null)
+  // Props for the input with id `id`: marks it invalid and ties it to its message.
+  const fe = (id: string) => (fieldError?.id === id ? { "aria-invalid": true as const, "aria-describedby": `${id}-error` } : {})
+  const feMsg = (id: string) =>
+    fieldError?.id === id ? (
+      <p id={`${id}-error`} className="mt-1 text-sm text-destructive">{fieldError.message.replace(/^[^:]*: /, "")}</p>
+    ) : null
   // Labels live in state so a stale-label rejection can swap in the
   // admin's new labels without a reload that would discard typed answers.
   const [labels, setLabels] = useState({ homeAddress: initialHomeAddressLabel, arrivalDate: initialArrivalDateLabel })
@@ -68,8 +93,17 @@ export function MembershipForm({
 
   // Move keyboard/SR focus to the announced error so it isn't missed on submit.
   useEffect(() => {
-    if (error) errorRef.current?.focus()
-  }, [error])
+    if (error && !fieldError) errorRef.current?.focus()
+  }, [error, fieldError])
+
+  // Scroll to and focus the offending input once its invalid state has rendered.
+  useEffect(() => {
+    if (!fieldError) return
+    const el = document.getElementById(fieldError.id)
+    if (!el) return
+    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    el.focus()
+  }, [fieldError])
 
   // Section A — personal
   const [name, setName] = useState("")
@@ -169,6 +203,7 @@ export function MembershipForm({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
+    setFieldError(null)
 
     const amount = Number.parseFloat(subscription)
     if (!name || !email || !address || !suburb || !state || !postcode) {
@@ -176,6 +211,12 @@ export function MembershipForm({
       focusFirstInvalidField(e.currentTarget)
       return
     }
+    const badEmail = (id: string, label: string) => {
+      setError(`${label}: ${EMAIL_MSG}`)
+      setFieldError({ id, message: `${label}: ${EMAIL_MSG}` })
+    }
+    if (!isValidEmail(email.trim())) return badEmail("email", "Email")
+    if (spouseName.trim() && spouseEmail.trim() && !isValidEmail(spouseEmail.trim())) return badEmail("spouseEmail", "Spouse email")
     if (!(amount >= (minDues ?? 0))) {
       setError(minDues != null ? `Monthly subscription must be at least $${minDues}.` : "Please enter your monthly subscription.")
       return
@@ -238,6 +279,15 @@ export function MembershipForm({
       if (res && "error" in res) {
         if ("updatedLabels" in res) setLabels(res.updatedLabels)
         setError(res.error)
+        if ("field" in res) {
+          const rowMap: Record<string, number[]> = {
+            children: children.flatMap((c, i) => (c.name.trim() ? [i] : [])),
+            dependents: dependents.flatMap((d, i) => (d.name.trim() ? [i] : [])),
+            relativesInAustralia: relatives.flatMap((r, i) => (r.name.trim() ? [i] : [])),
+          }
+          const id = inputIdForPath(res.field, rowMap)
+          if (id) setFieldError({ id, message: res.error })
+        }
         return
       }
       router.push("/membershipform/success")
@@ -286,7 +336,8 @@ export function MembershipForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label htmlFor="name" className={label}>Name *</label>
-          <Input id="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <Input id="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required {...fe("name")} />
+          {feMsg("name")}
         </div>
         <div>
           <label htmlFor="gender" className={label}>Sex</label>
@@ -303,52 +354,63 @@ export function MembershipForm({
         </div>
         <div>
           <label htmlFor="dob" className={label}>Date of birth</label>
-          <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
+          <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} {...fe("dob")} />
+          {feMsg("dob")}
         </div>
         <div>
           <label htmlFor="email" className={label}>E-mail ID *</label>
-          <Input id="email" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <Input id="email" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required {...fe("email")} />
+          {feMsg("email")}
         </div>
         <div>
           <label htmlFor="mobile" className={label}>Mobile No.</label>
-          <Input id="mobile" type="tel" inputMode="tel" autoComplete="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <Input id="mobile" type="tel" inputMode="tel" autoComplete="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} {...fe("mobile")} />
+          {feMsg("mobile")}
         </div>
         <div className="sm:col-span-2">
           <label htmlFor="address" className={label}>Residential address *</label>
-          <Input id="address" autoComplete="street-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street address" required />
+          <Input id="address" autoComplete="street-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street address" required {...fe("address")} />
+          {feMsg("address")}
         </div>
         <div>
           <label htmlFor="suburb" className={label}>Suburb *</label>
-          <Input id="suburb" autoComplete="address-level2" value={suburb} onChange={(e) => setSuburb(e.target.value)} required />
+          <Input id="suburb" autoComplete="address-level2" value={suburb} onChange={(e) => setSuburb(e.target.value)} required {...fe("suburb")} />
+          {feMsg("suburb")}
         </div>
         <div>
           <label htmlFor="state" className={label}>State *</label>
-          <Input id="state" autoComplete="address-level1" value={state} onChange={(e) => setState(e.target.value)} required />
+          <Input id="state" autoComplete="address-level1" value={state} onChange={(e) => setState(e.target.value)} required {...fe("state")} />
+          {feMsg("state")}
         </div>
         <div>
           <label htmlFor="postcode" className={label}>Postcode *</label>
-          <Input id="postcode" inputMode="numeric" autoComplete="postal-code" value={postcode} onChange={(e) => setPostcode(e.target.value)} required />
+          <Input id="postcode" inputMode="numeric" autoComplete="postal-code" value={postcode} onChange={(e) => setPostcode(e.target.value)} required {...fe("postcode")} />
+          {feMsg("postcode")}
         </div>
         <div className="sm:col-span-2">
           <label htmlFor="profession" className={label}>Qualification &amp; profession</label>
-          <Input id="profession" value={profession} onChange={(e) => setProfession(e.target.value)} />
+          <Input id="profession" value={profession} onChange={(e) => setProfession(e.target.value)} {...fe("profession")} />
+          {feMsg("profession")}
         </div>
         {parishFields && (
           <div>
             <label htmlFor="motherParish" className={label}>Previous church</label>
-            <Input id="motherParish" value={motherParish} onChange={(e) => setMotherParish(e.target.value)} />
+            <Input id="motherParish" value={motherParish} onChange={(e) => setMotherParish(e.target.value)} {...fe("motherParish")} />
+            {feMsg("motherParish")}
           </div>
         )}
         {arrivalDateLabel && (
           <div>
             <label htmlFor="arrivalNsw" className={label}>{arrivalDateLabel}</label>
-            <Input id="arrivalNsw" type="date" value={arrivalNsw} onChange={(e) => setArrivalNsw(e.target.value)} />
+            <Input id="arrivalNsw" type="date" value={arrivalNsw} onChange={(e) => setArrivalNsw(e.target.value)} {...fe("arrivalNsw")} />
+            {feMsg("arrivalNsw")}
           </div>
         )}
         {homeAddressLabel && (
           <div className="sm:col-span-2">
             <label htmlFor="addressInIndia" className={label}>{homeAddressLabel}</label>
-            <Input id="addressInIndia" value={addressInIndia} onChange={(e) => setAddressInIndia(e.target.value)} />
+            <Input id="addressInIndia" value={addressInIndia} onChange={(e) => setAddressInIndia(e.target.value)} {...fe("addressInIndia")} />
+            {feMsg("addressInIndia")}
           </div>
         )}
         <div>
@@ -383,20 +445,24 @@ export function MembershipForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="spouseName" className={label}>Name of spouse</label>
-          <Input id="spouseName" autoComplete="off" value={spouseName} onChange={(e) => setSpouseName(e.target.value)} />
+          <Input id="spouseName" autoComplete="off" value={spouseName} onChange={(e) => setSpouseName(e.target.value)} {...fe("spouseName")} />
+          {feMsg("spouseName")}
         </div>
         <div>
           <label htmlFor="spouseDob" className={label}>Date of birth</label>
-          <Input id="spouseDob" type="date" autoComplete="off" value={spouseDob} onChange={(e) => setSpouseDob(e.target.value)} />
+          <Input id="spouseDob" type="date" autoComplete="off" value={spouseDob} onChange={(e) => setSpouseDob(e.target.value)} {...fe("spouseDob")} />
+          {feMsg("spouseDob")}
         </div>
         <div>
           <label htmlFor="marriageDate" className={label}>Date of marriage</label>
-          <Input id="marriageDate" type="date" autoComplete="off" value={marriageDate} onChange={(e) => setMarriageDate(e.target.value)} />
+          <Input id="marriageDate" type="date" autoComplete="off" value={marriageDate} onChange={(e) => setMarriageDate(e.target.value)} {...fe("marriageDate")} />
+          {feMsg("marriageDate")}
         </div>
         {parishFields && (
           <div>
             <label htmlFor="spouseParish" className={label}>Spouse&apos;s church</label>
-            <Input id="spouseParish" autoComplete="off" value={spouseParish} onChange={(e) => setSpouseParish(e.target.value)} />
+            <Input id="spouseParish" autoComplete="off" value={spouseParish} onChange={(e) => setSpouseParish(e.target.value)} {...fe("spouseParish")} />
+            {feMsg("spouseParish")}
           </div>
         )}
         <div>
@@ -413,11 +479,13 @@ export function MembershipForm({
         </div>
         <div>
           <label htmlFor="spouseEmail" className={label}>Spouse e-mail ID</label>
-          <Input id="spouseEmail" type="email" autoComplete="off" value={spouseEmail} onChange={(e) => setSpouseEmail(e.target.value)} />
+          <Input id="spouseEmail" type="email" autoComplete="off" value={spouseEmail} onChange={(e) => setSpouseEmail(e.target.value)} {...fe("spouseEmail")} />
+          {feMsg("spouseEmail")}
         </div>
       </div>
 
       <RowSection<Child>
+        invalid={fieldError}
         title="C. Name of children"
         rows={children}
         empty={emptyChild}
@@ -434,6 +502,7 @@ export function MembershipForm({
       />
 
       <RowSection<Dependent>
+        invalid={fieldError}
         title="D. Other dependents (to be included in the Register)"
         rows={dependents}
         empty={emptyDependent}
@@ -450,6 +519,7 @@ export function MembershipForm({
       />
 
       <RowSection<Relative>
+        invalid={fieldError}
         title="E. Any other relatives in Australia"
         rows={relatives}
         empty={emptyRelative}
@@ -468,7 +538,8 @@ export function MembershipForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="subscription" className={label}>My monthly subscription ($) *{minDues != null ? ` (minimum $${minDues})` : ""}</label>
-          <Input id="subscription" type="number" min={minDues ?? 0} step="0.01" value={subscription} onChange={(e) => setSubscription(e.target.value)} required />
+          <Input id="subscription" type="number" min={minDues ?? 0} step="0.01" value={subscription} onChange={(e) => setSubscription(e.target.value)} required {...fe("subscription")} />
+          {feMsg("subscription")}
         </div>
       </div>
       <p className="mt-4 text-sm italic text-muted-foreground">
@@ -477,11 +548,13 @@ export function MembershipForm({
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="place" className={label}>Place</label>
-          <Input id="place" value={place} onChange={(e) => setPlace(e.target.value)} />
+          <Input id="place" value={place} onChange={(e) => setPlace(e.target.value)} {...fe("place")} />
+          {feMsg("place")}
         </div>
         <div>
           <label htmlFor="declDate" className={label}>Date</label>
-          <Input id="declDate" type="date" value={declDate} onChange={(e) => setDeclDate(e.target.value)} />
+          <Input id="declDate" type="date" value={declDate} onChange={(e) => setDeclDate(e.target.value)} {...fe("declDate")} />
+          {feMsg("declDate")}
         </div>
       </div>
       <div className="mt-4">
@@ -533,8 +606,9 @@ function RowSection<T extends { name: string }>(props: Readonly<{
   setRows: React.Dispatch<React.SetStateAction<T[]>>
   columns: Column<T>[]
   onChange: (i: number, patch: Partial<T>) => void
+  invalid?: FieldError | null
 }>) {
-  const { title, rows, empty, max, setRows, columns, onChange } = props
+  const { title, rows, empty, max, setRows, columns, onChange, invalid } = props
   const addButtonRef = useRef<HTMLButtonElement>(null)
   const shouldFocusAddButton = useRef(false)
 
@@ -575,9 +649,11 @@ function RowSection<T extends { name: string }>(props: Readonly<{
                       type={col.type ?? "text"}
                       placeholder={col.label}
                       aria-labelledby={`${rowHeadingId} ${labelId}`}
+                      {...(invalid?.id === inputId ? { "aria-invalid": true as const, "aria-describedby": `${inputId}-error` } : {})}
                       value={String(row[col.key] ?? "")}
                       onChange={(e) => onChange(i, { [col.key]: e.target.value } as Partial<T>)}
                     />
+                    {invalid?.id === inputId && <p id={`${inputId}-error`} className="mt-1 text-sm text-destructive">{invalid.message.replace(/^[^:]*: /, "")}</p>}
                   </div>
                 )
               })}

@@ -69,7 +69,7 @@ describe("FollowUpList", () => {
   it("renders target link, due date, assignee and overdue badge", () => {
     render(<FollowUpList tasks={[task({ overdue: true })]} canManage={false} showTarget />)
     expect(screen.getByRole("link", { name: "Sam Demo" })).toHaveAttribute("href", "/people/9")
-    expect(screen.getByText(/Due 2026-11-20/)).toHaveTextContent("Assigned to Pat")
+    expect(screen.getByText(/Due 20 Nov 2026/)).toHaveTextContent("Assigned to Pat")
     expect(screen.getByText("Overdue")).toBeInTheDocument()
   })
 

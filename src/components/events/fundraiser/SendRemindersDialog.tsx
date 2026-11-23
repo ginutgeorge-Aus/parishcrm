@@ -6,7 +6,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { getReminderPlan, sendFundraiserReminders } from "@/lib/actions/fundraiser"
 
-type Plan = { sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; lastSentAt: string | null }
+type Plan = { sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; dedupeMinutes: number; lastSentAt: string | null }
 
 /**
  * Button + plain-language confirm dialog for emailing payment reminders. Counts
@@ -24,6 +24,7 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
   const [loading, startLoad] = useTransition()
   const [pending, start] = useTransition()
   const latestLoad = useRef(0)
+  const latestSend = useRef(0)
 
   /**
    * Load the preview counts shown in the dialog. Only the latest load may set
@@ -49,21 +50,27 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
   /** Send reminders and show the outcome in the dialog. */
   function send() {
     setError(null)
+    const seq = ++latestSend.current
+    const minutes = plan?.dedupeMinutes
     start(async () => {
       let res: Awaited<ReturnType<typeof sendFundraiserReminders>>
       try {
         res = await sendFundraiserReminders(fundraiserId)
       } catch {
+        if (seq !== latestSend.current) { loadPlan(); return }
         setError("Could not send reminders. Please try again.")
         return
       }
+      // A send that settles after the dialog was reopened must not overwrite the new session, but the
+      // emails may have gone out, so refresh the preview instead of leaving stale counts.
+      if (seq !== latestSend.current) { loadPlan(); return }
       if ("error" in res) { setError(res.error); return }
-      setDone(`Sent ${res.sent} reminder${res.sent === 1 ? "" : "s"}${res.failed ? `, ${res.failed} failed` : ""}${res.skippedRecent ? `, ${res.skippedRecent} skipped (reminded in the last 10 minutes)` : ""}${res.deferred ? `. ${res.deferred} more not sent yet: run again to continue` : ""}.`)
+      setDone(sentMessage(res, minutes))
     })
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) { setError(null); setDone(null); loadPlan() } }}>
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) { latestSend.current++; setError(null); setDone(null); loadPlan() } }}>
       <DialogTrigger asChild><Button size="sm" variant="outline">Send reminders</Button></DialogTrigger>
       <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
         <DialogHeader><DialogTitle>Send payment reminders</DialogTitle></DialogHeader>
@@ -91,16 +98,45 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
 }
 
 /**
+ * Pick the singular or plural form of a word.
+ * @param n - Count.
+ * @param one - Singular form.
+ * @param many - Plural form.
+ */
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many
+}
+
+/**
+ * Plain-language outcome of a reminder send.
+ * @param res - Counts returned by `sendFundraiserReminders`.
+ * @param minutes - Dedupe window in minutes from the preview, if known.
+ */
+function sentMessage(
+  res: { sent: number; failed: number; skippedRecent: number; deferred: number },
+  minutes: number | undefined,
+): string {
+  let msg = `Sent ${res.sent} ${plural(res.sent, "reminder", "reminders")}`
+  if (res.failed) msg += `, ${res.failed} failed`
+  if (res.skippedRecent) {
+    const when = minutes ? `in the last ${minutes} ${plural(minutes, "minute", "minutes")}` : "recently"
+    msg += `, ${res.skippedRecent} skipped (reminded ${when})`
+  }
+  if (res.deferred) msg += `. ${res.deferred} more not sent yet: run again to continue`
+  return msg + "."
+}
+
+/**
  * Plain-language preview of a reminder run.
  * @param props.plan - Counts and last-sent date label from `getReminderPlan`.
  */
-function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred, lastSentAt } }: Readonly<{ plan: Plan }>) {
+function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred, dedupeMinutes, lastSentAt } }: Readonly<{ plan: Plan }>) {
   return (
     <>
       <p className="text-foreground">
         {sendable === 0
           ? "Nobody can be reminded right now."
-          : `This will email up to ${sendable} ${sendable === 1 ? "person" : "people"} who still owe money.`}
+          : `This will email up to ${sendable} ${plural(sendable, "person who still owes", "people who still owe")} money.`}
       </p>
       {skippedNoEmail > 0 && (
         <p className="text-muted-foreground">
@@ -109,7 +145,7 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
       )}
       {skippedRecent > 0 && (
         <p className="text-muted-foreground">
-          {skippedRecent} {skippedRecent === 1 ? "person was" : "people were"} reminded in the last 10 minutes, so will be skipped.
+          {skippedRecent} {skippedRecent === 1 ? "person was" : "people were"} reminded in the last {dedupeMinutes} {dedupeMinutes === 1 ? "minute" : "minutes"}, so will be skipped.
         </p>
       )}
       {deferred > 0 && (

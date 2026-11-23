@@ -31,7 +31,7 @@ Open **Venue bookings** in the sidebar and pick a month. Each date has a status:
 | Cancelled | Dropped. Kept on the list but not counted. |
 
 - **Add a booking** takes a date, status, start and end time, an optional purpose and optional notes. A future date starts as Requested; today or a past date starts as Confirmed.
-- **Add all Sundays in** the chosen month creates a booking for every Sunday that does not already have one.
+- **Add all Sundays in** the chosen month creates a booking for every Sunday that does not already have one. Today and past Sundays are saved as used (Confirmed); later Sundays are saved as Requested.
 - Tick several rows to **Mark confirmed** or cancel them together.
 - **Cancel** asks "Email venue about this cancellation?". Choose to email the venue, or keep the booking change without emailing. The cancellation notice wording is fixed.
 - Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Once the day has passed, the start and end times (but not the date) can still be corrected to the hours actually used, even if the date was sent. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told. If that month's invoice request was already sent, the hours are still saved but a warning tells you the sent invoice request won't be updated (see below).

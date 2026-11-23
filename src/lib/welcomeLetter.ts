@@ -1,3 +1,4 @@
+import { z } from "zod"
 import type { BankAccount, LetterSettings } from "@/lib/letterSettings"
 
 export type WelcomeLetterModel = {
@@ -17,6 +18,47 @@ export type WelcomeLetterModel = {
   signerTitle: string
   church: { name: string; address: string; abn: string; email: string }
 }
+
+// Bound every field before it reaches pdfkit — any canEdit user can POST here,
+// so an unbounded/malformed payload must not throw a 500 or render a huge PDF.
+const BankAccountSchema = z.object({
+  fundLabel: z.string().max(120),
+  bank: z.string().max(100),
+  bsb: z.string().max(20),
+  account: z.string().max(30),
+  accountName: z.string().max(120),
+  taxDeductible: z.boolean(),
+})
+
+// Bounds mirror what buildWelcomeLetterModel can emit, not just stored limits:
+// families have no write-side member cap (500 is a generous sanity ceiling), and
+// templates (<=4000 chars) grow when {churchName} (<=200) is substituted.
+const MAX_LETTER_MEMBERS = 500
+const MAX_LETTER_BODY = 20000
+
+/** Zod schema bounding every WelcomeLetterModel field before rendering/sending. */
+export const ModelSchema = z.object({
+  date: z.string().max(40),
+  addresseeName: z.string().max(400),
+  addressLines: z.array(z.string().max(500)).max(10),
+  greetingName: z.string().max(400),
+  memberNo: z.string().max(50).nullable(),
+  includeTransfer: z.boolean(),
+  transferChurch: z.string().max(400),
+  members: z.array(z.string().max(400)).max(MAX_LETTER_MEMBERS),
+  bodyIntro: z.string().max(MAX_LETTER_BODY),
+  contributionsIntro: z.string().max(MAX_LETTER_BODY),
+  bodyClosing: z.string().max(MAX_LETTER_BODY),
+  bankAccounts: z.array(BankAccountSchema).max(4),
+  signerName: z.string().max(120),
+  signerTitle: z.string().max(120),
+  church: z.object({
+    name: z.string().max(200),
+    address: z.string().max(500),
+    abn: z.string().max(40),
+    email: z.string().max(255),
+  }),
+})
 
 type NameParts = {
   title: string | null
@@ -39,6 +81,9 @@ export type BuildInput = {
 export function fullName(p: NameParts): string {
   return [p.title, p.firstName, p.middleName, p.lastName, p.suffix].filter(Boolean).join(" ")
 }
+
+/** Max recipients per send; larger selections are rejected, never truncated. */
+export const MAX_WELCOME_RECIPIENTS = 20
 
 export const DEFAULT_INTRO =
   "On behalf of everyone at {churchName}, we warmly welcome you and your family.\n\nWe pray that {churchName} will be a place where your family grows in faith and experiences Christian fellowship. We encourage you to take part in our worship services and church activities."

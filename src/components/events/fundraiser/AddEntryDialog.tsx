@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { addEntry, searchFundraiserFamilies } from "@/lib/actions/fundraiser"
+import { NATIVE_SELECT_CLASS } from "./nativeSelect"
 import { FAMILY_SEARCH_LIMIT as SEARCH_LIMIT, FAMILY_SEARCH_MIN as MIN_SEARCH } from "@/lib/fundraiserMath"
 
 type FamilyOption = { id: number; name: string }
@@ -214,7 +215,7 @@ export function AddEntryDialog({
               <Label htmlFor="fe-delivery">Pickup or delivery</Label>
               <select
                 id="fe-delivery"
-                className="h-11 md:h-8 any-pointer-coarse:h-11 w-full rounded-lg border border-input bg-background px-2.5 text-base md:text-sm"
+                className={`${NATIVE_SELECT_CLASS} w-full`}
                 value={delivery ? "delivery" : "pickup"}
                 onChange={(e) => setDelivery(e.target.value === "delivery")}
               >

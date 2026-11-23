@@ -11,6 +11,7 @@
  * Either would otherwise land a live token in telemetry readable by anyone with
  * telemetry read access.
  */
+import { TOKEN_ROUTES } from "@/lib/tokenRoutes"
 import type { ReadableSpan, SpanProcessor } from "@opentelemetry/sdk-trace-base"
 
 // URL-bearing attributes whose value is `…?<query>` (or a full URL with one).
@@ -23,21 +24,16 @@ const URL_ATTRS_WITH_QUERY = ["url.full", "http.url", "http.target"]
 const URL_ATTRS_WITH_PATH = ["url.full", "http.url", "http.target", "url.path"]
 // The query string broken out as its own attribute (current semconv).
 const QUERY_ATTR = "url.query"
-// Path segments that carry a single-use token, one entry per route. `gate` is
-// a cheap substring pre-check so the (possibly costlier) regex only runs when
-// it might match; each `re`'s captured group 1 is the literal route prefix,
-// with the following segment (the token) replaced. Add future token routes
-// here — single list so nothing else needs touching.
-const PATH_TOKEN_PATTERNS: { gate: string; re: RegExp }[] = [
-  { gate: "/family/update/", re: /(\/family\/update\/)[^/?#]+/g },
-  // Volunteer crew view: /e/<slug>/crew/<token>.
-  { gate: "/crew/", re: /(\/e\/[^/?#]+\/crew\/)[^/?#]+/g },
-  // Venue calendar feed/view bearer-token route: /venue/<token>. Anchored to the path start (or the origin of a
-  // full URL) so nested paths such as /api/venue/<x> are not redacted.
-  { gate: "/venue/", re: /((?<=^|^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*)\/venue\/)[^/?#]+/g },
-  // Personal roster calendar feed: /api/roster/feed/<token>[.ics].
-  { gate: "/api/roster/feed/", re: /(\/api\/roster\/feed\/)[^/?#]+/g },
-]
+// Path segments that carry a single-use token. The route list lives in
+// tokenRoutes.ts (shared with redactPagePath, parity-tested against csp.ts).
+// Each route is anchored to the path start (or the origin of a full URL) so
+// nested paths such as /api/venue/<x> are not redacted. `gate` is a cheap
+// substring pre-check; group 1 is the literal prefix, the token is replaced.
+const ORIGIN_OR_START = String.raw`(?<=^|^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*)`
+const PATH_TOKEN_PATTERNS: { gate: string; re: RegExp }[] = TOKEN_ROUTES.map((r) => ({
+  gate: r.gate,
+  re: new RegExp(`${ORIGIN_OR_START}(${r.prefix})[^/?#]+`, "g"),
+}))
 
 function stripQueryStrings(attributes: Record<string, unknown>): void {
   for (const key of URL_ATTRS_WITH_QUERY) {

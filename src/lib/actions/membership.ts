@@ -1,5 +1,6 @@
 "use server"
 
+import { resolveMergedRole } from "@/lib/membershipMerge"
 import { revalidatePath } from "next/cache"
 import { headers } from "next/headers"
 import { prisma } from "@/lib/prisma"
@@ -18,7 +19,7 @@ import { logAudit } from "@/lib/audit"
 import { encryptFamilyFields } from "@/lib/familyFields"
 import { isP2002 } from "@/lib/validation"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { membershipSubmitSchema, encryptPayload, readPayload, buildNotesBlock, deriveFamilyName, type MembershipPayload } from "@/lib/membership"
+import { membershipSubmitSchema, firstIssueMessage, encryptPayload, readPayload, buildNotesBlock, deriveFamilyName, type MembershipPayload } from "@/lib/membership"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getLetterSettings } from "@/lib/letterSettings"
@@ -45,7 +46,7 @@ type FieldLabels = { homeAddress: string; arrivalDate: string }
 type SubmitMembershipInput = { payload: unknown; signature: string; turnstileToken?: string; website?: string; renderedLabels?: FieldLabels }
 // updatedLabels: the overseas-field labels changed since the form was
 // rendered — the client swaps them in and keeps the applicant's typed data.
-type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels }
+type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels } | { error: string; field: string }
 
 /** Public membership form submit: honeypot → in-memory per-IP throttle → feature check (generic wording) → validation → Turnstile → per-IP and per-email DB quotas. */
 export async function submitMembershipApplication(input: SubmitMembershipInput): Promise<SubmitMembershipResult> {
@@ -67,7 +68,7 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   if (input.signature.length > MAX_SIGNATURE_LEN) return { error: "Signature image too large" }
 
   const parsed = membershipSubmitSchema.safeParse(input.payload)
-  if (!parsed.success) return { error: "Please check the form — some required fields are missing or invalid." }
+  if (!parsed.success) return firstIssueMessage(parsed.error)
 
   // Server-read floor — the client-side check is UX only.
   const membershipSettings = await getMembershipSettings()
@@ -132,7 +133,7 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   return { success: "Thank you — your membership form has been received. The parish office will be in touch." }
 }
 
-export type MatchCandidate = { familyId: number; familyName: string; reason: "email" | "mobile" | "surname" }
+export type MatchCandidate = { familyId: number; familyName: string; reason: "email" | "mobile" | "surname"; memberCount: number }
 
 /** Find existing families matching a membership application. Editors only. */
 export async function findMembershipMatches(applicationId: number): Promise<MatchCandidate[]> {
@@ -151,25 +152,27 @@ export async function findMembershipMatches(applicationId: number): Promise<Matc
 
   const out: MatchCandidate[] = []
   const seen = new Set<number>()
-  const push = (familyId: number, familyName: string, reason: MatchCandidate["reason"]) => {
-    if (seen.has(familyId)) return
-    seen.add(familyId)
-    out.push({ familyId, familyName, reason })
+  type Hit = { familyId: number; family: { name: string; _count: { people: number } } }
+  const push = (h: Hit, reason: MatchCandidate["reason"]) => {
+    if (seen.has(h.familyId)) return
+    seen.add(h.familyId)
+    out.push({ familyId: h.familyId, familyName: h.family.name, reason, memberCount: h.family._count.people })
   }
-  const sel = { familyId: true, family: { select: { name: true } } } as const
+  // memberCount = active (non-archived) people only, shown so staff can size up the target family.
+  const sel = { familyId: true, family: { select: { name: true, _count: { select: { people: { where: { archivedAt: null } } } } } } } as const
 
   if (app.emailHash) {
     for (const p of await prisma.person.findMany({ where: { emailHash: app.emailHash, archivedAt: null }, select: sel }))
-      push(p.familyId, p.family.name, "email")
+      push(p, "email")
   }
   if (app.mobileHash) {
     for (const p of await prisma.person.findMany({ where: { mobileHash: app.mobileHash, archivedAt: null }, select: sel }))
-      push(p.familyId, p.family.name, "mobile")
+      push(p, "mobile")
   }
   const surname = app.applicantName.trim().split(/\s+/).pop() ?? ""
   if (surname) {
     for (const p of await prisma.person.findMany({ where: { lastName: { equals: surname, mode: "insensitive" }, archivedAt: null }, select: sel, take: 10 }))
-      push(p.familyId, p.family.name, "surname")
+      push(p, "surname")
   }
   return out.slice(0, 10)
 }
@@ -313,12 +316,15 @@ async function insertMissingMembers(
   familyId: number,
   seeds: PersonSeed[],
 ): Promise<void> {
-  const existing = await tx.person.findMany({ where: { familyId, archivedAt: null }, select: { firstName: true, lastName: true } })
+  const existing = await tx.person.findMany({ where: { familyId, archivedAt: null }, select: { firstName: true, lastName: true, role: true } })
   const key = (f: string, l: string) => `${f.toLowerCase()}|${l.toLowerCase()}`
   const have = new Set(existing.map((e) => key(e.firstName, e.lastName)))
+  const activeRoles = existing.map((e) => e.role)
   const missing = seeds.filter((s) => !have.has(key(s.firstName, s.lastName)))
   if (missing.length)
-    await tx.person.createMany({ data: missing.map((s) => personCreateData(familyId, s)) as never })
+    await tx.person.createMany({
+      data: missing.map((s) => personCreateData(familyId, { ...s, role: resolveMergedRole(s.role, activeRoles) })) as never,
+    })
 }
 
 // Create a new family for a "create" approval, encrypting fields exactly as
@@ -424,7 +430,7 @@ function approvalErrorResult(e: unknown, attempt: number): ActionResultWithSucce
 export async function approveMembershipApplication(
   id: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
-): Promise<ActionResultWithSuccess> {
+): Promise<ActionResultWithSuccess | { success: string; familyId: number }> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
   const off = await featureGuard("memberships")
@@ -432,7 +438,7 @@ export async function approveMembershipApplication(
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) return { error: "Application not found" }
-  if (app.status === "APPROVED" && app.linkedFamilyId) return { success: "Already approved" }
+  if (app.status === "APPROVED" && app.linkedFamilyId) return { success: "Already approved", familyId: app.linkedFamilyId }
   // A rejected (or otherwise non-pending) application must not be approvable —
   // approving it would overwrite the review state and create orphan records.
   if (app.status !== "PENDING") return { error: "This application has already been reviewed." }
@@ -467,7 +473,7 @@ export async function approveMembershipApplication(
   await logAudit(reviewerId, "MEMBERSHIP_APPROVED", "MembershipApplication", id, { mode: opts.mode, familyId: familyId! })
   revalidatePath("/memberships")
   revalidatePath("/families")
-  return { success: "Application approved" }
+  return { success: "Application approved", familyId: familyId! }
 }
 
 /** Reject a membership application. Editors only. */

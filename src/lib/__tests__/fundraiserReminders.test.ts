@@ -304,7 +304,7 @@ test("sends in bounded parallel chunks (at most 5 in flight) and still sends eve
 test("getReminderPlan returns counts with a formatted last-sent label; non-managers refused", async () => {
   const { getReminderPlan } = await import("@/lib/actions/fundraiser")
   setEntries([entry(1), entry(2, { payments: [{ amount: "20.00" }] })])
-  expect(await getReminderPlan(3)).toEqual({ sendable: 1, skippedNoEmail: 0, skippedRecent: 0, deferred: 0, lastSentAt: null })
+  expect(await getReminderPlan(3)).toEqual({ sendable: 1, skippedNoEmail: 0, skippedRecent: 0, deferred: 0, dedupeMinutes: 10, lastSentAt: null })
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "AUDITOR" } })
   expect(await getReminderPlan(3)).toEqual({ error: "Unauthorized" })
 })
@@ -349,6 +349,26 @@ test("a capped run sends never-reminded entries before already-reminded ones", a
   const firstClaim = prismaMock.fundraiserReminderSend.create.mock.calls.map((c) => (c[0] as { data: { entryId: number } }).data.entryId)
   expect(firstClaim).toContain(n)
   expect(firstClaim).not.toContain(REMINDER_MAX_PER_RUN)
+})
+
+test("getReminderPlan reports the recent-skip and deferred arithmetic", async () => {
+  const { getReminderPlan } = await import("@/lib/actions/fundraiser")
+  const { REMINDER_MAX_PER_RUN } = await import("@/lib/fundraiserReminders")
+  setEntries(Array.from({ length: REMINDER_MAX_PER_RUN + 5 }, (_, i) => entry(i + 1)))
+  prismaMock.fundraiserReminderSend.findMany.mockResolvedValueOnce([{ entryId: 1 }, { entryId: 2 }])
+  expect(await getReminderPlan(3)).toMatchObject({ sendable: REMINDER_MAX_PER_RUN, skippedRecent: 2, deferred: 3 })
+})
+
+test("a capped run does not let FAILED-only entries starve never-attempted ones", async () => {
+  const { REMINDER_MAX_PER_RUN } = await import("@/lib/fundraiserReminders")
+  const n = REMINDER_MAX_PER_RUN + 1
+  setEntries(Array.from({ length: n }, (_, i) => entry(i + 1)))
+  // Entry 1 only has a FAILED attempt: it must sort after the never-attempted ones, so it is the one deferred.
+  prismaMock.fundraiserReminderSend.groupBy.mockResolvedValueOnce([{ entryId: 1, _max: { sentAt: new Date("2026-11-01T00:00:00Z") } }])
+  await sendFundraiserReminders(3)
+  const claimed = prismaMock.fundraiserReminderSend.create.mock.calls.map((c) => (c[0] as { data: { entryId: number } }).data.entryId)
+  expect(claimed).not.toContain(1)
+  expect(prismaMock.fundraiserReminderSend.groupBy.mock.calls[0][0].where.status).toEqual({ in: ["SUCCESS", "FAILED"] })
 })
 
 test("stops starting new chunks once the time budget is spent", async () => {

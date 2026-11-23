@@ -46,9 +46,9 @@ describe("GET /api/event-exports/[id]/csv (slugless events)", () => {
     expect((await GET(req(), props("5"))).status).toBe(404)
     expect(mockFindUnique).not.toHaveBeenCalled()
   })
-  it("403 for an organiser who does not manage the event", async () => {
+  it("404 (not 403) for an organiser who does not manage the event", async () => {
     mockAuth.mockResolvedValue({ user: { role: "EVENT_ORGANISER", id: "9" } })
-    expect((await GET(req(), props("5"))).status).toBe(403)
+    expect((await GET(req(), props("5"))).status).toBe(404)
   })
   it("200 CSV for an editor, looked up by id", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })

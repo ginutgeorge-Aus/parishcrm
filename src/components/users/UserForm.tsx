@@ -14,26 +14,35 @@ import {
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { ActionResult } from "@/lib/actions/types"
 import { UserRole } from "@/lib/generated/prisma/enums"
-import { isAdmin } from "@/lib/roleGuard"
+import { canAssignRole } from "@/lib/roleGuard"
 import { ROLE_LABELS } from "@/lib/roleLabels"
 
 type User = { id: number; name: string; email: string; role: UserRole }
 
+/**
+ * Create/edit form for a staff account. On the signed-in user's own account
+ * (`isSelf`) only the name is editable: email and role are shown read-only and
+ * still submitted unchanged, and there is no password field (updateUser
+ * refuses any other self change).
+ * @param props the server action, the user being edited (absent on create),
+ * the actor's role, and whether the actor is editing their own account
+ */
 export function UserForm({
   action,
   user,
   currentUserRole,
+  isSelf = false,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   user?: User
   currentUserRole?: UserRole
+  isSelf?: boolean
 }>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
-  const isActorAdmin = isAdmin(currentUserRole)
-  // Non-ADMIN actors (OFFICE_ADMIN) cannot assign the ADMIN role.
-  const roleOptions = Object.values(UserRole).filter(
-    (r) => isActorAdmin || r !== UserRole.ADMIN
-  )
+  // Same rule the server enforces: a non-ADMIN actor (OFFICE_ADMIN) cannot
+  // grant ADMIN, PASTOR or its own role.
+  const roleOptions = Object.values(UserRole).filter((r) => canAssignRole(currentUserRole, r))
+  const selfEdit = isSelf && !!user
 
   return (
     <form action={formAction} className="max-w-md space-y-4">
@@ -46,10 +55,17 @@ export function UserForm({
 
       <div className="space-y-1">
         <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" defaultValue={user?.email} required />
+        <Input id="email" name="email" type="email" defaultValue={user?.email} required readOnly={selfEdit} />
       </div>
 
-      {user && (
+      {selfEdit && (
+        <p className="text-xs text-muted-foreground">
+          You can change only your own name here. Use “Forgot password” on the sign-in page to change your
+          password; another administrator changes your email or role.
+        </p>
+      )}
+
+      {user && !selfEdit && (
         <div className="space-y-1">
           <Label htmlFor="password">
             New password
@@ -62,19 +78,28 @@ export function UserForm({
         </div>
       )}
 
-      <div className="space-y-1">
-        <Label htmlFor="role">Role</Label>
-        <Select name="role" defaultValue={user?.role ?? "VIEWER"}>
-          <SelectTrigger id="role">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {roleOptions.map((r) => (
-              <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {selfEdit ? (
+        <div className="space-y-1">
+          <Label htmlFor="role">Role</Label>
+          {/* Your own role may not be one you can assign, so it is never a Select option. */}
+          <Input id="role" value={ROLE_LABELS[user.role] ?? user.role} readOnly disabled />
+          <input type="hidden" name="role" value={user.role} />
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <Label htmlFor="role">Role</Label>
+          <Select name="role" defaultValue={user?.role ?? "VIEWER"}>
+            <SelectTrigger id="role">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {roleOptions.map((r) => (
+                <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="flex gap-3 pt-2">
         <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : user ? "Save changes" : "Create user"}</Button>

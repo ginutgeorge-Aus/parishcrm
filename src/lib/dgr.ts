@@ -132,3 +132,45 @@ export function buildDgrPdfModel(
     }),
   }
 }
+
+/**
+ * Issuer details, legal text and issue date frozen on a DgrReceipt at send
+ * (DgrReceipt.issuer). Holds no donor data, so it is stored as plain JSON.
+ */
+export type DgrIssuerSnapshot = Pick<
+  DgrPdfModel,
+  | "churchName"
+  | "churchAbn"
+  | "churchAddress"
+  | "churchEmail"
+  | "documentTitle"
+  | "totalDonationsLabel"
+  | "legalLines"
+  | "coveredPeriod"
+  | "issueDate"
+>
+
+/** Pick the frozen-at-send fields out of a built PDF model. */
+export function toIssuerSnapshot(m: DgrPdfModel): DgrIssuerSnapshot {
+  return {
+    churchName: m.churchName,
+    churchAbn: m.churchAbn,
+    churchAddress: m.churchAddress,
+    churchEmail: m.churchEmail,
+    documentTitle: m.documentTitle,
+    totalDonationsLabel: m.totalDonationsLabel,
+    legalLines: m.legalLines,
+    coveredPeriod: m.coveredPeriod,
+    issueDate: m.issueDate,
+  }
+}
+
+/** Narrow the Json column to a usable snapshot; null for legacy rows or malformed data. */
+export function parseIssuerSnapshot(v: unknown): DgrIssuerSnapshot | null {
+  if (!v || typeof v !== "object") return null
+  const o = v as Record<string, unknown>
+  const strs = ["churchName", "churchAbn", "churchAddress", "churchEmail", "documentTitle", "totalDonationsLabel", "coveredPeriod", "issueDate"] as const
+  if (!strs.every((k) => typeof o[k] === "string")) return null
+  if (!Array.isArray(o.legalLines) || !o.legalLines.every((l) => typeof l === "string")) return null
+  return o as unknown as DgrIssuerSnapshot
+}

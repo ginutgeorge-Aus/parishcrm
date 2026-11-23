@@ -123,6 +123,8 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
                       <DgrReceiptRowActions
                         id={r.id}
                         receiptNo={r.receiptNo}
+                        donorName={r.donorName}
+                        donorEmail={r.donorEmail}
                         status={r.status}
                         sentAt={r.sentAt}
                         canManage={canManage}
@@ -168,6 +170,8 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
                   <DgrReceiptRowActions
                     id={r.id}
                     receiptNo={r.receiptNo}
+                    donorName={r.donorName}
+                    donorEmail={r.donorEmail}
                     status={r.status}
                     sentAt={r.sentAt}
                     canManage={canManage}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState } from "react"
 import { paymentMethodOf } from "@/lib/paymentMethod"
 import { markPaid, cancelRegistration } from "@/lib/actions/registration"
 import { Badge } from "@/components/ui/badge"
@@ -35,35 +35,26 @@ type Reg = {
 
 type Props = { registrations: Reg[]; eventId: number; canEdit: boolean; total?: number }
 
-// Per-row actions own their pending/error state so acting on one row never
-// disables the buttons on every other row.
+// Each action confirms in its own dialog, which owns its pending/error state, so
+// acting on one row never disables the buttons on every other row.
 function RegistrationRowActions({ reg, eventId }: Readonly<{ reg: Reg; eventId: number }>) {
-  const [isPending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
-
   return (
     <div className="flex flex-col gap-1">
       <div className="flex gap-1">
-        {reg.paymentStatus === "PENDING" && (
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={isPending}
-            className="text-income hover:text-income"
-            onClick={() => startTransition(async () => {
-              setError(null)
-              try {
-                const result = await markPaid(reg.id, eventId)
-                if (result?.error) setError(result.error)
-              } catch {
-                // A transport-level throw bypasses the {error} branch; surface a
-                // retry message instead of silently reverting to idle.
-                setError("Something went wrong, try again")
-              }
-            })}
-          >
-            Mark Paid
-          </Button>
+        {owesPayment(reg) && (
+          <DeleteConfirmButton
+            onConfirm={async () => {
+              const result = await markPaid(reg.id, eventId)
+              return result?.error ? { error: result.error } : undefined
+            }}
+            title="Mark as paid?"
+            description={`Mark ${reg.firstName} ${reg.lastName}'s ${fmtAUD(Number.parseFloat(reg.totalAmount.toString()))} as paid? There is no "mark unpaid"; the only way back is to cancel the registration, which cannot be undone.`}
+            triggerLabel="Mark Paid"
+            triggerSize="xs"
+            triggerClassName="text-income hover:text-income"
+            confirmLabel="Mark paid"
+            pendingLabel="Saving…"
+          />
         )}
         {reg.paymentStatus !== "CANCELLED" && (
           <DeleteConfirmButton
@@ -78,7 +69,6 @@ function RegistrationRowActions({ reg, eventId }: Readonly<{ reg: Reg; eventId: 
           />
         )}
       </div>
-      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }

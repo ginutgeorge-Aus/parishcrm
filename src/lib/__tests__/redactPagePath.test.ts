@@ -9,6 +9,7 @@ describe("redactPagePath", () => {
     ["/venue/abc?x=1", "/venue/[token]?x=1"],
     ["/api/roster/feed/s3cr3tTok", "/api/roster/feed/[token]"],
     ["/api/roster/feed/s3cr3tTok.ics", "/api/roster/feed/[token]"],
+    ["/pay/fundraiser/abc", "/pay/fundraiser/[token]"],
   ])("redacts %s", (input, expected) => {
     expect(redactPagePath(input)).toBe(expected)
   })

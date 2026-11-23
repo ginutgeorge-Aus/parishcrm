@@ -3,6 +3,11 @@ import { MembershipForm } from "../MembershipForm"
 
 const submit = jest.fn().mockResolvedValue({ success: "ok" })
 jest.mock("@/lib/actions/membership", () => ({ submitMembershipApplication: (...a: unknown[]) => submit(...a) }))
+jest.mock("@/components/public-membership/SignaturePad", () => ({
+  SignaturePad: ({ onChange }: { onChange: (d: string) => void }) => (
+    <button type="button" onClick={() => onChange("data:image/png;base64,AAAA")}>sign</button>
+  ),
+}))
 const push = jest.fn()
 jest.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
 
@@ -116,5 +121,82 @@ describe("configurable membership fields (OSS)", () => {
     expect(screen.getByLabelText(/minimum \$80/)).toHaveAttribute("min", "80")
     // Cent-level step so a decimal minimum (e.g. 80.50) doesn't make whole-dollar amounts a step mismatch.
     expect(screen.getByLabelText(/minimum \$80/)).toHaveAttribute("step", "0.01")
+  })
+})
+
+describe("field-level server errors", () => {
+  const props = { churchName: "Demo Church", churchWebsite: "https://demo.example.com", parishFields: false, minDues: null, homeAddressLabel: "", arrivalDateLabel: "" }
+  function fillRequired() {
+    const set = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    set("Name *", "Jo Demo")
+    set("E-mail ID *", "jo@example.com")
+    set("Residential address *", "1 Example St")
+    set("Suburb *", "Sampletown")
+    set("State *", "NSW")
+    set("Postcode *", "2000")
+  }
+
+  it("catches an email the browser accepts but the schema refuses, before submit", async () => {
+    render(<MembershipForm {...props} />)
+    fillRequired()
+    fireEvent.change(screen.getByLabelText("E-mail ID *"), { target: { value: "mary@bad" } })
+    fireEvent.submit(screen.getByRole("button", { name: /submit membership form/i }).closest("form")!)
+    const input = screen.getByLabelText("E-mail ID *")
+    await waitFor(() => expect(input).toHaveAttribute("aria-invalid", "true"))
+    expect(screen.getAllByText(/valid email address/i).length).toBeGreaterThan(0)
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  async function submitWith(res: unknown) {
+    submit.mockResolvedValueOnce(res)
+    fireEvent.change(screen.getByLabelText(/My monthly subscription/), { target: { value: "20" } })
+    fireEvent.click(screen.getByRole("button", { name: "sign" }))
+    fireEvent.submit(screen.getByRole("button", { name: /submit membership form/i }).closest("form")!)
+  }
+
+  it("marks the personal input named by the server's field path", async () => {
+    render(<MembershipForm {...props} />)
+    fillRequired()
+    await submitWith({ error: "Date of birth: enter a real date", field: "personal.dateOfBirth" })
+    const dob = screen.getByLabelText("Date of birth", { selector: "#dob" })
+    await waitFor(() => expect(dob).toHaveAttribute("aria-invalid", "true"))
+    expect(dob).toHaveAttribute("aria-describedby", "dob-error")
+    expect(screen.getByText("enter a real date")).toBeInTheDocument()
+  })
+
+  it("maps a filtered children row index back to the on-screen row", async () => {
+    render(<MembershipForm {...props} />)
+    fillRequired()
+    // Row 1 is blank and filtered out of the payload, so payload row 0 = on-screen row 2.
+    fireEvent.click(screen.getAllByRole("button", { name: /add row/i })[0])
+    fireEvent.change(document.getElementById("c-name-of-children-name-1")!, { target: { value: "Kid Demo" } })
+    await submitWith({ error: "Child: bad occupation", field: "children.0.occupation" })
+    await waitFor(() => expect(document.getElementById("c-name-of-children-occupation-1")).toHaveAttribute("aria-invalid", "true"))
+    expect(document.getElementById("c-name-of-children-occupation-0")).not.toHaveAttribute("aria-invalid")
+  })
+
+  it("maps spouse, subscription and declaration paths to their inputs", async () => {
+    render(<MembershipForm {...props} />)
+    fillRequired()
+    await submitWith({ error: "Spouse email: invalid", field: "spouse.email" })
+    await waitFor(() => expect(document.getElementById("spouseEmail")).toHaveAttribute("aria-invalid", "true"))
+  })
+
+  it("falls back to the banner when the field path is unknown", async () => {
+    render(<MembershipForm {...props} />)
+    fillRequired()
+    await submitWith({ error: "Something odd", field: "bogus.path" })
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Something odd"))
+    expect(document.querySelector("[aria-invalid=true]")).toBeNull()
+  })
+
+  it("catches a bad spouse email client-side when a spouse is named", async () => {
+    render(<MembershipForm {...props} />)
+    fillRequired()
+    fireEvent.change(document.getElementById("spouseName")!, { target: { value: "Pat Demo" } })
+    fireEvent.change(document.getElementById("spouseEmail")!, { target: { value: "pat@bad" } })
+    fireEvent.submit(screen.getByRole("button", { name: /submit membership form/i }).closest("form")!)
+    await waitFor(() => expect(document.getElementById("spouseEmail")).toHaveAttribute("aria-invalid", "true"))
+    expect(submit).not.toHaveBeenCalled()
   })
 })

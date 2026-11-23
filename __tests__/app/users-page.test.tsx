@@ -110,6 +110,22 @@ describe("UsersPage", () => {
     expect(html).toContain("DELETE_BTN")
   })
 
+  it("OFFICE_ADMIN: no controls on a peer OFFICE_ADMIN row, Edit only on their own row", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "1" } })
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: new Date(), _count: { passkeys: 1 } }
+    mockUsers.mockResolvedValue([
+      { id: 1, name: "Me", email: "me@example.com", role: "OFFICE_ADMIN", ...base },
+      { id: 4, name: "Peer", email: "peer@example.com", role: "OFFICE_ADMIN", ...base },
+    ])
+    mockGroupBy.mockResolvedValue([])
+    const html = renderToStaticMarkup(await UsersPage())
+    expect(html).toContain("/users/1/edit")
+    expect(html).not.toContain("/users/4/edit")
+    expect(html).not.toContain("DELETE_BTN")
+    expect(html).not.toContain("RESET_TOTP_BTN")
+    expect(html).not.toContain("REVOKE_PASSKEYS_BTN")
+  })
+
   it("does not offer Delete on the viewer's own row", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null, _count: { passkeys: 0 } }

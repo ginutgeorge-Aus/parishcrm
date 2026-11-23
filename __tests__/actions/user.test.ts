@@ -18,6 +18,7 @@ jest.mock("@/lib/prisma", () => ({
     },
     backupCode: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     passkey: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    auditLog: { findFirst: jest.fn().mockResolvedValue(null) },
   },
   // user.ts now re-imports `Prisma` from this module instead of the generated
   // client directly — the isolation-level enum value must still resolve.
@@ -26,15 +27,19 @@ jest.mock("@/lib/prisma", () => ({
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("bcryptjs", () => ({ hash: jest.fn().mockResolvedValue("hashed-pw") }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({
+  logAudit: jest.fn().mockResolvedValue(undefined),
+  logAuditTx: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock("@/lib/email", () => ({ sendWelcomeEmail: jest.fn() }))
+jest.mock("next/headers", () => ({ headers: jest.fn().mockResolvedValue(new Headers({ "x-forwarded-for": "203.0.113.7" })) }))
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { hash } from "bcryptjs"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { sendWelcomeEmail } from "@/lib/email"
 import { TOTP_CLEARED } from "@/lib/totp"
 import { createUser, updateUser, deleteUser, unlockUser, resendWelcome, resetUserTotp, revokeUserPasskeys } from "@/lib/actions/user"
@@ -51,6 +56,9 @@ const mockRevalidate = revalidatePath as jest.Mock
 const mockRedirect = redirect as unknown as jest.Mock
 const mockHash = hash as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditTx = logAuditTx as jest.Mock
+// Audit rows carry the request IP resolved from the mocked next/headers.
+const IP = "203.0.113.7"
 
 function fd(fields: Record<string, string>) {
   const f = new FormData()
@@ -164,7 +172,7 @@ describe("createUser", () => {
     mockFindUnique.mockResolvedValue(null)
     mockCreate.mockResolvedValue({ id: 99 })
     await createUser(undefined, fd(validNewUser))
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "USER_CREATED", "User", 99, { targetUserId: 99 })
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "USER_CREATED", "User", 99, { targetUserId: 99, toRole: "VIEWER" }, IP)
   })
 })
 
@@ -172,7 +180,7 @@ describe("createUser", () => {
 describe("updateUser", () => {
   // Target exists by default; the not-found test overrides this. updateUser
   // looks the target up by id (existence) before the email-collision findFirst.
-  beforeEach(() => mockFindUnique.mockResolvedValue({ id: 1, email: "old@x.com" }))
+  beforeEach(() => mockFindUnique.mockResolvedValue({ id: 1, role: "VIEWER", email: "old@x.com", archivedAt: null }))
 
   it("returns error when target user not found", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
@@ -351,41 +359,46 @@ describe("updateUser", () => {
     })
   })
 
-  it("does not touch sessionsValidFrom when no password change", async () => {
+  it("does not touch sessionsValidFrom when no password, email or role change", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockQueryRaw.mockResolvedValue([])
-    await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
+    await updateUser(1, undefined, fd({ name: "X", email: "old@x.com", role: "VIEWER" }))
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
       data: expect.not.objectContaining({ sessionsValidFrom: expect.anything() }),
     })
   })
 
-  it("audit-logs USER_UPDATED with role and passwordChanged", async () => {
+  it("audit-logs USER_UPDATED in the transaction with old and new role and passwordChanged", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
     mockQueryRaw.mockResolvedValue([])
     await updateUser(5, undefined, fd({ name: "X", email: "x@x.com", role: "ADMIN", password: "Newpass9!" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(42, "USER_UPDATED", "User", 5, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "USER_UPDATED", "User", 5, {
       targetUserId: 5,
-      role: "ADMIN",
+      fromRole: "VIEWER",
+      toRole: "ADMIN",
+      emailChanged: true,
       passwordChanged: true,
-    })
+    }, IP)
+    expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
   it("audit-logs USER_UPDATED with passwordChanged=false when no password", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
     mockQueryRaw.mockResolvedValue([])
-    await updateUser(5, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(42, "USER_UPDATED", "User", 5, {
+    await updateUser(5, undefined, fd({ name: "X", email: "old@x.com", role: "VIEWER" }))
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "USER_UPDATED", "User", 5, {
       targetUserId: 5,
-      role: "VIEWER",
+      fromRole: "VIEWER",
+      toRole: "VIEWER",
+      emailChanged: false,
       passwordChanged: false,
-    })
+    }, IP)
   })
 
   // --- last-admin demotion guard ---
   it("blocks demoting the last remaining ADMIN", async () => {
-    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "9" } })
     mockFindUnique.mockResolvedValue({ id: 1, role: "ADMIN", email: "old@x.com" })
     mockCount.mockResolvedValue(0) // no other admins
     const result = await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
@@ -404,7 +417,7 @@ describe("updateUser", () => {
   })
 
   it("does not count admins when role stays ADMIN", async () => {
-    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "9" } })
     mockFindUnique.mockResolvedValue({ id: 1, role: "ADMIN", email: "old@x.com" })
     mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "ADMIN" }))
@@ -444,7 +457,7 @@ describe("updateUser", () => {
 
   // --- P2002 unique-email race backstop ---
   it("returns a clean error when the write hits a concurrent email P2002", async () => {
-    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "9" } })
     mockFindUnique.mockResolvedValue({ id: 1, role: "VIEWER", email: "old@x.com" })
     mockQueryRaw.mockResolvedValue([]) // pre-check saw the email as free
     mockTransaction.mockRejectedValue({ code: "P2002" }) // but a concurrent write beat this one
@@ -546,7 +559,7 @@ describe("deleteUser", () => {
 
 // --- unlockUser ---
 describe("unlockUser", () => {
-  beforeEach(() => mockFindUnique.mockResolvedValue({ id: 3 }))
+  beforeEach(() => mockFindUnique.mockResolvedValue({ id: 3, role: "VIEWER", archivedAt: null }))
 
   it("returns error when target user not found", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
@@ -580,6 +593,7 @@ describe("unlockUser", () => {
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 3 },
       data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+      select: { role: true },
     })
     expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })
@@ -587,7 +601,20 @@ describe("unlockUser", () => {
   it("audit-logs USER_UNLOCKED", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
     await unlockUser(3)
-    expect(mockLogAudit).toHaveBeenCalledWith(42, "USER_UNLOCKED", "User", 3)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "USER_UNLOCKED", "User", 3, { targetUserId: 3, targetRole: "VIEWER" }, IP)
+  })
+
+  it("audits the role of the updated row when it changed after the pre-read", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
+    mockUpdate.mockResolvedValueOnce({ role: "AUDITOR" })
+    await unlockUser(3)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "USER_UNLOCKED", "User", 3, { targetUserId: 3, targetRole: "AUDITOR" }, IP)
+  })
+
+  it("maps a serialization conflict to the retry prompt", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
+    mockTransaction.mockRejectedValueOnce({ code: "P2034" })
+    await expect(unlockUser(3)).resolves.toEqual({ error: expect.stringContaining("try again") })
   })
 })
 
@@ -837,7 +864,7 @@ describe("unlock / resend target-role check is atomic with the write", () => {
     mockFindUnique.mockResolvedValue({ id: 3, role: "VIEWER", archivedAt: null })
     mockUpdate.mockResolvedValue({})
     await unlockUser(3)
-    expect(mockUpdate.mock.calls[0][0].where).toEqual({ id: 3, role: { notIn: ["ADMIN", "PASTOR"] } })
+    expect(mockUpdate.mock.calls[0][0].where).toEqual({ id: 3, role: { notIn: ["ADMIN", "PASTOR", "OFFICE_ADMIN"] } })
   })
 
   it("unlockUser returns Unauthorized when the target was promoted mid-flight", async () => {
@@ -853,7 +880,7 @@ describe("unlock / resend target-role check is atomic with the write", () => {
     mockFindUnique.mockResolvedValue({ id: 2, email: "v@y.com", name: "V", role: "VIEWER", archivedAt: null })
     mockUpdate.mockRejectedValue(p2025)
     const r = await resendWelcome(2)
-    expect(mockUpdate.mock.calls[0][0].where).toEqual({ id: 2, role: { notIn: ["ADMIN", "PASTOR"] } })
+    expect(mockUpdate.mock.calls[0][0].where).toEqual({ id: 2, role: { notIn: ["ADMIN", "PASTOR", "OFFICE_ADMIN"] } })
     expect(sendWelcomeEmail).not.toHaveBeenCalled()
     expect("error" in r).toBe(true)
   })
@@ -897,11 +924,12 @@ describe("resetUserTotp", () => {
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 3 },
       data: { ...TOTP_CLEARED, sessionsValidFrom: expect.any(Date) },
+      select: { role: true },
     })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
-    expect(mockLogAudit).toHaveBeenCalledWith(42, "TOTP_RESET", "User", 3, { targetUserId: 3 })
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "TOTP_RESET", "User", 3, { targetUserId: 3, targetRole: "VIEWER" }, IP)
     expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })
 })
@@ -941,11 +969,11 @@ describe("revokeUserPasskeys", () => {
   it("deletes every passkey, kills live sessions, and audits", async () => {
     mockSession.mockResolvedValue({ user: { id: "42", role: "ADMIN" } })
     await expect(revokeUserPasskeys(3)).resolves.toBeUndefined()
-    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 3 }, data: { sessionsValidFrom: expect.any(Date) } })
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 3 }, data: { sessionsValidFrom: expect.any(Date) }, select: { role: true } })
     expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     // Trusted devices skip OTP after the password; a lost device must not keep that.
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
-    expect(mockLogAudit).toHaveBeenCalledWith(42, "PASSKEYS_REVOKED", "User", 3, { targetUserId: 3 })
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 42, "PASSKEYS_REVOKED", "User", 3, { targetUserId: 3, targetRole: "VIEWER" }, IP)
     expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })
 })

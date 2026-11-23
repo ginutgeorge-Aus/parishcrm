@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
@@ -12,6 +13,7 @@ import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
 import { randomUuid } from "@/lib/randomUuid"
+import { NATIVE_SELECT_CLASS } from "./nativeSelect"
 // Type-only (erased at build), so the server-only query module never reaches the client bundle.
 import type { FundraiserPaymentItem } from "@/lib/fundraiserQueries"
 
@@ -85,21 +87,6 @@ export function PaymentsPanel({
     })
   }
 
-  /** Delete one payment and show any server error (or a generic one if the call throws). */
-  function remove(id: number) {
-    setError(null)
-    start(async () => {
-      let res: Awaited<ReturnType<typeof deletePayment>>
-      try {
-        res = await deletePayment(id)
-      } catch {
-        setError("Could not delete the payment. Please try again.")
-        return
-      }
-      if (res?.error) setError(res.error)
-    })
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -123,9 +110,16 @@ export function PaymentsPanel({
               {p.method === "ONLINE" ? (
                 <span className="text-xs text-muted-foreground">Refund in Stripe</span>
               ) : (
-                <Button variant="ghost" size="xs" disabled={pending} onClick={() => remove(p.id)} aria-label={`Delete payment of ${fmtAUD(centsToNumber(p.amountCents))}`}>
-                  Delete
-                </Button>
+                <DeleteConfirmButton
+                  onConfirm={() => deletePayment(p.id)}
+                  disabled={pending}
+                  title="Delete this payment?"
+                  description={`Delete the ${fmtAUD(centsToNumber(p.amountCents))} ${p.method} payment dated ${p.paidAt}? This cannot be undone.`}
+                  triggerSize="xs"
+                  triggerClassName=""
+                  triggerLabel={<>Delete<span className="sr-only"> payment of {fmtAUD(centsToNumber(p.amountCents))}</span></>}
+                  pendingLabel="Deleting…"
+                />
               )}
             </li>
           ))}
@@ -140,7 +134,7 @@ export function PaymentsPanel({
               <Label htmlFor={`mth-${entryId}`}>Method</Label>
               <select
                 id={`mth-${entryId}`}
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                className={`${NATIVE_SELECT_CLASS} w-full`}
                 value={method}
                 onChange={(e) => setMethod(e.target.value as "CASH" | "BANK")}
               >

@@ -37,9 +37,26 @@ const roleVariant: Record<UserRole, "default" | "secondary" | "outline"> = {
 const roleLabel = ROLE_LABELS
 
 /**
+ * Whether the signed-in manager gets row controls for `user`: any account
+ * canAssignRole allows, plus their own row (name-only self edit), mirroring
+ * updateUser's server-side rule.
+ * @param session the current session
+ * @param user the listed account
+ * @returns true to render the row controls
+ */
+function canActOnRow(
+  session: { user?: { id?: string; role?: UserRole } } | null,
+  user: { id: number; role: UserRole },
+): boolean {
+  return String(user.id) === session?.user?.id || canAssignRole(session?.user?.role, user.role)
+}
+
+/**
  * Row action buttons shared by the mobile card list and the desktop table.
- * Callers gate on canAssignRole; TOTP/passkey resets and delete are hidden on
- * the signed-in user's own row.
+ * Callers gate on canActOnRow. On the signed-in user's own row only Edit
+ * (name only) is offered: unlock, TOTP/passkey resets, re-invite and delete
+ * are all refused server-side for yourself.
+ * @param props the row's user, lock state, whether it is the viewer's own row, and extra classes
  */
 function UserActions({
   user,
@@ -54,13 +71,13 @@ function UserActions({
 }>) {
   return (
     <div className={`flex flex-wrap gap-2 ${className}`}>
-      {isLocked && <UnlockUserButton userId={user.id} />}
+      {isLocked && !isSelf && <UnlockUserButton userId={user.id} />}
       {user.totpEnabledAt && !isSelf && <ResetTotpButton userId={user.id} />}
       {user._count.passkeys > 0 && !isSelf && <RevokePasskeysButton userId={user.id} />}
       <Button variant="ghost" size="sm" asChild>
         <Link href={`/users/${user.id}/edit`}>Edit</Link>
       </Button>
-      <ResendWelcomeButton userId={user.id} />
+      {!isSelf && <ResendWelcomeButton userId={user.id} />}
       {!isSelf && <DeleteUserButton userId={user.id} userName={user.name} />}
     </div>
   )
@@ -70,9 +87,10 @@ export default async function UsersPage() {
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) redirect("/")
 
-  // Row controls are gated on canAssignRole — the same check every user action
-  // enforces server-side (non-ADMIN may not act on ADMIN or PASTOR), so we
-  // never offer buttons that then fail. Delete is also hidden on your own row.
+  // Row controls are gated on canActOnRow — canAssignRole, the same check every
+  // user action enforces server-side (non-ADMIN may not act on ADMIN, PASTOR or
+  // a peer OFFICE_ADMIN), plus your own row for a name-only edit — so we never
+  // offer buttons that then fail.
 
   const now = new Date()
   const users = await prisma.user.findMany({
@@ -136,7 +154,7 @@ export default async function UsersPage() {
                     })
                   : "Never"}
               </p>
-              {canAssignRole(session?.user?.role, u.role) && (
+              {canActOnRow(session, u) && (
                 <UserActions user={u} isLocked={isLocked} isSelf={String(u.id) === session?.user?.id} className="mt-2 border-t pt-2" />
               )}
             </li>
@@ -183,7 +201,7 @@ export default async function UsersPage() {
                       : "Never"}
                   </TableCell>
                   <TableCell>
-                    {canAssignRole(session?.user?.role, u.role) && (
+                    {canActOnRow(session, u) && (
                       <UserActions user={u} isLocked={isLocked} isSelf={String(u.id) === session?.user?.id} />
                     )}
                   </TableCell>

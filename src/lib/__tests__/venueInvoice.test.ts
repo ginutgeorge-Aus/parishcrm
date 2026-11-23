@@ -132,11 +132,11 @@ describe("deliverInvoiceRequest", () => {
     expect(logAudit).toHaveBeenCalledWith(null, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ month: "2026-09", autoSent: true }))
   })
 
-  it("FAILED records the error", async () => {
-    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))
+  it("FAILED records a fixed error, not the raw SMTP text", async () => {
+    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp down someone@example.com"))
     const r = await deliverInvoiceRequest(await prepare(), { month: "2026-09", userId: 7, autoSent: false, resend: false })
-    expect(r).toEqual({ status: "FAILED", errorMessage: "smtp down", recorded: true, stale: false, snapshot: SNAP })
-    expect((prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[1][0].update).toMatchObject({ status: "FAILED", errorMessage: "smtp down" })
+    expect(r).toEqual({ status: "FAILED", errorMessage: "Email send failed", recorded: true, stale: false, snapshot: SNAP })
+    expect((prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[1][0].update).toMatchObject({ status: "FAILED", errorMessage: "Email send failed" })
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined, expect.any(Object))
   })
 
@@ -146,7 +146,7 @@ describe("deliverInvoiceRequest", () => {
     const p = await prepare()
     expect((await deliverInvoiceRequest(p, { month: "2026-09", userId: 7, autoSent: false, resend: true })).status).toBe("FAILED")
     expect(prisma.venueUsageRequest.upsert).toHaveBeenCalledTimes(1) // only the in-flight mark
-    expect((prisma.venueUsageRequest.update as jest.Mock).mock.calls[0][0]).toEqual({ where: { month: "2026-09" }, data: { errorMessage: "smtp down", sendingAt: null } })
+    expect((prisma.venueUsageRequest.update as jest.Mock).mock.calls[0][0]).toEqual({ where: { month: "2026-09" }, data: { errorMessage: "Email send failed", sendingAt: null } })
   })
 
   it("'sent' means status SUCCESS, not sentAt: a prior FAILED (sentAt set) is overwritten normally", async () => {
@@ -155,7 +155,7 @@ describe("deliverInvoiceRequest", () => {
     const p = await prepare()
     await deliverInvoiceRequest(p, { month: "2026-09", userId: 7, autoSent: false, resend: false })
     expect(prisma.venueUsageRequest.update).not.toHaveBeenCalled()
-    expect((prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[1][0].update).toMatchObject({ status: "FAILED", errorMessage: "smtp down" })
+    expect((prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[1][0].update).toMatchObject({ status: "FAILED", errorMessage: "Email send failed" })
   })
 })
 

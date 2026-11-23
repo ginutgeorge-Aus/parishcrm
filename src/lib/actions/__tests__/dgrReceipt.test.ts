@@ -22,6 +22,8 @@ jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
+  encryptBytes: jest.fn((b: Uint8Array) => Buffer.from(`enc:${Buffer.from(b).toString("base64")}`)),
+  decryptBytes: jest.fn((b: Uint8Array) => Buffer.from(Buffer.from(b).toString("utf8").replace(/^enc:/, ""), "base64")),
 }))
 jest.mock("@/lib/email", () => ({
   sendDgrReceiptEmail: jest.fn(),
@@ -63,9 +65,14 @@ jest.mock("@/lib/prisma", () => ({
       findFirst: jest.fn(),
       findMany: jest.fn(),
     },
+    auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
   },
 }))
+
+// Captured at load, before any jest.resetModules() in the suite: a later requireActual would bind
+// the real helper to a fresh prisma mock instance instead of the one the action under test uses.
+const realLogAudit = jest.requireActual("@/lib/audit").logAudit as typeof logAudit
 
 const mockAuth = auth as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
@@ -568,6 +575,62 @@ describe("sendDgrReceipt", () => {
     expect(res).toEqual({ error: "Unauthorized" })
   })
 
+  it("issue date is the Sydney send date, not the UTC createdAt day", async () => {
+    jest.useFakeTimers({ now: new Date("2026-06-30T14:30:00Z"), doNotFake: ["nextTick", "setImmediate", "setTimeout"] }) // 1 July 00:30 Sydney
+    try {
+      ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+      mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+      mockSendEmail.mockResolvedValue(undefined)
+      await sendDgrReceipt(5)
+      expect(mockRenderPdf).toHaveBeenCalledWith(expect.objectContaining({ issueDate: "1 July 2026" }))
+      expect(mockSendEmail).toHaveBeenCalledWith(
+        "g@x.com",
+        expect.anything(),
+        expect.objectContaining({ issueDate: "1 July 2026" })
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("freezes the issuer snapshot and the encrypted emailed PDF on the SENT update", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    await sendDgrReceipt(5)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 5, status: "SENDING", sentAt: expect.any(Date) },
+        data: expect.objectContaining({
+          status: "SENT",
+          frozenPdf: Buffer.from(`enc:${Buffer.from("pdf").toString("base64")}`),
+          issuer: expect.objectContaining({
+            churchName: "Example Church",
+            churchAbn: "51824753556",
+            legalLines: ["Test legal text"],
+          }),
+        }),
+      })
+    )
+  })
+
+  it("rejects the send when the stored email differs from the confirmed one", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    const res = await sendDgrReceipt(5, "other@x.com")
+    expect(res).toEqual({ error: expect.stringContaining("donor email has changed") })
+    expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalled()
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it("sends when the confirmed email matches the stored one (case-insensitive)", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    const res = await sendDgrReceipt(5, " G@X.com ")
+    expect(res).toEqual({ success: expect.any(String) })
+    expect(mockSendEmail).toHaveBeenCalled()
+  })
+
   it("renders the PDF, emails it, marks SENT, and audits on success", async () => {
     ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
     mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
@@ -584,14 +647,14 @@ describe("sendDgrReceipt", () => {
     // Claimed the row (DRAFT/FAILED → SENDING) before rendering…
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 5, status: { in: ["DRAFT", "FAILED", "UNKNOWN"] } },
+        where: { id: 5, status: "DRAFT" },
         data: expect.objectContaining({ status: "SENDING", sentAt: expect.any(Date) }),
       })
     )
     // …then finalised SENT only from the claimed SENDING state.
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 5, status: "SENDING" },
+        where: { id: 5, status: "SENDING", sentAt: expect.any(Date) },
         data: expect.objectContaining({ status: "SENT", sentAt: expect.any(Date), sentById: 1 }),
       })
     )
@@ -611,7 +674,7 @@ describe("sendDgrReceipt", () => {
     // send can never clobber a SENT.
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 5, status: "SENDING" },
+        where: { id: 5, status: "SENDING", sentAt: expect.any(Date) },
         data: expect.objectContaining({ status: "FAILED", errorMessage: expect.any(String) }),
       })
     )
@@ -632,7 +695,7 @@ describe("sendDgrReceipt", () => {
       // Recorded as UNKNOWN (possibly delivered), never FAILED.
       expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 5, status: "SENDING" },
+          where: { id: 5, status: "SENDING", sentAt: expect.any(Date) },
           data: expect.objectContaining({ status: "UNKNOWN" }),
         })
       )
@@ -666,7 +729,7 @@ describe("sendDgrReceipt", () => {
     expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 5, status: "SENDING" },
+        where: { id: 5, status: "SENDING", sentAt: expect.any(Date) },
         data: expect.objectContaining({ status: "FAILED", sentAt: null }),
       })
     )
@@ -680,11 +743,31 @@ describe("sendDgrReceipt", () => {
     mockLogAudit.mockResolvedValueOnce(false)
     const res = await sendDgrReceipt(5)
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 5, status: "SENDING" }, data: expect.objectContaining({ status: "FAILED" }) })
+      expect.objectContaining({ where: { id: 5, status: "SENDING", sentAt: expect.any(Date) }, data: expect.objectContaining({ status: "FAILED" }) })
     )
     expect(mockLogAudit).toHaveBeenCalledWith(1, "DGR_RECEIPT_FAILED", "DgrReceipt", 5, { receiptNo: "DGR-2025-003" })
     expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
     expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Helper-level variant of the test above: runs the REAL logAudit with
+   * auditLog.create rejecting, instead of mocking the helper's resolved-false contract.
+   */
+  it("still marks FAILED and returns the could-not-email error when the real logAudit's auditLog.create rejects", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockRejectedValue(new Error("SMTP down"))
+    // clearAllMocks keeps queued once-values from earlier tests; drop them so the real helper is what runs.
+    mockLogAudit.mockReset()
+    mockLogAudit.mockImplementationOnce(realLogAudit)
+    ;(prisma.auditLog.create as jest.Mock).mockRejectedValueOnce(new Error("audit db down"))
+    const res = await sendDgrReceipt(5)
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 5, status: "SENDING", sentAt: expect.any(Date) }, data: expect.objectContaining({ status: "FAILED" }) })
+    )
+    expect(res).toEqual({ error: expect.stringMatching(/marked failed/i) })
   })
 
   it("a definite failure on a resend of an UNKNOWN receipt keeps it UNKNOWN (still frozen)", async () => {
@@ -694,11 +777,148 @@ describe("sendDgrReceipt", () => {
     const res = await sendDgrReceipt(5)
     expect(res).toEqual({ error: expect.stringMatching(/earlier attempt may have been delivered/i) })
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 5, status: "SENDING" }, data: expect.objectContaining({ status: "UNKNOWN" }) })
+      expect.objectContaining({ where: { id: 5, status: "SENDING", sentAt: expect.any(Date) }, data: expect.objectContaining({ status: "UNKNOWN" }) })
     )
     expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) })
     )
+  })
+
+  it("keeps the first document when delivery ends UNKNOWN: persists issuer + encrypted PDF", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockRejectedValue(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }))
+    await sendDgrReceipt(5)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 5, status: "SENDING", sentAt: expect.any(Date) },
+        data: expect.objectContaining({
+          status: "UNKNOWN",
+          frozenPdf: Buffer.from(`enc:${Buffer.from("pdf").toString("base64")}`),
+          issuer: expect.objectContaining({ churchName: "Example Church", issueDate: expect.any(String) }),
+        }),
+      })
+    )
+  })
+
+  it("an UNKNOWN retry reuses the stored PDF and issue date instead of re-rendering", async () => {
+    jest.useFakeTimers({ now: new Date("2026-11-22T00:00:00Z"), doNotFake: ["nextTick", "setImmediate", "setTimeout"] })
+    try {
+      ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
+        ...draftReceipt,
+        status: "UNKNOWN",
+        sentAt: new Date(),
+        frozenPdf: Buffer.from(`enc:${Buffer.from("first-pdf").toString("base64")}`),
+        issuer: {
+          churchName: "Old Church",
+          churchAbn: "11111111111",
+          churchAddress: "Old addr",
+          churchEmail: "old@example.com",
+          documentTitle: "OLD TITLE",
+          totalDonationsLabel: "OLD TOTAL",
+          legalLines: ["Old legal"],
+          coveredPeriod: "old period",
+          issueDate: "21 November 2026",
+        },
+      })
+      mockSendEmail.mockResolvedValue(undefined)
+      await sendDgrReceipt(5)
+      expect(mockRenderPdf).not.toHaveBeenCalled()
+      expect(mockSendEmail).toHaveBeenCalledWith(
+        "g@x.com",
+        Buffer.from("first-pdf"),
+        expect.objectContaining({ issueDate: "21 November 2026", churchName: "Old Church" })
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("an UNKNOWN retry without a snapshot keeps the createdAt issue date, not today", async () => {
+    jest.useFakeTimers({ now: new Date("2026-11-22T00:00:00Z"), doNotFake: ["nextTick", "setImmediate", "setTimeout"] })
+    try {
+      ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "UNKNOWN", sentAt: new Date(), issuer: null, frozenPdf: null })
+      mockRenderPdf.mockResolvedValue(Buffer.from("re-rendered"))
+      mockSendEmail.mockResolvedValue(undefined)
+      await sendDgrReceipt(5)
+      expect(mockRenderPdf).toHaveBeenCalledWith(expect.objectContaining({ issueDate: "8 July 2025" }))
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("an UNKNOWN retry with a usable snapshot does not need live church settings", async () => {
+    const churchMock = jest.requireMock("@/lib/churchSettings").getChurchSettingsForReceipt as jest.Mock
+    churchMock.mockClear()
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
+      ...draftReceipt,
+      status: "UNKNOWN",
+      sentAt: new Date(),
+      frozenPdf: null,
+      issuer: {
+        churchName: "Old Church",
+        churchAbn: "11111111111",
+        churchAddress: "Old addr",
+        churchEmail: "old@example.com",
+        documentTitle: "OLD TITLE",
+        totalDonationsLabel: "OLD TOTAL",
+        legalLines: ["Old legal"],
+        coveredPeriod: "old period",
+        issueDate: "21 November 2026",
+      },
+    })
+    mockRenderPdf.mockResolvedValue(Buffer.from("re-rendered"))
+    mockSendEmail.mockResolvedValue(undefined)
+    await sendDgrReceipt(5)
+    expect(churchMock).not.toHaveBeenCalled()
+    expect(mockRenderPdf).toHaveBeenCalledWith(expect.objectContaining({ churchName: "Old Church" }))
+  })
+
+  it("an UNKNOWN retry with an unreadable stored PDF re-renders with the first issue date", async () => {
+    jest.useFakeTimers({ now: new Date("2026-11-22T00:00:00Z"), doNotFake: ["nextTick", "setImmediate", "setTimeout"] })
+    try {
+      ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
+        ...draftReceipt,
+        status: "UNKNOWN",
+        sentAt: new Date(),
+        frozenPdf: null,
+        issuer: {
+          churchName: "Old Church",
+          churchAbn: "11111111111",
+          churchAddress: "Old addr",
+          churchEmail: "old@example.com",
+          documentTitle: "OLD TITLE",
+          totalDonationsLabel: "OLD TOTAL",
+          legalLines: ["Old legal"],
+          coveredPeriod: "old period",
+          issueDate: "21 November 2026",
+        },
+      })
+      mockRenderPdf.mockResolvedValue(Buffer.from("re-rendered"))
+      mockSendEmail.mockResolvedValue(undefined)
+      await sendDgrReceipt(5)
+      expect(mockRenderPdf).toHaveBeenCalledWith(expect.objectContaining({ issueDate: "21 November 2026" }))
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("a stale send cannot finalize a row that a newer claim now holds (SENT write is scoped to its claim)", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    await sendDgrReceipt(5)
+    const calls = (prisma.dgrReceipt.updateMany as jest.Mock).mock.calls.map((c) => c[0])
+    const claim = calls[0]
+    const sent = calls.find((c) => c.data.status === "SENT")
+    expect(sent.where.sentAt).toEqual(claim.data.sentAt)
+  })
+
+  it("claims only the status its document was built from, and refuses a row already SENDING", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "SENDING" })
+    expect(await sendDgrReceipt(5)).toEqual({ error: expect.stringMatching(/already being sent/i) })
+    expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalled()
+    expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
   it("does not report success when the SENT write matches no row", async () => {
