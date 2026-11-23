@@ -26,7 +26,7 @@ trigger it manually from the UI; it's purely a scheduled background job.
 ### Manual payment reminder (staff triggers)
 
 From an event's registrations page (or an organiser's own event page), staff select some or all
-`PENDING` registrations and send a **payment reminder** — free-text message plus the amount
+`PENDING` registrations that still owe money (free $0 registrations are skipped) and send a **payment reminder** — free-text message plus the amount
 owed and a link back to the registrant's own success page (which includes bank-transfer details
 and, if online payment is enabled, a "pay now" button). Each attempt is tracked individually, so
 the UI can show when a given registrant was last reminded, and a failed send doesn't block the
@@ -67,7 +67,7 @@ mid-send). For each candidate event:
 ### Manual payment reminders (`sendPaymentReminders`, `src/lib/actions/registration.ts`)
 
 - Re-validates every selected registration server-side (must belong to the given event, must
-  still be `PENDING`, must have a valid email) — the client's selection is only ever a list of
+  still be `PENDING` with an amount owing (free $0 registrations are skipped), must have a valid email) — the client's selection is only ever a list of
   ids, never trusted for content.
 - The email subject is fixed server-side (`Payment pending — <event title>`); only the body is
   operator-authored free text, capped in length — a free-text subject isn't allowed, since it

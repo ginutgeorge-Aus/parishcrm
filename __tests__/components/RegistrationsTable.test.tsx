@@ -71,10 +71,10 @@ describe("RegistrationsTable payment method column", () => {
 })
 
 describe("RegistrationsTable free registrations", () => {
-  it("keeps Mark Paid for a free PENDING row and labels it No payment needed", () => {
+  it("AUD-4-02: hides Mark Paid for a free PENDING row and labels it No payment needed", () => {
     render(<RegistrationsTable registrations={[{ ...reg(1, "PENDING"), totalAmount: 0 }] as never} eventId={9} canEdit />)
     const table = screen.getByRole("table")
-    expect(within(table).getByRole("button", { name: "Mark Paid" })).toBeInTheDocument()
+    expect(within(table).queryByRole("button", { name: "Mark Paid" })).not.toBeInTheDocument()
     expect(within(table).getByText("No payment needed")).toBeInTheDocument()
   })
 })

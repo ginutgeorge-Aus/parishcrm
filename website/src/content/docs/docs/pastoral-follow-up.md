@@ -27,6 +27,7 @@ date come last). Overdue open tasks carry an **Overdue** badge.
 
 - **Status** chips: *Open* (open and in progress, the default), *Closed* (done and cancelled) and *All*.
 - **Assignee** chips (ADMIN and PASTOR): *Everyone*, *Mine*, *Unassigned*, or one person.
+- Due dates show in the app's configured locale (`APP_LOCALE`, en-AU by default, for example *20 Nov 2026*), never shifted by timezone.
 - Each row has **Start**, **Mark done** or **Reopen**; ADMIN and PASTOR can also **Delete** (with a confirmation).
 - **Due today or earlier** chip: only tasks dated today or before (undated and future tasks are left out).
 - The list shows at most 500 tasks. Only when more than 500 match, a note says **Showing the first 500**;
@@ -45,7 +46,8 @@ are due today or earlier, the same ones the count shows (`/follow-ups?assignee=m
 **Community → Prayer requests** (`/prayer-requests`, ADMIN and PASTOR) lists requests by status:
 *Active* (default), *Answered* and *Archived*. Each row shows the date, a **Public form** badge when
 a member sent it themselves, whether it is **Private** or **OK to share**, the request text and any
-name and contact the requester gave.
+name and contact the requester gave. A line above the list shows the full address of the public
+form (built from your `AUTH_URL`) so you can copy it.
 
 - **Edit** opens a form to change the request text, the requester's name, email and phone, and
   **OK to share**. The linked member is kept as it is. If someone else changed the request after you

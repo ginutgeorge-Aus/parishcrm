@@ -173,7 +173,7 @@ describe("GET /api/events/[slug]/export-csv", () => {
     mockAuth.mockResolvedValue({ user: { role: "EVENT_ORGANISER", id: "5" } })
     mockIsEventManager.mockResolvedValue(false)
     const res = await GET(makeRequest(), makeProps("summer-fair"))
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
     expect(mockFindUnique).toHaveBeenCalledTimes(1)
     expect(mockFindUnique).toHaveBeenCalledWith({ where: { slug: "summer-fair" }, select: { id: true } })
     expect(mockLogAudit).not.toHaveBeenCalled()

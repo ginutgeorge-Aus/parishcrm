@@ -41,7 +41,7 @@ function RegistrationRowActions({ reg, eventId }: Readonly<{ reg: Reg; eventId: 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex gap-1">
-        {reg.paymentStatus === "PENDING" && (
+        {owesPayment(reg) && (
           <DeleteConfirmButton
             onConfirm={async () => {
               const result = await markPaid(reg.id, eventId)

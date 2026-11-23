@@ -19,12 +19,18 @@ it("does not send on the first click; confirm names receipt, donor, email and th
   expect(dialog).toHaveTextContent("can no longer be edited or deleted")
   expect(sendDgrReceipt).not.toHaveBeenCalled()
   fireEvent.click(within(dialog).getByRole("button", { name: "Send" }))
-  await waitFor(() => expect(sendDgrReceipt).toHaveBeenCalledWith(5))
+  await waitFor(() => expect(sendDgrReceipt).toHaveBeenCalledWith(5, "jane@example.com"))
 })
 
-it("labels the action Resend for a SENT receipt and keeps the dialog open on error", async () => {
-  ;(sendDgrReceipt as jest.Mock).mockResolvedValue({ error: "SMTP down" })
+it("offers no send action for a SENT receipt", () => {
   render(<DgrReceiptRowActions {...props} status="SENT" />)
+  expect(screen.queryByRole("button", { name: "Send" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Resend" })).not.toBeInTheDocument()
+})
+
+it("labels the action Resend for an UNKNOWN receipt and keeps the dialog open on error", async () => {
+  ;(sendDgrReceipt as jest.Mock).mockResolvedValue({ error: "SMTP down" })
+  render(<DgrReceiptRowActions {...props} status="UNKNOWN" />)
   fireEvent.click(screen.getByRole("button", { name: "Resend" }))
   const dialog = await screen.findByRole("alertdialog")
   fireEvent.click(within(dialog).getByRole("button", { name: "Resend" }))
