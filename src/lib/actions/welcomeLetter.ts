@@ -88,6 +88,9 @@ export type SendWelcomeLetterInput = {
   recipientPersonIds: number[]
 }
 
+/** Max recipients per send; larger selections are rejected, never truncated. */
+export const MAX_WELCOME_RECIPIENTS = 20
+
 /** Email a welcome letter. Editors only. */
 export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<ActionResultWithSuccess> {
   const session = await auth()
@@ -95,12 +98,17 @@ export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<
   const off = await featureGuard("welcomeLetter")
   if (off) return off
 
+  if (typeof input !== "object" || input === null) return { error: "Invalid request" }
   const { familyId, recipientPersonIds } = input
   if (typeof familyId !== "number" || !isValidPgId(familyId)) return { error: "Invalid family" }
   if (!Array.isArray(recipientPersonIds) || recipientPersonIds.length === 0) {
     return { error: "Select at least one recipient" }
   }
-  if (!recipientPersonIds.every((id) => typeof id === "number" && isValidPgId(id))) {
+  if (recipientPersonIds.length > MAX_WELCOME_RECIPIENTS) {
+    return { error: `Select at most ${MAX_WELCOME_RECIPIENTS} recipients` }
+  }
+  // Array.from fills sparse holes with undefined (every() would skip them).
+  if (!Array.from(recipientPersonIds).every((id) => typeof id === "number" && isValidPgId(id))) {
     return { error: "Invalid recipient" }
   }
   const parsedModel = ModelSchema.safeParse(input.model)
@@ -112,7 +120,7 @@ export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<
 
   // Re-resolve emails server-side from the DB — never trust client-supplied addresses.
   const people = await prisma.person.findMany({
-    where: { id: { in: recipientPersonIds.slice(0, 20) }, familyId, archivedAt: null },
+    where: { id: { in: recipientPersonIds }, familyId, archivedAt: null },
     select: { id: true, email: true },
   })
   const emails = people

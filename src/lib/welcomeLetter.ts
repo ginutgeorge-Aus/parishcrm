@@ -30,26 +30,33 @@ const BankAccountSchema = z.object({
   taxDeductible: z.boolean(),
 })
 
+// Bounds mirror what buildWelcomeLetterModel can emit, not just stored limits:
+// families have no write-side member cap (500 is a generous sanity ceiling), and
+// templates (<=4000 chars) grow when {churchName} (<=200) is substituted.
+const MAX_LETTER_MEMBERS = 500
+const MAX_LETTER_BODY = 20000
+
+/** Zod schema bounding every WelcomeLetterModel field before rendering/sending. */
 export const ModelSchema = z.object({
   date: z.string().max(40),
-  addresseeName: z.string().max(200),
-  addressLines: z.array(z.string().max(200)).max(10),
-  greetingName: z.string().max(200),
-  memberNo: z.string().max(40).nullable(),
+  addresseeName: z.string().max(400),
+  addressLines: z.array(z.string().max(500)).max(10),
+  greetingName: z.string().max(400),
+  memberNo: z.string().max(50).nullable(),
   includeTransfer: z.boolean(),
-  transferChurch: z.string().max(200),
-  members: z.array(z.string().max(200)).max(30),
-  bodyIntro: z.string().max(8000),
-  contributionsIntro: z.string().max(4000),
-  bodyClosing: z.string().max(4000),
+  transferChurch: z.string().max(400),
+  members: z.array(z.string().max(400)).max(MAX_LETTER_MEMBERS),
+  bodyIntro: z.string().max(MAX_LETTER_BODY),
+  contributionsIntro: z.string().max(MAX_LETTER_BODY),
+  bodyClosing: z.string().max(MAX_LETTER_BODY),
   bankAccounts: z.array(BankAccountSchema).max(4),
   signerName: z.string().max(120),
   signerTitle: z.string().max(120),
   church: z.object({
     name: z.string().max(200),
-    address: z.string().max(200),
+    address: z.string().max(500),
     abn: z.string().max(40),
-    email: z.string().max(200),
+    email: z.string().max(255),
   }),
 })
 
