@@ -1,8 +1,19 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { approveMembershipApplication, rejectMembershipApplication, type MatchCandidate } from "@/lib/actions/membership"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,10 +21,12 @@ import { Textarea } from "@/components/ui/textarea"
 export function ReviewPanel({
   applicationId,
   matches,
+  incoming,
   status,
 }: Readonly<{
   applicationId: number
   matches: MatchCandidate[]
+  incoming: { name: string; role: string }[]
   status: string
 }>) {
   const router = useRouter()
@@ -21,12 +34,13 @@ export function ReviewPanel({
   const [error, setError] = useState<string | null>(null)
   const [rejecting, setRejecting] = useState(false)
   const [note, setNote] = useState("")
+  const [mergeTarget, setMergeTarget] = useState<MatchCandidate | null>(null)
 
   if (status !== "PENDING") {
     return <p className="text-sm text-muted-foreground">This application has been {status.toLowerCase()}.</p>
   }
 
-  function run(action: () => Promise<{ error: string } | { success: string } | undefined>) {
+  function run(action: () => Promise<{ error: string } | { success: string; familyId?: number } | undefined>) {
     setError(null)
     startTransition(async () => {
       const res = await action()
@@ -34,7 +48,8 @@ export function ReviewPanel({
         setError(res.error)
         return
       }
-      router.push("/memberships")
+      // Approve (create or merge) lands on the family page; reject goes back to the list.
+      router.push(res && "familyId" in res && res.familyId ? `/families/${res.familyId}` : "/memberships")
       router.refresh()
     })
   }
@@ -56,13 +71,18 @@ export function ReviewPanel({
             {matches.map((m) => (
               <li key={`${m.familyId}-${m.reason}`} className="flex items-center justify-between px-3 py-2">
                 <span className="text-sm">
-                  {m.familyName} <span className="text-muted-foreground">({reasonLabel[m.reason]})</span>
+                  <Link href={`/families/${m.familyId}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                    {m.familyName}
+                  </Link>{" "}
+                  <span className="text-muted-foreground">
+                    ({reasonLabel[m.reason]}, {m.memberCount} {m.memberCount === 1 ? "member" : "members"})
+                  </span>
                 </span>
                 <Button
                   variant="link"
                   size="sm"
                   disabled={pending}
-                  onClick={() => run(() => approveMembershipApplication(applicationId, { mode: "merge", familyId: m.familyId }))}
+                  onClick={() => setMergeTarget(m)}
                   className="min-h-11 px-2"
                 >
                   Merge into this family
@@ -111,6 +131,42 @@ export function ReviewPanel({
           </Button>
         </div>
       )}
+
+      <AlertDialog open={mergeTarget !== null} onOpenChange={(o: boolean) => { if (!o) setMergeTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Merge into the {mergeTarget?.familyName} family?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p>
+                  This cannot be undone from this screen. People not already in the family are added; the family keeps its
+                  existing Head and Spouse (a second one is added as Other). Existing details are never overwritten.
+                </p>
+                <ul className="mt-2 list-disc pl-5">
+                  {incoming.map((i, idx) => (
+                    <li key={idx}>{i.name} ({i.role})</li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pending}
+              onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                e.preventDefault()
+                const target = mergeTarget
+                if (!target) return
+                setMergeTarget(null)
+                run(() => approveMembershipApplication(applicationId, { mode: "merge", familyId: target.familyId }))
+              }}
+            >
+              Merge
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {error && <p role="alert" className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
     </section>
