@@ -212,7 +212,8 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     if (row?.reconciled && meta.mode === "create") return { error: RECONCILED_UNMARK }
     // Only ever delete the exact row this INVOICE_PAID event created: an unmark + re-mark (link) between the audit read and the row read
     // could otherwise leave a different, unrelated transaction linked while the stale `create` mode still applies.
-    if (row && meta.mode === "create" && meta.transactionId !== row.id) throw new Conflict()
+    // Link mode too: a concurrent unmark + re-mark could swap in a different row, which would be unlinked and left as income.
+    if (row && (meta.mode === "create" || (meta.mode === "link" && typeof meta.transactionId === "number")) && meta.transactionId !== row.id) throw new Conflict()
     const flip = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.PAID }, data: { status: InvoiceStatus.SENT, paidAt: null } })
     if (flip.count === 0) throw new Conflict()
     let deleted = false
