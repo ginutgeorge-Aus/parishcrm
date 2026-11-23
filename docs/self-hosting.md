@@ -141,9 +141,9 @@ Release tags are mutable in a registry, so for production pin the image by diges
 verify its signed build provenance before running it:
 
 ```bash
-gh attestation verify oci://ghcr.io/<owner>/<repo>:vX.Y.Z --repo <owner>/<repo>
-docker buildx imagetools inspect ghcr.io/<owner>/<repo>:vX.Y.Z   # note the Digest: sha256:...
-# then run ghcr.io/<owner>/<repo>@sha256:<digest> instead of the tag
+docker buildx imagetools inspect ghcr.io/<owner>/<repo>:vX.Y.Z   # note the Digest: sha256:<digest>
+gh attestation verify oci://ghcr.io/<owner>/<repo>@sha256:<digest> --repo <owner>/<repo>
+# then run ghcr.io/<owner>/<repo>@sha256:<digest> (the same digest) instead of the tag
 ```
 
 Put a TLS-terminating reverse proxy (Caddy, nginx, a platform ingress) in
