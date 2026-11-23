@@ -1,7 +1,8 @@
 "use client"
 
 import { useRef, useState, useTransition } from "react"
-import { buildWelcomeLetterDraft, sendWelcomeLetter, MAX_WELCOME_RECIPIENTS, type WelcomeLetterRecipient } from "@/lib/actions/welcomeLetter"
+import { buildWelcomeLetterDraft, sendWelcomeLetter, type WelcomeLetterRecipient } from "@/lib/actions/welcomeLetter"
+import { MAX_WELCOME_RECIPIENTS } from "@/lib/welcomeLetter"
 import type { WelcomeLetterModel } from "@/lib/welcomeLetter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"

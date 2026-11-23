@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/audit"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getLetterSettings } from "@/lib/letterSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
-import { buildWelcomeLetterModel, fullName, ModelSchema, type WelcomeLetterModel } from "@/lib/welcomeLetter"
+import { buildWelcomeLetterModel, fullName, MAX_WELCOME_RECIPIENTS, ModelSchema, type WelcomeLetterModel } from "@/lib/welcomeLetter"
 import { renderWelcomeLetterPdf } from "@/lib/pdf/WelcomeLetterPdf"
 import { sendWelcomeLetterEmail } from "@/lib/email"
 import type { ActionResultWithSuccess } from "./types"
@@ -87,9 +87,6 @@ export type SendWelcomeLetterInput = {
   model: WelcomeLetterModel
   recipientPersonIds: number[]
 }
-
-/** Max recipients per send; larger selections are rejected, never truncated. */
-export const MAX_WELCOME_RECIPIENTS = 20
 
 /** Email a welcome letter. Editors only. */
 export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<ActionResultWithSuccess> {

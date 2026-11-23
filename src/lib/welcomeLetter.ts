@@ -82,6 +82,9 @@ export function fullName(p: NameParts): string {
   return [p.title, p.firstName, p.middleName, p.lastName, p.suffix].filter(Boolean).join(" ")
 }
 
+/** Max recipients per send; larger selections are rejected, never truncated. */
+export const MAX_WELCOME_RECIPIENTS = 20
+
 export const DEFAULT_INTRO =
   "On behalf of everyone at {churchName}, we warmly welcome you and your family.\n\nWe pray that {churchName} will be a place where your family grows in faith and experiences Christian fellowship. We encourage you to take part in our worship services and church activities."
 
