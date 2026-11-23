@@ -18,6 +18,9 @@ function createPrismaClient() {
     connectionString: process.env.DATABASE_URL,
     connectionTimeoutMillis: 10_000,
     statement_timeout: 120_000,
+    // Client-side deadline (pg default: off). Above statement_timeout so the server cancels
+    // slow statements first; this only frees the connection if no reply ever arrives.
+    query_timeout: 130_000,
   })
 
   // perf baseline: opt-in JSONL query log. Both env vars must be set, so the

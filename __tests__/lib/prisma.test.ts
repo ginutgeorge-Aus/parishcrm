@@ -56,5 +56,8 @@ describe("prisma singleton — lazy construction (v1.1.4 deploy fix)", () => {
     expect(cfg.connectionTimeoutMillis).toBe(10_000)
     // above the longest explicit interactive transaction (90s)
     expect(cfg.statement_timeout).toBeGreaterThanOrEqual(120_000)
+    // client-side deadline must be finite and above the server-side one
+    expect(Number.isFinite(cfg.query_timeout)).toBe(true)
+    expect(cfg.query_timeout).toBeGreaterThan(cfg.statement_timeout)
   })
 })
