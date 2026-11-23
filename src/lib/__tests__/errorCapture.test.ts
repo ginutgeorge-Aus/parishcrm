@@ -32,6 +32,18 @@ describe("errorCapture helpers", () => {
     expect(s).toContain('"[redacted]"')
   })
 
+  it("scrubMessage consumes escaped quotes inside quoted literals", () => {
+    const d = scrubMessage('P2002 Validation failed for "Jane \\"Alice\\" Smith" ok')
+    expect(d).not.toContain("Alice")
+    expect(d).not.toContain("Smith")
+    expect(d).toContain("P2002")
+    expect(d).toContain('"[redacted]" ok')
+    const s = scrubMessage("failed for 'Mary \\'Bella\\' O\\'Neil' end")
+    expect(s).not.toContain("Bella")
+    expect(s).not.toContain("Neil")
+    expect(s).toContain('"[redacted]" end')
+  })
+
   it("scrubMessage handles Prisma invocation without backticks", () => {
     const s = scrubMessage('Invalid prisma.person.create() invocation: { firstName: "Jane", dateOfBirth: "2010-01-01" }')
     expect(s).toContain("prisma.person.create")
