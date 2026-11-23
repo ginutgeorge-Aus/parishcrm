@@ -66,7 +66,7 @@ jobs:
           fi
           has_table=$(psql "$DATABASE_URL" -tAX -c "SELECT to_regclass('public.\"AppSetting\"') IS NOT NULL")
           if [ "$has_table" = "t" ]; then
-            has_sentinel=$(psql "$DATABASE_URL" -tAX -c "SELECT EXISTS (SELECT 1 FROM \"AppSetting\" WHERE key = 'demoSentinel' AND value = 'true')")
+            has_sentinel=$(psql "$DATABASE_URL" -tAX -c "SELECT EXISTS (SELECT 1 FROM public.\"AppSetting\" WHERE key = 'demoSentinel' AND value = 'true')")
             if [ "$has_sentinel" != "t" ]; then
               echo "::error::Database has no demoSentinel in AppSetting; not the demo DB, refusing to wipe"
               exit 1
@@ -93,7 +93,7 @@ jobs:
           npx prisma migrate reset --force
           # reset erased the sentinel; restore it now so a failed seed below
           # cannot leave a non-empty DB that tomorrow's guard rejects.
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAX -c "INSERT INTO \"AppSetting\" (key, value) VALUES ('demoSentinel', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAX -c "INSERT INTO public.\"AppSetting\" (key, value) VALUES ('demoSentinel', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'"
           npm run db:seed
           npm run demo:seed
       # imgURL pins Render to the image of the release just seeded.

@@ -129,21 +129,21 @@ blocks duplicate live exams there.
 
 ## 4. Run
 
-`docker --env-file` keeps quotes as part of each value, so strip them first:
-
-```bash
-sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' .env > .env.docker
-docker run -d --restart unless-stopped --name church-crm --env-file .env.docker -p 3000:3000 \
-  ghcr.io/<owner>/<repo>:vX.Y.Z
-```
-
-Release tags are mutable in a registry, so for production pin the image by digest and
-verify its signed build provenance before running it:
+Release tags are mutable in a registry, so pin the image by digest and verify its signed
+build provenance **before** running it with your secrets:
 
 ```bash
 docker buildx imagetools inspect ghcr.io/<owner>/<repo>:vX.Y.Z   # note the Digest: sha256:<digest>
 gh attestation verify oci://ghcr.io/<owner>/<repo>@sha256:<digest> --repo <owner>/<repo>
-# then run ghcr.io/<owner>/<repo>@sha256:<digest> (the same digest) instead of the tag
+```
+
+Then run that same digest (not the tag). `docker --env-file` keeps quotes as part of
+each value, so strip them first:
+
+```bash
+sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' .env > .env.docker
+docker run -d --restart unless-stopped --name church-crm --env-file .env.docker -p 3000:3000 \
+  ghcr.io/<owner>/<repo>@sha256:<digest>
 ```
 
 Put a TLS-terminating reverse proxy (Caddy, nginx, a platform ingress) in
