@@ -230,6 +230,25 @@ describe("unmarkInvoicePaid", () => {
     ;(prisma.transaction.deleteMany as jest.Mock).mockResolvedValue({ count: 0 })
     expect(await unmarkInvoicePaid(11)).toEqual({ error: "This invoice has changed. Reload and try again." })
   })
+  it("conflicts and deletes nothing when the linked row is not the one the audit row created", async () => {
+    ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 77, reconciled: false })
+    expect(await unmarkInvoicePaid(11)).toEqual({ error: "This invoice has changed. Reload and try again." })
+    expect(prisma.transaction.deleteMany).not.toHaveBeenCalled()
+  })
+  it("unlinks without restoring when the recorded account was deleted", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "link", transactionId: 50, recategorisedFrom: { accountId: 9, fundId: 3 } } })
+    ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: false })
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue(null)
+    expect(await unmarkInvoicePaid(11)).toEqual({ success: "Payment unlinked — INV-0007 is unpaid again" })
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 50, invoiceId: 11 }, data: { invoiceId: null } })
+  })
+  it("unlinks without restoring when the recorded fund was deleted", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "link", transactionId: 50, recategorisedFrom: { accountId: 9, fundId: 3 } } })
+    ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: false })
+    ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue(null)
+    expect(await unmarkInvoicePaid(11)).toEqual({ success: "Payment unlinked — INV-0007 is unpaid again" })
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 50, invoiceId: 11 }, data: { invoiceId: null } })
+  })
   it("unlinks a linked row and restores its previous account and fund", async () => {
     ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "link", transactionId: 50, recategorisedFrom: { accountId: 9, fundId: 3 } } })
     ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: false })

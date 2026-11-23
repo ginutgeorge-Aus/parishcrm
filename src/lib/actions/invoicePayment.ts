@@ -188,6 +188,8 @@ export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise
  * Undo a payment: PAID → SENT. How the ledger row is handled depends on how it got there (read from the INVOICE_PAID audit row):
  * a row the invoice created is deleted (leaving it would double the income when the invoice is marked paid again, or leave
  * income for a voided invoice); a row the invoice linked is unlinked and moved back to its previous account and fund.
+ * Exceptions: a reconciled linked row, or one whose recorded account/fund no longer exists, is unlinked but keeps its current category.
+ * The delete only ever targets the transaction id recorded in the INVOICE_PAID audit row.
  */
 export async function unmarkInvoicePaid(id: number): Promise<{ success: string } | { error: string }> {
   const session = await auth()
@@ -204,10 +206,13 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   const uid = actorId(session)
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
     const paid = await tx.auditLog.findFirst({ where: { action: "INVOICE_PAID", resourceType: "Invoice", resourceId: id }, orderBy: { id: "desc" }, select: { metadata: true } })
-    const meta = (paid?.metadata ?? {}) as { mode?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
+    const meta = (paid?.metadata ?? {}) as { mode?: unknown; transactionId?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
     const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true } })
     // Checked before any write: returning an error doesn't roll the transaction back.
     if (row?.reconciled && meta.mode === "create") return { error: RECONCILED_UNMARK }
+    // Only ever delete the exact row this INVOICE_PAID event created: an unmark + re-mark (link) between the audit read and the row read
+    // could otherwise leave a different, unrelated transaction linked while the stale `create` mode still applies.
+    if (row && meta.mode === "create" && meta.transactionId !== row.id) throw new Conflict()
     const flip = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.PAID }, data: { status: InvoiceStatus.SENT, paidAt: null } })
     if (flip.count === 0) throw new Conflict()
     let deleted = false
@@ -220,8 +225,13 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     } else if (row) {
       const from = meta.recategorisedFrom
       const prev = typeof from?.accountId === "number" && (from.fundId === null || typeof from.fundId === "number") ? { accountId: from.accountId, fundId: from.fundId } : undefined
+      // The recorded account/fund may have been deleted since (delete guards ignore audit metadata): then unlink and keep the current category.
+      const targetsExist = prev
+        ? !!(await tx.account.findUnique({ where: { id: prev.accountId }, select: { id: true } }))
+          && (prev.fundId === null || !!(await tx.fund.findUnique({ where: { id: prev.fundId }, select: { id: true } })))
+        : false
       // A reconciled row can't be edited, so it is unlinked but keeps its current category.
-      const restore = prev && !row.reconciled
+      const restore = prev && targetsExist && !row.reconciled
       const upd = await tx.transaction.updateMany({
         where: { id: row.id, invoiceId: id, ...(restore ? { reconciled: false } : {}) },
         data: restore ? { invoiceId: null, ...prev } : { invoiceId: null },

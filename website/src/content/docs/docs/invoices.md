@@ -52,7 +52,7 @@ Tick **Email the recipient that payment was received** to send a short "payment 
 
 The payment can't be dated before the invoice was issued, or fall in a locked accounting period. A paid invoice links to its payment transaction.
 
-**Unmark paid** puts the invoice back to sent. If the payment was recorded by the invoice, that transaction is deleted, so marking the invoice paid again can't count the income twice. If you linked an existing transaction, it is unlinked and moved back to its previous account and fund. A reconciled payment must be un-reconciled first. While a transaction is an invoice's payment, its amount, date, type, account and fund can't be changed and it can't be deleted — unmark the invoice first, then edit or delete it from Transactions.
+**Unmark paid** puts the invoice back to sent. If the payment was recorded by the invoice, that transaction is deleted, so marking the invoice paid again can't count the income twice. If you linked an existing transaction, it is unlinked and moved back to its previous account and fund, unless it is reconciled (it then keeps its current category — un-reconcile it before unmarking if you want the old one restored) or that account or fund has since been deleted. A reconciled payment the invoice created must be un-reconciled before unmarking. While a transaction is an invoice's payment, its amount, date, type, account and fund can't be changed and it can't be deleted. To correct a linked transaction, unmark the invoice first, then edit or delete it from Transactions. To correct a payment the invoice recorded, unmark the invoice (which deletes it) and mark it paid again with the right details.
 
 ### Voiding
 
