@@ -61,6 +61,13 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
   const { parishFields } = membershipSettings
   const ol = overseasFieldLabels(p, membershipSettings)
   const pe = p.personal
+  // Names only (already shown on this page): lets the merge confirm list who will be added.
+  const incoming = [
+    { name: pe.name, role: "Head" },
+    ...(p.spouse ? [{ name: p.spouse.name, role: "Spouse" }] : []),
+    ...p.children.map((c) => ({ name: c.name, role: "Child" })),
+    ...p.dependents.map((d) => ({ name: d.name, role: "Other" })),
+  ]
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -141,7 +148,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
         <pre className="whitespace-pre-wrap text-sm text-muted-foreground">{buildNotesBlock(p, membershipSettings)}</pre>
       </section>
 
-      <ReviewPanel applicationId={id} matches={matches} status={app.status} />
+      <ReviewPanel applicationId={id} matches={matches} incoming={incoming} status={app.status} />
     </div>
   )
 }

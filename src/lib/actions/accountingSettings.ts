@@ -13,6 +13,7 @@ import { MONEY_DECIMAL_RE, isRealCalendarDate } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
+import { sydneyTodayYMD } from "@/lib/dates"
 
 const OpeningBalanceSchema = z.object({
   paymentAccountId: z.coerce.number().int().positive(),
@@ -106,6 +107,9 @@ export async function setAccountingLockDate(
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const value = parsed.data.date
+  // A future lock date would freeze every transaction up to then; compare as
+  // YYYY-MM-DD strings against today in Sydney (the app's calendar).
+  if (value !== "" && value > sydneyTodayYMD()) return { error: "Lock date cannot be in the future" }
   const uid = actorId(session)
   try {
     await prisma.$transaction(async (tx) => {

@@ -10,6 +10,7 @@ import {
 } from "@/lib/actions/emailTemplates"
 import { DEFAULT_EMAIL_TEMPLATES, EMAIL_TEMPLATE_VARS, type EmailTemplateKey, type EmailTemplateFields } from "@/lib/emailTemplates"
 import { Button } from "@/components/ui/button"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -95,20 +96,19 @@ export function EmailTemplateForm({
       if ("error" in r) setMsg(r.error)
     })
   }
-  /** Restores the stored defaults server-side and syncs the form to them. */
-  function onReset() {
+  /** Restores the stored defaults server-side and syncs the form to them. Runs inside the confirm dialog. */
+  async function onReset(): Promise<{ error?: string }> {
     previewGeneration.current += 1
-    start(async () => {
-      const r = await resetEmailTemplate(templateKey)
-      if (r && "success" in r) {
-        // Reset persisted the defaults server-side; sync the controlled fields and
-        // drop the stale preview so a later Save can't overwrite defaults.
-        setFields(DEFAULT_EMAIL_TEMPLATES[templateKey])
-        setSaved(DEFAULT_EMAIL_TEMPLATES[templateKey])
-        setPreview("")
-      }
-      setMsg(r && "success" in r ? r.success : r?.error ?? "")
-    })
+    const r = await resetEmailTemplate(templateKey)
+    if (r && "success" in r) {
+      // Reset persisted the defaults server-side; sync the controlled fields and
+      // drop the stale preview so a later Save can't overwrite defaults.
+      setFields(DEFAULT_EMAIL_TEMPLATES[templateKey])
+      setSaved(DEFAULT_EMAIL_TEMPLATES[templateKey])
+      setPreview("")
+    }
+    setMsg(r && "success" in r ? r.success : r?.error ?? "")
+    return r && "error" in r && r.error ? { error: r.error } : {}
   }
   /** Sends the current (possibly unsaved) fields to the signed-in admin. */
   function onTest() {
@@ -184,7 +184,17 @@ export function EmailTemplateForm({
           <FormFeedback state={state} />
           {msg ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{msg}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={onReset} disabled={busy}>Reset to default</Button>
+            <DeleteConfirmButton
+              onConfirm={onReset}
+              disabled={busy}
+              title="Reset this email to defaults?"
+              description="This replaces your custom subject and wording with the defaults and saves immediately. This cannot be undone."
+              triggerLabel="Reset to default"
+              triggerSize="default"
+              triggerClassName=""
+              confirmLabel="Reset"
+              pendingLabel="Resetting…"
+            />
             <Button type="button" variant="outline" onClick={onTest} disabled={busy}>Send test to me</Button>
             <Button type="button" variant="outline" onClick={refreshPreview} disabled={busy}>Preview</Button>
             <Button type="submit" disabled={busy}>Save</Button>

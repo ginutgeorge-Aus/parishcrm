@@ -112,7 +112,10 @@ export async function onRequestError(
   // the error is at least in stdout.
   if (span?.isRecording() && err instanceof Error) {
     // Record type + message only — never the stack. See spanExceptionFor.
-    span.recordException(spanExceptionFor(err))
+    // Scrubbed: DB errors can echo submitted values (names, DOBs, addresses).
+    const { scrubMessage } = await import("@/lib/errorCapture")
+    const safe = spanExceptionFor(err)
+    span.recordException({ name: safe.name, message: scrubMessage(safe.message) })
     span.setAttribute("next.route", context.routePath)
     span.setAttribute("next.routerKind", context.routerKind)
     span.setAttribute("http.method", request.method)
@@ -123,7 +126,7 @@ export async function onRequestError(
         level: "error",
         route: context.routePath,
         method: request.method,
-        message: err instanceof Error ? err.message : String(err),
+        message: (await import("@/lib/errorCapture")).scrubMessage(err instanceof Error ? err.message : String(err)),
         // Stack traces stay out of production stdout — container logs are readable
         // by anyone with Reader on the Container App / Log Analytics.
         // Positive check: an unset NODE_ENV must NOT leak stacks.

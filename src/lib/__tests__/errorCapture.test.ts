@@ -14,6 +14,43 @@ describe("errorCapture helpers", () => {
     expect(scrubMessage("x".repeat(999)).length).toBeLessThanOrEqual(500)
   })
 
+  it("scrubMessage drops Prisma input values but keeps the call site", () => {
+    const s = scrubMessage(
+      'Invalid `prisma.person.create()` invocation:\n{ data: { firstName: "Jane", dateOfBirth: "2010-01-01", city: \'Hamilton\' } }\nUnique constraint failed (P2002)',
+    )
+    expect(s).toContain("prisma.person.create")
+    expect(s).not.toContain("Jane")
+    expect(s).not.toContain("2010-01-01")
+    expect(s).not.toContain("Hamilton")
+  })
+
+  it("scrubMessage redacts quoted literals and keeps error codes", () => {
+    const s = scrubMessage('P2002 failed on "Jane Doe" and \'1 High St\'')
+    expect(s).toContain("P2002")
+    expect(s).not.toContain("Jane")
+    expect(s).not.toContain("High St")
+    expect(s).toContain('"[redacted]"')
+  })
+
+  it("scrubMessage consumes escaped quotes inside quoted literals", () => {
+    const d = scrubMessage('P2002 Validation failed for "Jane \\"Alice\\" Smith" ok')
+    expect(d).not.toContain("Alice")
+    expect(d).not.toContain("Smith")
+    expect(d).toContain("P2002")
+    expect(d).toContain('"[redacted]" ok')
+    const s = scrubMessage("failed for 'Mary \\'Bella\\' O\\'Neil' end")
+    expect(s).not.toContain("Bella")
+    expect(s).not.toContain("Neil")
+    expect(s).toContain('"[redacted]" end')
+  })
+
+  it("scrubMessage handles Prisma invocation without backticks", () => {
+    const s = scrubMessage('Invalid prisma.person.create() invocation: { firstName: "Jane", dateOfBirth: "2010-01-01" }')
+    expect(s).toContain("prisma.person.create")
+    expect(s).not.toContain("Jane")
+    expect(s).not.toContain("2010-01-01")
+  })
+
   // colon/equals/space-delimited secrets must lose the VALUE, not just the
   // separator — the scrubbed message is persisted and copied into a filed issue.
   it("scrubMessage redacts colon-, equals-, and space-delimited secrets", () => {

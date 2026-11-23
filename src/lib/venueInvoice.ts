@@ -377,9 +377,10 @@ export async function deliverInvoiceRequest(
       to: p.to, cc: p.cc.length ? p.cc.join(", ") : undefined, replyTo: p.replyTo || undefined,
       subject: p.subject, html: p.html, text: p.text,
     })
-  } catch (err) {
+  } catch {
     status = "FAILED"
-    errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
+    // Fixed string: raw SMTP text can echo the recipient address and is stored on the row.
+    errorMessage = "Email send failed"
   }
   const data = {
     sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null,

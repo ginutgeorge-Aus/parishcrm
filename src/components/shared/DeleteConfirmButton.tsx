@@ -108,8 +108,15 @@ export function DeleteConfirmButton({
     })
   }
 
+  /** Tracks open state; ignores dismissal (Escape/outside click) while the action is in flight so callers' pending UI stays consistent. */
+  function handleOpenChange(o: boolean) {
+    if (!o && pending) return
+    setOpen(o)
+    if (!o) setError(null)
+  }
+
   return (
-    <AlertDialog open={open} onOpenChange={(o: boolean) => { setOpen(o); if (!o) setError(null) }}>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogTrigger asChild>
         <Button variant={triggerVariant} size={triggerSize} className={triggerClassName}>
           {triggerLabel}

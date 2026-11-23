@@ -80,7 +80,7 @@ export const FIELDS: Record<string, string[]> = {
   // column holding `Buffer.from(encrypt(base64), "utf8")`. It IS re-keyed now via
   // the blob path; it's listed in BLOB_FIELDS below so rotateRow decodes
   // the Buffer, re-encrypts, and writes a Buffer back.
-  dgrReceipt: ["donorEmail"],
+  dgrReceipt: ["donorEmail", "frozenPdf"],
   transactionAttachment: ["filename", "data"],
   // TOTP authenticator secrets (src/lib/actions/totp.ts). Both are plain
   // encrypt(base32) strings; pending is short-lived but must still rotate.
@@ -119,6 +119,7 @@ export const BLOB_FIELDS: Record<string, string[]> = {
   transactionAttachment: ["data"],
   personClearance: ["document"],
   invoice: ["frozenPdf"],
+  dgrReceipt: ["frozenPdf"],
 }
 
 // Returns the re-encrypted update for one row, or null if nothing to do.
