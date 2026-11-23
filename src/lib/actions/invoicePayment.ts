@@ -207,7 +207,7 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
     const paid = await tx.auditLog.findFirst({ where: { action: "INVOICE_PAID", resourceType: "Invoice", resourceId: id }, orderBy: { id: "desc" }, select: { metadata: true } })
     const meta = (paid?.metadata ?? {}) as { mode?: unknown; transactionId?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
-    const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true } })
+    const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true, amount: true, type: true, accountId: true } })
     // Checked before any write: returning an error doesn't roll the transaction back.
     if (row?.reconciled && meta.mode === "create") return { error: RECONCILED_UNMARK }
     // Only ever delete the exact row this INVOICE_PAID event created: an unmark + re-mark (link) between the audit read and the row read
@@ -221,9 +221,14 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
       // Reconciled rows are refused above; the predicate also catches one reconciled since the read.
       const del = await tx.transaction.deleteMany({ where: { id: row.id, invoiceId: id, reconciled: false } })
       if (del.count === 0) throw new Conflict()
+      // Same trail as a manual delete (deleteTransaction), so the removed ledger row isn't a ghost deletion.
+      await logAuditGuardedTx(tx, uid, "TRANSACTION_DELETED", "Transaction", row.id, {
+        amount: Number(row.amount), type: row.type, accountId: row.accountId, source: "invoice-unmark", invoiceId: id,
+      })
       deleted = true
     } else if (row) {
-      const from = meta.recategorisedFrom
+      // Only restore a category recorded for this exact row: a stale audit read (concurrent unmark + re-link) must not recategorise another transaction.
+      const from = meta.transactionId === row.id ? meta.recategorisedFrom : undefined
       const prev = typeof from?.accountId === "number" && (from.fundId === null || typeof from.fundId === "number") ? { accountId: from.accountId, fundId: from.fundId } : undefined
       // The recorded account/fund may have been deleted since (delete guards ignore audit metadata): then unlink and keep the current category.
       const targetsExist = prev

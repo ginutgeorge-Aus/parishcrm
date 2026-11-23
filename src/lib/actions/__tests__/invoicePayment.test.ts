@@ -45,7 +45,7 @@ beforeEach(() => {
   ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue(income)
   ;(prisma.transaction.create as jest.Mock).mockResolvedValue({ id: 51 })
   ;(prisma.transaction.deleteMany as jest.Mock).mockResolvedValue({ count: 1 })
-  ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 51, reconciled: false })
+  ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 51, reconciled: false, amount: { toString: () => "120.00" }, type: "INCOME", accountId: 4 })
   ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "create", transactionId: 51 } })
   ;(prisma.paymentAccount.findUnique as jest.Mock).mockResolvedValue({ id: 2, kind: "BANK", isActive: true })
   ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ id: 4, type: "INCOME", isActive: true })
@@ -219,6 +219,13 @@ describe("unmarkInvoicePaid", () => {
     expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "PAID" }, data: { status: "SENT", paidAt: null } })
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_UNPAID", "Invoice", 11, { invoiceNo: "INV-0007", transactionId: 51, deletedTransaction: true })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "TRANSACTION_DELETED", "Transaction", 51, { amount: 120, type: "INCOME", accountId: 4, source: "invoice-unmark", invoiceId: 11 })
+  })
+  it("does not restore a recorded category when the audit row is for a different transaction", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "link", transactionId: 49, recategorisedFrom: { accountId: 9, fundId: 3 } } })
+    ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: false })
+    expect(await unmarkInvoicePaid(11)).toEqual({ success: "Payment unlinked — INV-0007 is unpaid again" })
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 50, invoiceId: 11 }, data: { invoiceId: null } })
   })
   it("refuses to unmark a created payment that is reconciled", async () => {
     ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 51, reconciled: true })
