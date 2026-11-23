@@ -1,3 +1,4 @@
+/** @jest-environment node */
 /**
  * AUD-3-04 part A: opening-balance carry-forward and close roll-forward.
  * calcRunningBalance is the real one so the money arithmetic is exercised.
@@ -118,43 +119,49 @@ describe("ensureWeeklySession opening balance", () => {
     )
   })
 
-  const openPrior = [
-    { id: 7, title: "05-JAN-2020", openedAt: new Date("2020-01-06T00:00:00Z"), status: "OPEN" },
-  ]
+  const auditFor = (carriedFromSessionId: number) => ({ metadata: { carriedFromSessionId } })
 
-  test("existing auto-opened session whose prior is still open reports provisional", async () => {
+  test("existing auto-opened session whose source is still open reports provisional", async () => {
     s.findFirst.mockResolvedValue({ id: 42, status: "OPEN" })
-    s.findMany.mockResolvedValue(openPrior)
-    mockAuditFind.mockResolvedValue({ id: 5 })
+    mockAuditFind.mockResolvedValue(auditFor(7))
+    s.findUnique.mockResolvedValue({ status: "OPEN" })
     const res = await ensureWeeklySession()
     expect(res).toEqual({ status: "exists", provisional: true })
     expect(mockAuditFind).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ resourceId: 42, metadata: { path: ["carriedFromSessionId"], equals: 7 } }),
-      }),
+      expect.objectContaining({ where: expect.objectContaining({ resourceId: 42 }) }),
     )
+    expect(s.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 7 } }))
     expect(s.create).not.toHaveBeenCalled()
   })
 
   test("existing manual/legacy session (no auto-open provenance) is not provisional", async () => {
     s.findFirst.mockResolvedValue({ id: 42, status: "OPEN" })
-    s.findMany.mockResolvedValue(openPrior)
     mockAuditFind.mockResolvedValue(null)
     expect(await ensureWeeklySession()).toEqual({ status: "exists" })
   })
 
   test("existing CLOSED session is not provisional", async () => {
     s.findFirst.mockResolvedValue({ id: 42, status: "CLOSED" })
-    s.findMany.mockResolvedValue(openPrior)
-    mockAuditFind.mockResolvedValue({ id: 5 })
+    mockAuditFind.mockResolvedValue(auditFor(7))
     expect(await ensureWeeklySession()).toEqual({ status: "exists" })
   })
 
-  test("existing session whose prior is closed is not provisional", async () => {
+  test("existing session whose recorded source is closed is not provisional", async () => {
     s.findFirst.mockResolvedValue({ id: 42, status: "OPEN" })
-    s.findMany.mockResolvedValue([{ ...openPrior[0], status: "CLOSED" }])
-    const res = await ensureWeeklySession()
-    expect(res).toEqual({ status: "exists" })
+    mockAuditFind.mockResolvedValue(auditFor(7))
+    s.findUnique.mockResolvedValue({ status: "CLOSED" })
+    expect(await ensureWeeklySession()).toEqual({ status: "exists" })
+  })
+
+  test("a later-backfilled OPEN manual session between the dates does not make it provisional", async () => {
+    s.findFirst.mockResolvedValue({ id: 42, status: "OPEN" })
+    s.findMany.mockResolvedValue([
+      { id: 7, title: "05-JAN-2020", openedAt: new Date("2020-01-06T00:00:00Z"), status: "CLOSED" },
+      { id: 8, title: "08-JAN-2020", openedAt: new Date("2020-02-01T00:00:00Z"), status: "OPEN" },
+    ])
+    mockAuditFind.mockResolvedValue(auditFor(7))
+    s.findUnique.mockImplementation(async ({ where }: { where: { id: number } }) => ({ status: where.id === 7 ? "CLOSED" : "OPEN" }))
+    expect(await ensureWeeklySession()).toEqual({ status: "exists" })
   })
 })
 

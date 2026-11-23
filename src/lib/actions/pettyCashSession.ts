@@ -223,20 +223,18 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
     // for an OPEN session auto-opened from that prior one. A manual, closed or legacy
     // (no provenance) session never gets rolled forward, so the notice would be a false promise.
     if (existing.status !== "OPEN") return { status: "exists" }
-    const rows = await prisma.pettyCashSession.findMany({ select: { id: true, title: true, openedAt: true, status: true } })
-    const priorId = findPriorSessionId(rows, thisDate)
-    const prior = rows.find((r) => r.id === priorId)
-    if (prior?.status !== "OPEN") return { status: "exists" }
+    // Read the source from THIS session's own AUTO_OPENED row, not the date-nearest session:
+    // a later-backfilled manual session between the dates must not hide the real source.
     const autoOpened = await prisma.auditLog.findFirst({
-      where: {
-        action: "PETTY_CASH_SESSION_AUTO_OPENED",
-        resourceType: "PettyCashSession",
-        resourceId: existing.id,
-        metadata: { path: ["carriedFromSessionId"], equals: prior.id },
-      },
-      select: { id: true },
+      where: { action: "PETTY_CASH_SESSION_AUTO_OPENED", resourceType: "PettyCashSession", resourceId: existing.id },
+      orderBy: { id: "desc" },
+      select: { metadata: true },
     })
-    return autoOpened ? { status: "exists", provisional: true } : { status: "exists" }
+    const meta = autoOpened?.metadata as { carriedFromSessionId?: unknown } | null | undefined
+    const sourceId = meta?.carriedFromSessionId
+    if (typeof sourceId !== "number") return { status: "exists" }
+    const source = await prisma.pettyCashSession.findUnique({ where: { id: sourceId }, select: { status: true } })
+    return source?.status === "OPEN" ? { status: "exists", provisional: true } : { status: "exists" }
   }
 
   // Carry the prior session's closing cash-in-hand forward as this session's

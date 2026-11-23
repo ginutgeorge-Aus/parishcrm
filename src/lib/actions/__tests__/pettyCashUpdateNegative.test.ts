@@ -1,3 +1,4 @@
+/** @jest-environment node */
 /**
  * AUD-3-04 part C: editing an entry so the float would go negative returns the
  * same soft warning as the create path; confirmNegative records it anyway.
