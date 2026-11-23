@@ -52,7 +52,13 @@ describe("requireRole", () => {
     await expect(requireRole(canEdit)).rejects.toThrow("missing a valid user id")
   })
 
-  it.each(["abc", "0", "-3"])("throws for invalid id %s", async (id) => {
+  it("derives the actor from the session id, not a fixed value", async () => {
+    const s = session(UserRole.PASTOR, "42")
+    mockAuth.mockResolvedValue(s)
+    expect(await requireRole(canEdit)).toEqual({ session: s, actor: 42 })
+  })
+
+  it.each(["abc", "0", "-3", "7abc", "7.5"])("throws for invalid id %s", async (id) => {
     mockAuth.mockResolvedValue(session(UserRole.ADMIN, id))
     await expect(requireRole(canEdit)).rejects.toThrow("missing a valid user id")
   })

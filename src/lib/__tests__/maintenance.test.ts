@@ -142,6 +142,11 @@ describe("isMaintenanceBypassPath", () => {
     expect(isMaintenanceBypassPath("/api/stripe/webhook")).toBe(true)
     expect(isMaintenanceBypassPath("/api/cron/send-reminders")).toBe(true)
     expect(isMaintenanceBypassPath("/api/cron/sweep-checkouts")).toBe(true)
+    expect(isMaintenanceBypassPath("/api/cron/send-group-messages")).toBe(true)
+    expect(isMaintenanceBypassPath("/api/cron/send-celebrations")).toBe(true)
+    expect(isMaintenanceBypassPath("/api/cron/error-issues")).toBe(true)
+    expect(isMaintenanceBypassPath("/api/cron/send-clearance-digest")).toBe(true)
+    expect(isMaintenanceBypassPath("/api/cron/other")).toBe(false)
   })
 })
 
