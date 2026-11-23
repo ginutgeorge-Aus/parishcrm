@@ -64,11 +64,11 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
         <div className="flex flex-col gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="title">Title *</Label>
-            <Input id="title" name="title" defaultValue={defaultValues.title} required />
+            <Input id="title" name="title" defaultValue={defaultValues.title} maxLength={200} required />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="description">Description</Label>
-            <Textarea id="description" name="description" defaultValue={defaultValues.description} rows={4} />
+            <Textarea id="description" name="description" defaultValue={defaultValues.description} maxLength={2000} rows={4} />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="category">Category</Label>
@@ -97,11 +97,11 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="recursLabel">Short label</Label>
-                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} placeholder="2nd Sun" />
+                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} maxLength={40} placeholder="2nd Sun" />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="startTime">Time</Label>
-                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} placeholder="9:30 AM" />
+                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} maxLength={40} placeholder="9:30 AM" />
               </div>
               <div className="grid gap-1.5 md:col-span-3">
                 <Label htmlFor="endDate">End date &amp; time</Label>
@@ -123,7 +123,7 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
 
           <div className="grid gap-1.5">
             <Label htmlFor="location">Location</Label>
-            <Input id="location" name="location" defaultValue={defaultValues.location} />
+            <Input id="location" name="location" defaultValue={defaultValues.location} maxLength={200} />
           </div>
 
           <div className="grid gap-1.5">

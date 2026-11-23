@@ -409,7 +409,7 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   // Select the slug so the public event page can be revalidated too — publish
   // flips the page between full render and notFound(), so a stale cached
   // render of the previous state must not survive the toggle.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, slug: true } })
+  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, slug: true, isPublished: true } })
   if (!exists) return { error: "Event not found" }
 
   // Publishing exposes /e/<slug>; a staff-only event (no slug) has no such page.
@@ -429,7 +429,10 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
     throw e
   }
   if (count === 0) return { error: publish ? "Set a slug before publishing" : "Event not found" }
-  await logAudit(actorId(session), "EVENT_PUBLISHED", "Event", id, { published: publish })
+  // Log the direction actually taken; a no-op toggle (already in that state) is not an auditable change.
+  if (exists.isPublished !== publish) {
+    await logAudit(actorId(session), publish ? "EVENT_PUBLISHED" : "EVENT_UNPUBLISHED", "Event", id, { published: publish })
+  }
   await syncEventToWebsite(id)
   revalidatePath(`/events/${id}/edit`)
   if (exists.slug) revalidatePath(`/e/${exists.slug}`)
