@@ -27,7 +27,7 @@ import {
 } from "@/lib/dgr"
 import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
 import { sendDgrReceiptEmail, isAmbiguousDeliveryError } from "@/lib/email"
-import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
+import { getChurchSettingsForReceipt, type ChurchSettings } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { sumCents, centsToNumber, formatLongDate } from "@/lib/formatting"
 import { isValidEmail, MIN_YEAR, MAX_YEAR, isP2002, isTwoDecimalMoney, isValidPgId, isRealCalendarDate } from "@/lib/validation"
@@ -391,13 +391,19 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   // wedge in SENDING and fail every future claim until an operator edits it.
   // Reading first means a transient failure aborts with the row still DRAFT/FAILED
   // and retryable.
-  const churchRes = await getChurchSettingsForReceipt()
-  if ("error" in churchRes) return { error: churchRes.error }
-  const church = churchRes.church
-  const receipt = await getReceiptSettings()
   // An UNKNOWN row may already have reached the donor: its first document (issuer snapshot,
   // issue date, encrypted PDF) was stored on that attempt and a retry must resend exactly that.
   const keptSnapshot = row.status === DGR_STATUS.UNKNOWN ? parseIssuerSnapshot(row.issuer) : null
+  // A usable snapshot carries the whole issuer identity, so the strict live settings read is skipped.
+  let church: Pick<ChurchSettings, "name" | "abn" | "address" | "email">
+  if (keptSnapshot) {
+    church = { name: keptSnapshot.churchName, address: keptSnapshot.churchAddress, abn: keptSnapshot.churchAbn, email: keptSnapshot.churchEmail }
+  } else {
+    const churchRes = await getChurchSettingsForReceipt()
+    if ("error" in churchRes) return { error: churchRes.error }
+    church = churchRes.church
+  }
+  const receipt = await getReceiptSettings()
   let keptPdf: Uint8Array | null = null
   if (keptSnapshot && row.frozenPdf) {
     try {
@@ -411,7 +417,8 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
       receiptNo: row.receiptNo,
       fyEndYear: row.fyEndYear,
       // The issue date is the send date in the church's timezone, not the UTC day the draft was made.
-      issueDate: sydneyToday(),
+      // A retry of a possibly delivered UNKNOWN row without a snapshot keeps createdAt, the date the first send used.
+      issueDate: row.status === DGR_STATUS.UNKNOWN ? row.createdAt : sydneyToday(),
       donorName: row.donorName,
       lines: row.lines as DgrLine[],
     },
