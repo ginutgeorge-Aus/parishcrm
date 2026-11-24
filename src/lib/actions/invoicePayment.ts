@@ -17,6 +17,7 @@ import { buildInvoicePaidEmail } from "@/lib/invoiceEmail"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { featureGuard } from "@/lib/featureFlags"
 import { NOT_XFER, XFER_CODE } from "@/lib/xferAccount"
+import { sydneyToday } from "@/lib/dates"
 
 const CHANGED = { error: "This invoice has changed. Reload and try again." }
 const RECONCILED_UNMARK = "The payment is reconciled. Un-reconcile it on the Reconciliation page before unmarking."
@@ -186,10 +187,12 @@ export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise
 
 /**
  * Undo a payment: PAID → SENT. How the ledger row is handled depends on how it got there (read from the INVOICE_PAID audit row):
- * a row the invoice created is deleted (leaving it would double the income when the invoice is marked paid again, or leave
+ * a row the invoice created is kept (7-year retention) but unlinked, and an offsetting negative INCOME row dated today is added
+ * (a plain delete would drop the record; leaving it linked would double the income when the invoice is marked paid again, or leave
  * income for a voided invoice); a row the invoice linked is unlinked and moved back to its previous account and fund.
  * Exceptions: a reconciled linked row, or one whose recorded account/fund no longer exists, is unlinked but keeps its current category.
- * The delete only ever targets the transaction id recorded in the INVOICE_PAID audit row.
+ * The reversal only ever targets the transaction id recorded in the INVOICE_PAID audit row. The reversal is negative INCOME,
+ * not EXPENSE: EXPENSE rows must sit on EXPENSE accounts and would inflate expense totals instead of netting the income.
  */
 export async function unmarkInvoicePaid(id: number): Promise<{ success: string } | { error: string }> {
   const session = await auth()
@@ -207,26 +210,36 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
     const paid = await tx.auditLog.findFirst({ where: { action: "INVOICE_PAID", resourceType: "Invoice", resourceId: id }, orderBy: { id: "desc" }, select: { metadata: true } })
     const meta = (paid?.metadata ?? {}) as { mode?: unknown; transactionId?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
-    const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true, amount: true, type: true, accountId: true } })
+    const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true, amount: true, accountId: true, paymentAccountId: true, fundId: true, personId: true } })
     // Checked before any write: returning an error doesn't roll the transaction back.
     if (row?.reconciled && meta.mode === "create") return { error: RECONCILED_UNMARK }
-    // Only ever delete the exact row this INVOICE_PAID event created: an unmark + re-mark (link) between the audit read and the row read
+    // Only ever reverse the exact row this INVOICE_PAID event created: an unmark + re-mark (link) between the audit read and the row read
     // could otherwise leave a different, unrelated transaction linked while the stale `create` mode still applies.
     // Link mode too: a concurrent unmark + re-mark could swap in a different row, which would be unlinked and left as income.
     if (row && (meta.mode === "create" || (meta.mode === "link" && typeof meta.transactionId === "number")) && meta.transactionId !== row.id) throw new Conflict()
     const flip = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.PAID }, data: { status: InvoiceStatus.SENT, paidAt: null } })
     if (flip.count === 0) throw new Conflict()
-    let deleted = false
+    let reversalId: number | undefined
     let restoredTo: { accountId: number; fundId: number | null } | undefined
     if (row && meta.mode === "create") {
       // Reconciled rows are refused above; the predicate also catches one reconciled since the read.
-      const del = await tx.transaction.deleteMany({ where: { id: row.id, invoiceId: id, reconciled: false } })
-      if (del.count === 0) throw new Conflict()
-      // Same trail as a manual delete (deleteTransaction), so the removed ledger row isn't a ghost deletion.
-      await logAuditGuardedTx(tx, uid, "TRANSACTION_DELETED", "Transaction", row.id, {
-        amount: Number(row.amount), type: row.type, accountId: row.accountId, source: "invoice-unmark", invoiceId: id,
+      // The original stays as the record; clearing invoiceId frees the unique link so the invoice can be paid again.
+      const unlink = await tx.transaction.updateMany({ where: { id: row.id, invoiceId: id, reconciled: false }, data: { invoiceId: null } })
+      if (unlink.count === 0) throw new Conflict()
+      const reversal = await tx.transaction.create({
+        data: {
+          date: sydneyToday(), type: "INCOME", amount: `-${row.amount.toString()}`, accountId: row.accountId,
+          paymentAccountId: row.paymentAccountId, fundId: row.fundId, personId: row.personId,
+          reference: inv.invoiceNo ? encrypt(inv.invoiceNo) : null,
+          description: encrypt(`Reversal of ${inv.invoiceNo} payment`), notes: encrypt(`Reverses transaction #${row.id}`),
+        },
+        select: { id: true },
       })
-      deleted = true
+      reversalId = reversal.id
+      // Same trail as a manual create, so the offsetting row is attributable and linked to the payment it reverses.
+      await logAuditGuardedTx(tx, uid, "TRANSACTION_CREATED", "Transaction", reversal.id, {
+        amount: `-${row.amount.toString()}`, type: "INCOME", accountId: row.accountId, source: "invoice-unmark", invoiceId: id, reversesTransactionId: row.id,
+      })
     } else if (row) {
       // Only restore a category recorded for this exact row: a stale audit read (concurrent unmark + re-link) must not recategorise another transaction.
       const from = meta.transactionId === row.id ? meta.recategorisedFrom : undefined
@@ -246,13 +259,13 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
       if (restore) restoredTo = prev
     }
     await logAuditGuardedTx(tx, uid, "INVOICE_UNPAID", "Invoice", id, {
-      invoiceNo: inv.invoiceNo, ...(row ? { transactionId: row.id, deletedTransaction: deleted } : {}), ...(restoredTo ? { restoredTo } : {}),
+      invoiceNo: inv.invoiceNo, ...(row ? { transactionId: row.id, deletedTransaction: false, ...(reversalId ? { reversalTransactionId: reversalId } : {}) } : {}), ...(restoredTo ? { restoredTo } : {}),
     })
-    return { deleted }
+    return { reversed: reversalId !== undefined }
   }))
   if ("error" in ok) return { error: ok.error as string }
   revalidate(id)
-  return { success: ok.deleted ? `Payment removed — ${inv.invoiceNo} is unpaid again` : `Payment unlinked — ${inv.invoiceNo} is unpaid again` }
+  return { success: ok.reversed ? `Payment reversed — ${inv.invoiceNo} is unpaid again` : `Payment unlinked — ${inv.invoiceNo} is unpaid again` }
 }
 
 /**
