@@ -123,8 +123,8 @@ it("shows the BSB and account next to the reference when set", async () => {
   expect(text).toContain("FR0001")
 })
 
-it("blank bank details: office-will-send sentence plus reference, no account lines", async () => {
-  const e = entry("10.00")
+it("blank bank details, card unavailable: office-will-send sentence plus reference, no account lines", async () => {
+  const e = entry("10.00", false)
   e.fundraiser.event.bankBsb = ""
   e.fundraiser.event.bankAccount = ""
   mFind.mockResolvedValue(e)
