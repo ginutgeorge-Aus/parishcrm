@@ -21,7 +21,7 @@ import {
   TICKET_TYPE_IN_USE,
   CAPACITY_BELOW_SOLD,
   StaleEventError,
-  sameValue,
+  shouldRearmReminder,
 } from "./eventForm"
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -194,13 +194,16 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
         })
       }
       // The reminder marker is per event row, not per date. Moving the event or
-      // changing the lead time must re-arm it, or the new date never gets a
-      // reminder. Compared against the row read inside this Serializable tx, not
-      // the earlier existence read, so a concurrent edit cannot slip past.
+      // changing the lead time re-arms it, or the new date never gets a
+      // reminder. Skipped when a reminder was already sent and the new schedule
+      // is already due (a time fix must not resend). Compared against the row
+      // read inside this Serializable tx, not the earlier existence read.
       // Other edits (title, location) leave it so they never cause a resend.
-      const current = await tx.event.findUnique({ where: { id }, select: { date: true, reminderDaysBefore: true } })
-      const rearmReminder =
-        !!current && (!sameValue(current.date, newData.date) || !sameValue(current.reminderDaysBefore, newData.reminderDaysBefore))
+      const current = await tx.event.findUnique({
+        where: { id },
+        select: { date: true, reminderDaysBefore: true, reminderSentAt: true, kind: true, isPublished: true },
+      })
+      const rearmReminder = shouldRearmReminder(current, newData)
       const updateResult = await tx.event.updateMany({
         // Clearing the slug only matches while unpublished, so a concurrent publish
         // between the pre-check and this write cannot leave a published event slug-less.

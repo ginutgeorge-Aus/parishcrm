@@ -20,6 +20,7 @@ import {
   parseImageUpload,
   parseManagedEventForm,
   sameValue,
+  shouldRearmReminder,
 } from "./eventForm"
 import type { ActionResult } from "./types"
 
@@ -93,8 +94,15 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
 
   try {
     await prisma.$transaction(async (tx) => {
-      // Re-read the date inside the tx so a concurrent edit cannot slip past.
-      const current = await tx.event.findUnique({ where: { id }, select: { date: true } })
+      // Re-read the schedule inside the tx so a concurrent edit cannot slip past.
+      const current = await tx.event.findUnique({
+        where: { id },
+        select: { date: true, reminderDaysBefore: true, reminderSentAt: true, kind: true, isPublished: true },
+      })
+      const rearmReminder = shouldRearmReminder(
+        current,
+        { date: data.date, reminderDaysBefore: current?.reminderDaysBefore ?? null },
+      )
       const res = await tx.event.updateMany({
         where: { id, updatedAt: seenAt },
         // Empty array (not undefined) so removing every organiser persists —
@@ -103,8 +111,9 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
           ...data,
           organizers: organizers.length > 0 ? organizers : [],
           // Moving the event re-arms its reminder (marker is per row, not per
-          // date). Organisers cannot change the lead time, only the date.
-          ...(current && sameValue(current.date, data.date) ? {} : { reminderSentAt: null, reminderClaimedAt: null }),
+          // date), unless one was sent and the new date is already due.
+          // Organisers cannot change the lead time, only the date.
+          ...(rearmReminder ? { reminderSentAt: null, reminderClaimedAt: null } : {}),
         },
       })
       if (res.count === 0) throw new StaleEventError()

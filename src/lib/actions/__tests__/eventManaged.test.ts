@@ -146,6 +146,38 @@ describe("updateManagedEvent write", () => {
     expect(arg.data.reminderClaimedAt).toBeNull()
   })
 
+  describe("after a reminder was sent", () => {
+    const sent = {
+      ...stored, isPublished: true, reminderDaysBefore: 3, reminderSentAt: new Date("2026-07-30T00:00:00Z"),
+    }
+    beforeEach(() => {
+      jest.useFakeTimers({ now: new Date("2026-07-31T12:00:00Z"), advanceTimers: true })
+      findUnique.mockResolvedValue(sent)
+    })
+    afterEach(() => jest.useRealTimers())
+
+    it("keeps the marker on a time fix when the new date is already due", async () => {
+      await run(form({ ...base, date: "2026-08-01T12:00" }))
+      const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
+      expect(arg.data).not.toHaveProperty("reminderSentAt")
+      expect(arg.data).not.toHaveProperty("reminderClaimedAt")
+    })
+
+    it("clears the marker when the event moves to a future date", async () => {
+      await run(form({ ...base, date: "2026-09-01T10:00" }))
+      const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
+      expect(arg.data.reminderSentAt).toBeNull()
+      expect(arg.data.reminderClaimedAt).toBeNull()
+    })
+  })
+
+  it("does not re-arm when the in-tx read finds no row", async () => {
+    findUnique.mockResolvedValueOnce(stored).mockResolvedValueOnce(null)
+    await run(form(base))
+    const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
+    expect(arg.data).not.toHaveProperty("reminderSentAt")
+  })
+
   it("leaves the reminder marker when the date is unchanged", async () => {
     // 2026-08-01T10:00 Sydney = stored 2026-08-01T00:00Z
     await run(form({ ...base, date: "2026-08-01T10:00" }))

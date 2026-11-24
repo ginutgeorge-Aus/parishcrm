@@ -138,6 +138,34 @@ describe("updateEvent reminder re-arm", () => {
     expect(arg.data.reminderClaimedAt).toBeNull()
   })
 
+  describe("after a reminder was sent", () => {
+    const sent = { ...stored, kind: "one_off", isPublished: true, reminderSentAt: new Date("2026-07-30T00:00:00Z") }
+    beforeEach(() => {
+      jest.useFakeTimers({ now: new Date("2026-07-31T12:00:00Z"), advanceTimers: true })
+      findUniqueEvent.mockResolvedValue(sent)
+    })
+    afterEach(() => jest.useRealTimers())
+
+    it("keeps the marker on a time fix when the new schedule is already due", async () => {
+      // 2026-08-01T12:00 Sydney = 02:00Z, 3-day window already open.
+      const arg = await runUpdate(form({ ...same, date: "2026-08-01T12:00" }))
+      expect(arg.data).not.toHaveProperty("reminderSentAt")
+      expect(arg.data).not.toHaveProperty("reminderClaimedAt")
+    })
+
+    it("clears the marker when the event moves to a future schedule", async () => {
+      const arg = await runUpdate(form({ ...same, date: "2026-09-01T10:00" }))
+      expect(arg.data.reminderSentAt).toBeNull()
+      expect(arg.data.reminderClaimedAt).toBeNull()
+    })
+  })
+
+  it("does not re-arm when the in-tx read finds no row", async () => {
+    findUniqueEvent.mockResolvedValueOnce(stored).mockResolvedValueOnce(null)
+    const arg = await runUpdate(form({ ...same, date: "2026-09-01T10:00" }))
+    expect(arg.data).not.toHaveProperty("reminderSentAt")
+  })
+
   it("does not clear them when only the title changes", async () => {
     const arg = await runUpdate(form({ ...same, title: "Renamed" }))
     expect(arg.data).not.toHaveProperty("reminderSentAt")
