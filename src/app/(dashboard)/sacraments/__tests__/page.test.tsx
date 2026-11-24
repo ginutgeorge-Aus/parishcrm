@@ -95,6 +95,25 @@ describe("SacramentsPage", () => {
     expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 0 }))
   })
 
+  it("recovers when a delete empties the requested page between count and fetch", async () => {
+    count.mockResolvedValueOnce(201).mockResolvedValueOnce(200)
+    findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([ROW])
+    const html = await render({ page: "3" })
+    expect(findMany).toHaveBeenCalledTimes(2)
+    expect(findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ skip: 200 }))
+    expect(findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ skip: 100 }))
+    expect(html).toContain("Page 2 of 2")
+  })
+
+  it("shows the empty state when the recount after an emptied page is zero", async () => {
+    count.mockResolvedValueOnce(101).mockResolvedValueOnce(0)
+    findMany.mockResolvedValue([])
+    const html = await render({ page: "2" })
+    expect(findMany).toHaveBeenCalledTimes(2)
+    expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 0 }))
+    expect(html).toContain("No entries in the register yet")
+  })
+
   it("hides pagination for a single page", async () => {
     expect(await render()).not.toContain("Register pages")
   })
