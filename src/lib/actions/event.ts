@@ -415,12 +415,15 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   // Publishing exposes /e/<slug>; a staff-only event (no slug) has no such page.
   if (publish && !exists.slug) return { error: "Set a slug before publishing" }
 
-  // Condition lives in the where clause so a concurrent slug-clear can't slip
-  // between the read above and the write (DB CHECK is the final backstop).
+  // Conditions live in the where clause so a concurrent slug-clear can't slip
+  // between the read above and the write (DB CHECK is the final backstop), and
+  // `isPublished: !publish` makes the write itself prove a real state change:
+  // only the request that actually flipped the flag audits it, so concurrent
+  // publish/unpublish toggles can't skip or double an audit row.
   let count: number
   try {
     ;({ count } = await prisma.event.updateMany({
-      where: publish ? { id, slug: { not: null } } : { id },
+      where: publish ? { id, isPublished: false, slug: { not: null } } : { id, isPublished: true },
       data: { isPublished: publish },
     }))
   } catch (e: unknown) {
@@ -428,9 +431,12 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
     if (msg.includes(PUBLISHED_SLUG_CONSTRAINT)) return { error: "Set a slug before publishing" }
     throw e
   }
-  if (count === 0) return { error: publish ? "Set a slug before publishing" : "Event not found" }
-  // Log the direction actually taken; a no-op toggle (already in that state) is not an auditable change.
-  if (exists.isPublished !== publish) {
+  if (count === 0) {
+    // Nothing flipped: already in the requested state (no-op, not auditable), or the event vanished / lost its slug.
+    const now = await prisma.event.findUnique({ where: { id }, select: { isPublished: true } })
+    if (!now) return { error: "Event not found" }
+    if (now.isPublished !== publish) return { error: publish ? "Set a slug before publishing" : "Event not found" }
+  } else {
     await logAudit(actorId(session), publish ? "EVENT_PUBLISHED" : "EVENT_UNPUBLISHED", "Event", id, { published: publish })
   }
   await syncEventToWebsite(id)

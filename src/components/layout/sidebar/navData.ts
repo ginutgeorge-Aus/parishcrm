@@ -23,7 +23,7 @@ export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
 // `icon` is shown on collapsible group headers; headless groups have none.
 export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; icon?: React.ElementType }
 
-/** Flip to true once /roster can create services and roles (#711); until then the nav link stays hidden. */
+/** Flip to true once /roster can create services and roles and remove or resize slots (#711); until then the nav link stays hidden. */
 const ROSTER_UI_READY = false
 
 /** Sidebar groups for the viewer's role, badge counts and enabled features. */
