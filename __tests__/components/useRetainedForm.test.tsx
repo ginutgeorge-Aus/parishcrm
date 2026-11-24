@@ -58,3 +58,15 @@ it("sends the clicked submit button in the FormData", async () => {
   const fd = action.mock.calls[0][1] as FormData
   expect(fd.get("confirm")).toBe("true")
 })
+
+it("turns a thrown action into an error and keeps the typed values", async () => {
+  const action = jest.fn().mockRejectedValue(new Error("network down"))
+  render(<Demo action={action} />)
+  await userEvent.type(screen.getByLabelText("Name"), "Alice")
+  await userEvent.click(screen.getByText("Save"))
+  await waitFor(() =>
+    expect(screen.getByTestId("err")).toHaveTextContent("Something went wrong. Please try again."),
+  )
+  expect(screen.getByLabelText("Name")).toHaveValue("Alice")
+  expect(screen.getByTestId("seq")).toHaveTextContent("1")
+})

@@ -4,6 +4,8 @@ import { startTransition, useActionState, useRef, type FormEvent } from "react"
 
 type Wrapped<R> = { result: R; errorSeq: number }
 
+const GENERIC_ERROR = "Something went wrong. Please try again."
+
 type Feedback = { error?: string | null; success?: string | null } | undefined
 
 /**
@@ -22,6 +24,9 @@ type Feedback = { error?: string | null; success?: string | null } | undefined
  * The submit button that triggered the form is included in the FormData, so
  * `<Button type="submit" name="confirmDuplicate" value="true">` keeps working.
  *
+ * An action that throws is caught and shown as a generic error, so the form
+ * and its input survive.
+ *
  * A result without `error` (for example `{ success }`) still clears the form, as
  * React's own reset did before.
  *
@@ -37,7 +42,14 @@ export function useRetainedForm<R extends Feedback>(
   const formRef = useRef<HTMLFormElement | null>(null)
   const [wrapped, dispatch, isPending] = useActionState<Wrapped<R> | undefined, FormData>(
     async (prev, formData) => {
-      const result = await action(prev?.result as R, formData)
+      let result: R
+      try {
+        result = await action(prev?.result as R, formData)
+      } catch {
+        // A thrown action (network drop, unexpected server error) must not unmount the form
+        // via the error boundary and lose the user's input: surface it as a normal error.
+        result = { error: GENERIC_ERROR } as R
+      }
       // A non-error result (e.g. `{ success }`) keeps React's old behaviour: the form is cleared.
       if (!result?.error) formRef.current?.reset()
       return { result, errorSeq: (prev?.errorSeq ?? 0) + (result?.error ? 1 : 0) }
