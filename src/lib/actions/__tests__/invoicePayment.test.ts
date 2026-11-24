@@ -280,6 +280,20 @@ describe("unmarkInvoicePaid", () => {
     await unmarkInvoicePaid(11)
     expect((prisma.$queryRaw as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan((prisma.auditLog.findFirst as jest.Mock).mock.invocationCallOrder[0])
   })
+  it("unlinks without recategorising a no-audit row that has no payment account (cannot be an invoice-created payment)", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: true, amount: dec("330.00"), accountId: 4, paymentAccountId: null, fundId: null, personId: null, date: new Date("2026-10-20") })
+    expect(await unmarkInvoicePaid(11)).toEqual({ success: "Payment unlinked — INV-0007 is unpaid again" })
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 50, invoiceId: 11 }, data: { invoiceId: null } })
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+  })
+  it("still checks the paid date's lock for a no-audit unlink-only row", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: false, amount: dec("330.00"), accountId: 4, paymentAccountId: null, fundId: null, personId: null, date: new Date("2026-10-20") })
+    ;(assertUnlocked as jest.Mock).mockResolvedValueOnce("Period locked")
+    expect(await unmarkInvoicePaid(11)).toEqual({ error: "Period locked" })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
   it("refuses, writing nothing, when no INVOICE_PAID audit row exists", async () => {
     ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
     expect(await unmarkInvoicePaid(11)).toEqual({ error: expect.stringContaining("no audit record") })
@@ -293,12 +307,23 @@ describe("unmarkInvoicePaid", () => {
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
     expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
-  it("reverses a created payment whose own date is in a locked period, leaving the original's reconciled flag alone", async () => {
+  it("refuses to unmark a created payment whose paid date is in a locked period, writing nothing", async () => {
     ;(assertUnlocked as jest.Mock).mockImplementation(async (d: Date) => (d.getTime() === new Date("2026-10-20").getTime() ? "Period locked" : null))
-    expect(await unmarkInvoicePaid(11)).toEqual({ success: expect.stringContaining("negative entry") })
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 51, invoiceId: 11, paymentAccountId: 2, reconciled: false }, data: { invoiceId: null } })
-    expect(prisma.transaction.create).toHaveBeenCalled()
+    const res = await unmarkInvoicePaid(11)
     ;(assertUnlocked as jest.Mock).mockImplementation(async () => null)
+    expect(res).toEqual({ error: expect.stringContaining("locked accounting period") })
+    expect(assertUnlocked).toHaveBeenCalledWith(new Date("2026-10-20"))
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+  })
+  it("refuses when the created payment row's own date is locked even if the invoice paidAt is open", async () => {
+    ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 51, reconciled: false, amount: dec("120.00"), accountId: 4, paymentAccountId: 2, fundId: 3, personId: null, date: new Date("2026-09-01") })
+    ;(assertUnlocked as jest.Mock).mockImplementation(async (d: Date) => (d.getTime() === new Date("2026-09-01").getTime() ? "Period locked" : null))
+    const res = await unmarkInvoicePaid(11)
+    ;(assertUnlocked as jest.Mock).mockImplementation(async () => null)
+    expect(res).toEqual({ error: expect.stringContaining("locked accounting period") })
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
   it("refuses a created payment when its account or fund is inactive, writing nothing", async () => {
     ;(prisma.account.findUnique as jest.Mock).mockResolvedValueOnce({ id: 4, type: "INCOME", isActive: false })

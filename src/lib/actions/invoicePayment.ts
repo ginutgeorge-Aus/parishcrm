@@ -202,11 +202,20 @@ export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise
   return warning ? { success, warning } : { success }
 }
 
+/** Lock check for a payment's own date during unmark; the message says why the unmark is refused. */
+async function lockedPaymentError(date: Date | null): Promise<string | null> {
+  if (!date) return null
+  const lockErr = await assertUnlocked(date)
+  return lockErr ? `The payment is in a locked accounting period, so it can't be unmarked. ${lockErr}` : null
+}
+
 /**
  * Undo a payment: PAID → SENT. How the ledger row is handled depends on how it got there (read from the INVOICE_PAID audit row):
  * a row the invoice created is kept (7-year retention) but unlinked, and an offsetting negative INCOME row dated today is added
  * (a plain delete would drop the record; leaving it linked would double the income when the invoice is marked paid again, or leave
  * income for a voided invoice); a row the invoice linked is unlinked and moved back to its previous account and fund.
+ * The payment's own period (paidAt) and today's period must both be open. A row with no INVOICE_PAID audit row is only unlinked
+ * when it has no payment account (an invoice-created payment always has one); otherwise it is refused.
  * Exceptions: a reconciled linked row, or one whose recorded account/fund no longer exists, is unlinked but keeps its current category.
  * The reversal only ever targets the transaction id recorded in the INVOICE_PAID audit row. The reversal is negative INCOME,
  * not EXPENSE: EXPENSE rows must sit on EXPENSE accounts and would inflate expense totals instead of netting the income.
@@ -228,13 +237,18 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     const meta = (paid?.metadata ?? {}) as { mode?: unknown; transactionId?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
     const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, date: true, reconciled: true, amount: true, accountId: true, paymentAccountId: true, fundId: true, personId: true } })
     // Checked before any write: returning an error doesn't roll the transaction back.
-    // No INVOICE_PAID audit row: how the row got there is unknown, so unlinking could leave income that doubles on re-mark. Refuse.
-    if (row && !paid) return { error: NO_PAID_AUDIT }
+    // No INVOICE_PAID audit row: how the row got there is unknown. An invoice-created payment always has a payment account, so a row
+    // without one can't be one: unlinking it only frees a pre-existing income row (same as a link-mode unmark), which can't double.
+    // A row with a payment account might be an unrecorded created payment: unlinking it would leave income that doubles on re-mark. Refuse.
+    if (row && !paid && row.paymentAccountId !== null) return { error: NO_PAID_AUDIT }
     const createMode = !!row && meta.mode === "create"
     if (row?.reconciled && createMode) return { error: RECONCILED_UNMARK }
-    // A created payment is kept and offset by a row dated today, so only today's period must be open (this lets a payment in a locked
-    // period be reversed). Otherwise the paid date drives the GST-collected figure, so a locked period's payment stays put.
-    const lockErr = createMode ? await assertUnlocked(reversalDate) : inv.paidAt ? await assertUnlocked(inv.paidAt) : null
+    // Unmarking clears paidAt, which drops the invoice's GST-collected from the period it was paid in (getInvoiceSummary), so that period
+    // must be open. A created payment also gets a reversal row dated today, so today's period must be open too, and so must the
+    // payment row's own date (equal to paidAt for a created payment; checked so the original is never in a locked period below).
+    const lockErr = createMode
+      ? await assertUnlocked(reversalDate) ?? (await lockedPaymentError(inv.paidAt) ?? (row ? await lockedPaymentError(row.date) : null))
+      : inv.paidAt ? await assertUnlocked(inv.paidAt) : null
     if (lockErr) return { error: lockErr }
     // The reversal posts to the payment's own account and fund: both must still be usable.
     if (row && createMode) {
@@ -256,11 +270,10 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
       // Reconciled rows are refused above; the predicate also catches one reconciled since the read.
       // The original stays as the record; clearing invoiceId frees the unique link so the invoice can be paid again.
       // The pair nets to zero, so both rows are marked reconciled: neither shows as unmatched on the bank reconciliation page, and
-      // editing or deleting one half is blocked. A locked-period original is read-only, so only its link is cleared.
-      const originalLocked = !!(await assertUnlocked(row.date))
+      // editing or deleting one half is blocked. The original's date was checked unlocked above, so it can always be flagged.
       const unlink = await tx.transaction.updateMany({
         where: { id: row.id, invoiceId: id, paymentAccountId: row.paymentAccountId, reconciled: false },
-        data: originalLocked ? { invoiceId: null } : { invoiceId: null, reconciled: true },
+        data: { invoiceId: null, reconciled: true },
       })
       if (unlink.count === 0) throw new Conflict()
       const reversal = await tx.transaction.create({
