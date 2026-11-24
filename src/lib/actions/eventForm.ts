@@ -402,14 +402,18 @@ type ReminderRow = {
 
 /**
  * Whether an edit should clear the reminder marker. Only when the date or lead
- * time changed on a row that was read (null current = no re-arm). If a reminder
- * was already sent and the NEW schedule is already due, skip: re-arming would
- * resend straight away on a time fix, so the owner keeps the one they got.
+ * time changed on a row that was read (null current = no re-arm). Skips when:
+ * - the NEW state is not remindable (lead off, recurring, no date): clearing the
+ *   marker would resend an already-delivered reminder if the owner turns it back on;
+ * - a reminder was already sent and the NEW schedule is already due, since
+ *   re-arming would resend straight away on a time fix. Publish state is
+ *   ignored for this check (it is unrelated to the window).
+ * The sweep lease (reminderClaimedAt) is never touched here; it expires on its own.
  *
  * @param current - Row read inside the transaction.
  * @param next - New date and lead time.
  * @param now - Injected clock for tests.
- * @returns True when reminderSentAt/reminderClaimedAt should be nulled.
+ * @returns True when reminderSentAt should be nulled.
  */
 export function shouldRearmReminder(
   current: ReminderRow | null,
@@ -418,6 +422,8 @@ export function shouldRearmReminder(
 ): boolean {
   if (!current) return false
   if (sameValue(current.date, next.date) && sameValue(current.reminderDaysBefore, next.reminderDaysBefore)) return false
-  if (current.reminderSentAt && isReminderDue({ ...current, ...next, reminderSentAt: null }, now)) return false
+  const merged = { ...current, ...next, kind: next.kind ?? current.kind }
+  if (merged.kind !== "one_off" || !merged.date || merged.reminderDaysBefore == null) return false
+  if (current.reminderSentAt && isReminderDue({ ...merged, reminderSentAt: null, isPublished: true }, now)) return false
   return true
 }

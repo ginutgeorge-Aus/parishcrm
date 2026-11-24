@@ -36,6 +36,7 @@ const stored = {
   id: 7, slug: "camp", kind: "one_off", title: "Old", description: null, category: "worship",
   date: new Date("2026-08-01T00:00:00Z"), endDate: null, recurs: null, recursLabel: null,
   startTime: null, location: null, organizers: null, registrationDeadline: null,
+  reminderDaysBefore: 3,
 }
 
 function form(fields: Record<string, string>): FormData {
@@ -123,27 +124,27 @@ describe("updateManagedEvent write", () => {
     expect(arg.where).toEqual({ id: 7, updatedAt: new Date("2026-08-01T00:00:00.000Z") })
     expect(Object.keys(arg.data).sort()).toEqual(
       // base moves the date, so the reminder marker is cleared too.
-      ["category", "date", "description", "endDate", "location", "organizers", "recurs", "recursLabel", "reminderClaimedAt", "reminderSentAt", "startTime", "title"],
+      ["category", "date", "description", "endDate", "location", "organizers", "recurs", "recursLabel", "reminderSentAt", "startTime", "title"],
     )
     expect(arg.data.title).toBe("New title")
   })
 
-  it("clears reminderSentAt and reminderClaimedAt when the date changes", async () => {
+  it("clears reminderSentAt (not the sweep lease) when the date changes", async () => {
     await run(form(base))
     const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
     expect(arg.data.reminderSentAt).toBeNull()
-    expect(arg.data.reminderClaimedAt).toBeNull()
+    expect(arg.data).not.toHaveProperty("reminderClaimedAt")
   })
 
   it("decides re-arm from the row read inside the transaction", async () => {
     // Pre-tx read matches the submitted date; in-tx read shows a concurrent move.
     findUnique
       .mockResolvedValueOnce(stored)
-      .mockResolvedValueOnce({ date: new Date("2026-12-01T00:00:00Z") })
+      .mockResolvedValueOnce({ date: new Date("2026-12-01T00:00:00Z"), kind: "one_off", reminderDaysBefore: 3 })
     await run(form({ ...base, date: "2026-08-01T10:00", title: "Renamed" }))
     const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
     expect(arg.data.reminderSentAt).toBeNull()
-    expect(arg.data.reminderClaimedAt).toBeNull()
+    expect(arg.data).not.toHaveProperty("reminderClaimedAt")
   })
 
   describe("after a reminder was sent", () => {
@@ -163,11 +164,18 @@ describe("updateManagedEvent write", () => {
       expect(arg.data).not.toHaveProperty("reminderClaimedAt")
     })
 
+    it("keeps the marker on an unpublished event whose new date is already due", async () => {
+      findUnique.mockResolvedValue({ ...sent, isPublished: false })
+      await run(form({ ...base, date: "2026-08-01T12:00" }))
+      const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
+      expect(arg.data).not.toHaveProperty("reminderSentAt")
+    })
+
     it("clears the marker when the event moves to a future date", async () => {
       await run(form({ ...base, date: "2026-09-01T10:00" }))
       const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
       expect(arg.data.reminderSentAt).toBeNull()
-      expect(arg.data.reminderClaimedAt).toBeNull()
+      expect(arg.data).not.toHaveProperty("reminderClaimedAt")
     })
   })
 

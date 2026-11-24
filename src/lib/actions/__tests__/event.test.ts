@@ -116,16 +116,16 @@ describe("updateEvent reminder re-arm", () => {
     updateManyEvent.mockResolvedValue({ count: 1 })
   })
 
-  it("clears reminderSentAt and reminderClaimedAt when the date changes", async () => {
+  it("clears reminderSentAt (not the sweep lease) when the date changes", async () => {
     const arg = await runUpdate(form({ ...same, date: "2026-09-01T10:00" }))
     expect(arg.data.reminderSentAt).toBeNull()
-    expect(arg.data.reminderClaimedAt).toBeNull()
+    expect(arg.data).not.toHaveProperty("reminderClaimedAt")
   })
 
-  it("clears reminderSentAt and reminderClaimedAt when reminderDaysBefore changes", async () => {
+  it("clears reminderSentAt (not the sweep lease) when reminderDaysBefore changes", async () => {
     const arg = await runUpdate(form({ ...same, reminderDaysBefore: "5" }))
     expect(arg.data.reminderSentAt).toBeNull()
-    expect(arg.data.reminderClaimedAt).toBeNull()
+    expect(arg.data).not.toHaveProperty("reminderClaimedAt")
   })
 
   it("decides re-arm from the row read inside the transaction, not the earlier read", async () => {
@@ -135,7 +135,7 @@ describe("updateEvent reminder re-arm", () => {
       .mockResolvedValueOnce({ date: new Date("2026-12-01T00:00:00Z"), reminderDaysBefore: 3 })
     const arg = await runUpdate(form(same))
     expect(arg.data.reminderSentAt).toBeNull()
-    expect(arg.data.reminderClaimedAt).toBeNull()
+    expect(arg.data).not.toHaveProperty("reminderClaimedAt")
   })
 
   describe("after a reminder was sent", () => {
@@ -153,10 +153,26 @@ describe("updateEvent reminder re-arm", () => {
       expect(arg.data).not.toHaveProperty("reminderClaimedAt")
     })
 
+    it("keeps the marker on an unpublished event whose new schedule is already due", async () => {
+      findUniqueEvent.mockResolvedValue({ ...sent, isPublished: false })
+      const arg = await runUpdate(form({ ...same, date: "2026-08-01T12:00" }))
+      expect(arg.data).not.toHaveProperty("reminderSentAt")
+    })
+
+    it("keeps the marker when the reminder is turned off", async () => {
+      const arg = await runUpdate(form({ ...same, reminderDaysBefore: "" }))
+      expect(arg.data).not.toHaveProperty("reminderSentAt")
+    })
+
+    it("keeps the marker when the kind changes to recurring", async () => {
+      const arg = await runUpdate(form({ ...same, kind: "recurring", recurs: "every-sunday" }))
+      expect(arg.data).not.toHaveProperty("reminderSentAt")
+    })
+
     it("clears the marker when the event moves to a future schedule", async () => {
       const arg = await runUpdate(form({ ...same, date: "2026-09-01T10:00" }))
       expect(arg.data.reminderSentAt).toBeNull()
-      expect(arg.data.reminderClaimedAt).toBeNull()
+      expect(arg.data).not.toHaveProperty("reminderClaimedAt")
     })
   })
 

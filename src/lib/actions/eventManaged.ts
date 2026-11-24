@@ -113,7 +113,7 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
           // Moving the event re-arms its reminder (marker is per row, not per
           // date), unless one was sent and the new date is already due.
           // Organisers cannot change the lead time, only the date.
-          ...(rearmReminder ? { reminderSentAt: null, reminderClaimedAt: null } : {}),
+          ...(rearmReminder ? { reminderSentAt: null } : {}),
         },
       })
       if (res.count === 0) throw new StaleEventError()

@@ -214,7 +214,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
         },
         data: {
           ...newData,
-          ...(rearmReminder ? { reminderSentAt: null, reminderClaimedAt: null } : {}),
+          ...(rearmReminder ? { reminderSentAt: null } : {}),
           // Empty array (not undefined) so removing every custom question
           // persists — undefined makes Prisma omit the column, leaving the old
           // questions in the DB. All readers guard with
