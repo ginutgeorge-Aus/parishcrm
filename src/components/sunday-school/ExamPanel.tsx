@@ -1,11 +1,13 @@
 "use client"
 
-import { useActionState, useCallback, useEffect, useRef, useState } from "react"
+import { useActionState, useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createExam, updateExam, archiveExam } from "@/lib/actions/sundaySchoolExam"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -47,7 +49,7 @@ function ExamEditForm({ exam, year, onDone }: Readonly<{ exam: ExamListItem; yea
 
   return (
     <form action={formAction} className="w-full max-w-md space-y-3 border-t border-border pt-3">
-      <FormFeedback state={state} />
+      <FormError error={state && "error" in state ? state.error : undefined} />
       <div className="space-y-1">
         <Label htmlFor={`exam-name-${exam.id}`}>Name</Label>
         <Input id={`exam-name-${exam.id}`} name="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />
@@ -81,19 +83,13 @@ export function ExamPanel({
   const router = useRouter()
   const [editingId, setEditingId] = useState<number | null>(null)
   const closeEdit = useCallback(() => setEditingId(null), [])
-  const formRef = useRef<HTMLFormElement>(null)
   // createExam resolves to undefined on success: surface that as "Exam added".
   const create = async (_p: ActionResult | { success: string }, f: FormData): Promise<ActionResult | { success: string }> => {
     const r = await createExam(classId, undefined, f)
     return r?.error ? r : { success: "Exam added" }
   }
-  const [state, formAction, isPending] = useActionState(create, undefined)
-  const added = state !== undefined && "success" in state
-
-  // Clear the fields after each successful create (state is a fresh object).
-  useEffect(() => {
-    if (added) formRef.current?.reset()
-  }, [state, added])
+  // useRetainedForm keeps typed values after a refused create and clears the form after a successful one.
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(create)
 
   return (
     <div className="space-y-4">
@@ -137,9 +133,10 @@ export function ExamPanel({
       )}
 
       {!readOnly && (
-        <form ref={formRef} action={formAction} className="max-w-md space-y-3 border-t border-border pt-4">
+        <form onSubmit={onSubmit} className="max-w-md space-y-3 border-t border-border pt-4">
           <h3 className="text-sm font-semibold text-foreground">Add an exam</h3>
-          <FormFeedback state={state} />
+          <FormError error={state && "error" in state ? state.error : undefined} errorKey={errorSeq} />
+          <FormFeedback state={state && "success" in state ? state : undefined} />
           <div className="space-y-1">
             <Label htmlFor="exam-name">Name</Label>
             <Input id="exam-name" name="name" placeholder="Term 2 Bible" maxLength={80} required />

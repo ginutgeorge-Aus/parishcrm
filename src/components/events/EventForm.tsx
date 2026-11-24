@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useState, useRef } from "react"
+import { useState, useRef } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,7 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { OrganizersEditor } from "./OrganizersEditor"
 import type { Organizer } from "@/lib/eventOrganizers"
 import { TicketTypesEditor } from "./TicketTypesEditor"
@@ -24,6 +23,8 @@ import { TieredPricingEditor } from "./TieredPricingEditor"
 import type { ActionResult } from "@/lib/actions/types"
 import { CATEGORIES, RECURS_OPTIONS } from "@/lib/eventConstants"
 import type { CustomQuestionType } from "@/lib/eventQuestions"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type QuestionRow = { id?: string; label: string; type: CustomQuestionType; required: boolean; options: string; body: string; ticketTypeNames: string; scope: "order" | "attendee"; allowOther: boolean }
 
@@ -64,7 +65,7 @@ type Props = {
 }
 
 export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const [kind, setKind] = useState(defaultValues.kind === "recurring" ? "recurring" : "one_off")
   // Mirror the online-payment checkbox so the "pass card fee" toggle can disable
   // itself when card payment is off (surcharge is meaningless without it).
@@ -100,8 +101,8 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
       : ""
 
   return (
-    <form action={formAction} className="flex flex-col gap-8 max-w-2xl">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="flex flex-col gap-8 max-w-2xl">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       {/* Optimistic-concurrency token — the row's last-seen version, so
           the server can reject a save that would clobber a concurrent edit. */}
