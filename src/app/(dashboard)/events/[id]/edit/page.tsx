@@ -68,7 +68,7 @@ export default async function EditEventPage(props: Readonly<Props>) {
       <Link href="/events" className="text-xs text-muted-foreground hover:text-muted-foreground mb-1 inline-block">
         ← Events
       </Link>
-      <div className="flex justify-between items-start mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{event.title}</h1>
           {event.slug ? (
@@ -87,7 +87,7 @@ export default async function EditEventPage(props: Readonly<Props>) {
             <p className="text-muted-foreground text-sm mt-1">Staff-only event (no public page). Set a slug to publish.</p>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {(event.slug || event.isPublished) && <PublishToggle eventId={event.id} isPublished={event.isPublished} />}
           <CloseRegistrationToggle eventId={event.id} registrationClosed={event.registrationClosed} />
           {isAdmin(session.user.role) && (

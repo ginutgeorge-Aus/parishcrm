@@ -102,8 +102,11 @@ export function CustomQuestionsEditor({ initial, ticketTypeNames: availableTicke
         {rows.map((row, i) => (
           <div key={row._key} className="flex flex-col gap-2 bg-muted rounded-lg p-3 border border-border">
             <input type="hidden" name={`customQuestion.${i}.id`} value={row.id} />
-            <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-end sm:items-center">
+              <div className="basis-full sm:basis-auto sm:flex-1">
+              <label htmlFor={`customQuestion.${i}.label`} className="text-xs font-medium text-muted-foreground sm:sr-only">Question label</label>
               <Input
+                id={`customQuestion.${i}.label`}
                 aria-label={`Question label (row ${i + 1})`}
                 name={`customQuestion.${i}.label`}
                 value={row.label}
@@ -111,6 +114,7 @@ export function CustomQuestionsEditor({ initial, ticketTypeNames: availableTicke
                 placeholder="Question label"
                 className="flex-1"
               />
+              </div>
               <Select
                 name={`customQuestion.${i}.type`}
                 value={row.type}

@@ -94,7 +94,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
               className="mt-1"
             />
           </div>
-          <div className="col-span-2">
+          <div className="md:col-span-2">
             <label htmlFor="reg-email" className="text-sm font-medium text-foreground">Email *</label>
             <Input
               id="reg-email"
@@ -107,7 +107,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
               className="mt-1"
             />
           </div>
-          <div className="col-span-2">
+          <div className="md:col-span-2">
             <label htmlFor="reg-phone" className="text-sm font-medium text-foreground">Phone</label>
             <Input
               id="reg-phone"

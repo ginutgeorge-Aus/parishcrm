@@ -14,6 +14,18 @@ function Wrapper({ initial }: { initial: Omit<Row, "_key">[] }) {
   return <TicketTypesEditor rows={rows} onAdd={add} onRemove={remove} onUpdate={update} />
 }
 
+describe("TicketTypesEditor — phone layout", () => {
+  it("gives each field a real <label> and stacks the name field below sm:", () => {
+    const { container } = render(<Wrapper initial={[{ name: "", price: "", capacity: "", countsTowardWaiver: "true" }]} />)
+    for (const field of ["name", "price", "capacity"]) {
+      const input = container.querySelector(`input[name="ticketType.0.${field}"]`) as HTMLInputElement
+      expect(container.querySelector(`label[for="${input.id}"]`)).not.toBeNull()
+    }
+    const name = container.querySelector('input[name="ticketType.0.name"]') as HTMLElement
+    expect(name.parentElement).toHaveClass("basis-full", "sm:flex-1")
+  })
+})
+
 describe("TicketTypesEditor — id round-trip", () => {
   it("renders a hidden id input for existing ticket types", () => {
     const { container } = render(

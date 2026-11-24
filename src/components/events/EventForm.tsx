@@ -331,7 +331,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             <Input id="bankAccount" name="bankAccount" defaultValue={defaultValues.bankAccount} maxLength={20} />
           </div>
         </div>
-        <label htmlFor="onlinePaymentEnabled" className="mt-4 flex items-center gap-2 text-sm">
+        <label htmlFor="onlinePaymentEnabled" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="onlinePaymentEnabled"
             name="onlinePaymentEnabled"
@@ -339,9 +339,9 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             onCheckedChange={(c: boolean | "indeterminate") => setOnlinePaymentOn(c === true)}
           />
           Enable online card payment (Stripe)
-          <span className="text-xs text-muted-foreground">— requires ticket prices &gt; 0 and Stripe configured</span>
+          <span className="basis-full text-xs text-muted-foreground sm:basis-auto">— requires ticket prices &gt; 0 and Stripe configured</span>
         </label>
-        <label htmlFor="passCardFee" className="mt-4 flex items-center gap-2 text-sm">
+        <label htmlFor="passCardFee" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="passCardFee"
             name="passCardFee"
@@ -350,9 +350,9 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             disabled={!onlinePaymentOn}
           />
           Pass card processing fee to registrant
-          <span className="text-xs text-muted-foreground">— adds the Stripe fee to the card total so the church nets the ticket price</span>
+          <span className="basis-full text-xs text-muted-foreground sm:basis-auto">— adds the Stripe fee to the card total so the church nets the ticket price</span>
         </label>
-        <label htmlFor="familyWaiverEnabled" className="mt-4 flex items-center gap-2 text-sm">
+        <label htmlFor="familyWaiverEnabled" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="familyWaiverEnabled"
             name="familyWaiverEnabled"
@@ -365,7 +365,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             disabled={tieredOn && !waiverOn}
           />
           Enable family fee waiver
-          <span className="text-xs text-muted-foreground">— extra attendees free once a family exceeds the threshold</span>
+          <span className="basis-full text-xs text-muted-foreground sm:basis-auto">— extra attendees free once a family exceeds the threshold</span>
         </label>
         <div className="mt-2 grid gap-1.5 max-w-xs">
           <Label htmlFor="familyWaiverThreshold">
@@ -382,7 +382,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             disabled={!waiverOn || tieredOn}
           />
         </div>
-        <label htmlFor="tieredPricingEnabled" className="mt-4 flex items-center gap-2 text-sm">
+        <label htmlFor="tieredPricingEnabled" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="tieredPricingEnabled"
             name="tieredPricingEnabled"
