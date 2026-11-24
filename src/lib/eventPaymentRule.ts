@@ -2,6 +2,15 @@
 export const PAID_EVENT_NEEDS_PAYMENT_ERROR =
   "Add the BSB and account number, or turn on card payment, before publishing a paid event"
 
+/** Card payment is switched on but Stripe is not configured, so only bank details can fix it. */
+export const PAID_EVENT_STRIPE_MISSING_ERROR =
+  "Card payments aren't set up on this server. Add the BSB and account number."
+
+/** Pick the save/publish error: the card hint is wrong when card is on but Stripe is missing. */
+export function paidEventPaymentError(onlinePaymentEnabled: boolean, stripeOk: boolean): string {
+  return onlinePaymentEnabled && !stripeOk ? PAID_EVENT_STRIPE_MISSING_ERROR : PAID_EVENT_NEEDS_PAYMENT_ERROR
+}
+
 /** Shown when a registrant must pay by transfer but the event has no account details. */
 export const OFFICE_WILL_SEND_PAYMENT_DETAILS = "The church office will send you payment details."
 

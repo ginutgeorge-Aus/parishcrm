@@ -1,7 +1,7 @@
 /** @jest-environment node */
 jest.mock("@/lib/featureFlags")
 import { publishEvent, updateEvent } from "@/lib/actions/event"
-import { PAID_EVENT_NEEDS_PAYMENT_ERROR } from "@/lib/eventPaymentRule"
+import { PAID_EVENT_NEEDS_PAYMENT_ERROR, PAID_EVENT_STRIPE_MISSING_ERROR } from "@/lib/eventPaymentRule"
 
 jest.mock("@/auth", () => ({ auth: jest.fn(async () => ({ user: { id: "1", role: "ADMIN" } })) }))
 jest.mock("@/lib/websiteSync", () => ({
@@ -46,7 +46,9 @@ describe("publishEvent paid-event rule", () => {
   })
   it("blocks when card is on but Stripe is not configured", async () => {
     findUnique.mockResolvedValue(draft({ onlinePaymentEnabled: true }))
-    expect(await publishEvent(1, true)).toEqual({ error: PAID_EVENT_NEEDS_PAYMENT_ERROR })
+    expect(await publishEvent(1, true)).toEqual({ error: PAID_EVENT_STRIPE_MISSING_ERROR })
+    expect(PAID_EVENT_STRIPE_MISSING_ERROR).toBe("Card payments aren't set up on this server. Add the BSB and account number.")
+    expect(updateMany).not.toHaveBeenCalled()
   })
   it("allows publishing with bank details", async () => {
     findUnique.mockResolvedValue(draft({ bankBsb: "012-345", bankAccount: "123" }))

@@ -26,7 +26,7 @@ import {
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 import { stripeConfigured } from "@/lib/stripe"
-import { paidEventLacksPaymentMethod, PAID_EVENT_NEEDS_PAYMENT_ERROR } from "@/lib/eventPaymentRule"
+import { paidEventLacksPaymentMethod, paidEventPaymentError } from "@/lib/eventPaymentRule"
 
 /** Error shown when a save would leave a published event without a slug. */
 const SLUG_REQUIRED_WHILE_PUBLISHED = "Slug can't be removed while the event is published. Unpublish first."
@@ -154,7 +154,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
         exists.onlinePaymentEnabled !== parsed.onlinePaymentEnabled ||
         (exists.bankBsb ?? "") !== (parsed.bankBsb ?? "") ||
         (exists.bankAccount ?? "") !== (parsed.bankAccount ?? "")
-      if (!lackedBefore || paymentFieldsChanged) return { error: PAID_EVENT_NEEDS_PAYMENT_ERROR }
+      if (!lackedBefore || paymentFieldsChanged) return { error: paidEventPaymentError(parsed.onlinePaymentEnabled, stripeOk) }
     }
   }
 
@@ -473,6 +473,7 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   if (publish && !exists.slug) return { error: "Set a slug before publishing" }
   // A paid event with no card payment and no bank details would tell
   // registrants to pay by transfer with no account shown.
+  const stripeOk = stripeConfigured()
   if (publish && paidEventLacksPaymentMethod({
     ticketPrices: exists.ticketTypes.map((t) => t.price),
     tierPrices: Array.isArray(exists.familyPricingTiers)
@@ -480,10 +481,10 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
       : [],
     tieredPricingEnabled: exists.tieredPricingEnabled,
     onlinePaymentEnabled: exists.onlinePaymentEnabled,
-    stripeConfigured: stripeConfigured(),
+    stripeConfigured: stripeOk,
     bankBsb: exists.bankBsb,
     bankAccount: exists.bankAccount,
-  })) return { error: PAID_EVENT_NEEDS_PAYMENT_ERROR }
+  })) return { error: paidEventPaymentError(exists.onlinePaymentEnabled, stripeOk) }
 
   // Condition lives in the where clause so a concurrent slug-clear can't slip
   // between the read above and the write (DB CHECK is the final backstop).
