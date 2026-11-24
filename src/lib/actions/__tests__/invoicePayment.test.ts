@@ -20,11 +20,11 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     invoice: { findUnique: jest.fn(), updateMany: jest.fn() },
     transaction: { findUnique: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn(), create: jest.fn(), findMany: jest.fn() },
-    auditLog: { findFirst: jest.fn() },
+    auditLog: { findFirst: jest.fn(), findMany: jest.fn() },
     paymentAccount: { findUnique: jest.fn() },
     account: { findUnique: jest.fn() },
     fund: { findUnique: jest.fn() },
-    $transaction: jest.fn(),
+    $transaction: jest.fn(), $queryRaw: jest.fn(),
   },
 }))
 
@@ -47,6 +47,7 @@ beforeEach(() => {
   ;(prisma.transaction.deleteMany as jest.Mock).mockResolvedValue({ count: 1 })
   ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 51, reconciled: false, amount: { toString: () => "120.00" }, accountId: 4, paymentAccountId: 2, fundId: 3, personId: null })
   ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "create", transactionId: 51 } })
+  ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([])
   ;(prisma.paymentAccount.findUnique as jest.Mock).mockResolvedValue({ id: 2, kind: "BANK", isActive: true })
   ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ id: 4, type: "INCOME", isActive: true })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 3, isActive: true })
@@ -216,7 +217,7 @@ describe("unmarkInvoicePaid", () => {
   it("keeps the created income row, unlinks it and adds an offsetting negative row, so re-marking paid cannot double it", async () => {
     expect(await unmarkInvoicePaid(11)).toEqual({ success: "Payment reversed — INV-0007 is unpaid again" })
     expect(prisma.transaction.deleteMany).not.toHaveBeenCalled()
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 51, invoiceId: 11, reconciled: false }, data: { invoiceId: null } })
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 51, invoiceId: 11, paymentAccountId: 2, reconciled: false }, data: { invoiceId: null } })
     expect(prisma.transaction.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ type: "INCOME", amount: "-120.00", accountId: 4 }),
     }))
@@ -280,6 +281,22 @@ describe("unmarkInvoicePaid", () => {
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
     expect(await unmarkInvoicePaid(11)).toEqual({ error: AUDIT_FAILED_ERROR })
   })
+  it("locks the invoice row before reading the audit row", async () => {
+    await unmarkInvoicePaid(11)
+    expect((prisma.$queryRaw as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan((prisma.auditLog.findFirst as jest.Mock).mock.invocationCallOrder[0])
+  })
+  it("refuses, writing nothing, when no INVOICE_PAID audit row exists", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    expect(await unmarkInvoicePaid(11)).toEqual({ error: expect.stringContaining("no audit record") })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+  })
+  it("refuses when today's reversal date is in a locked period", async () => {
+    ;(assertUnlocked as jest.Mock).mockResolvedValueOnce(null).mockResolvedValueOnce("Period locked")
+    expect(await unmarkInvoicePaid(11)).toEqual({ error: "Period locked" })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+  })
   it("rejects when not PAID", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue(inv)
     expect(await unmarkInvoicePaid(11)).toEqual({ error: "Only paid invoices can be unmarked" })
@@ -294,6 +311,22 @@ describe("unmarkInvoicePaid", () => {
     expect(await unmarkInvoicePaid(11)).toEqual({ error: "This invoice has changed. Reload and try again." })
     expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
     expect(prisma.transaction.deleteMany).not.toHaveBeenCalled()
+  })
+})
+
+describe("reversed originals", () => {
+  it("rejects linking a transaction an unmark already reversed", async () => {
+    ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([{ metadata: { reversesTransactionId: 50 } }])
+    expect(await markInvoicePaid(11, { mode: "link", transactionId: 50, sendReceipt: false })).toEqual({ error: expect.stringContaining("reversed") })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
+  it("omits reversed originals from the candidate list", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ status: "SENT", total: dec("330.00"), issueDate: new Date("2026-10-11") })
+    const row = (id: number) => ({ id, date: new Date("2026-10-20"), amount: dec("330.00"), reference: null, paymentAccountRel: null, account: { name: "A" } })
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([row(50), row(52)])
+    ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([{ metadata: { reversesTransactionId: 50 } }])
+    const res = await listPaymentCandidates(11)
+    expect((res as { id: number }[]).map((r) => r.id)).toEqual([52])
   })
 })
 

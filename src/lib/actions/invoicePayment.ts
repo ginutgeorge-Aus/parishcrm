@@ -21,6 +21,7 @@ import { sydneyToday } from "@/lib/dates"
 
 const CHANGED = { error: "This invoice has changed. Reload and try again." }
 const RECONCILED_UNMARK = "The payment is reconciled. Un-reconcile it on the Reconciliation page before unmarking."
+const NO_PAID_AUDIT = "This payment has no audit record of how it was created, so it can't be unmarked automatically. Ask an administrator to fix the transaction manually."
 const BEFORE_ISSUE = { error: "The payment can't be dated before the invoice was issued" }
 const REPORT_PATHS = ["/accounting", "/accounting/transactions", "/accounting/reports/pl", "/accounting/reports/balance-sheet", "/accounting/reports/budget-vs-actual", "/accounting/reports/funds"]
 
@@ -31,6 +32,16 @@ export type PaymentCandidate = { id: number; date: string; amount: string; refer
 
 /** Rows a payment link may claim: unlinked, non-giving, unreconciled, not a petty-cash mirror (edited via its session) and not an internal-transfer leg. */
 const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, ...NOT_XFER }
+
+/** Ids among `ids` that an invoice-unmark reversal already offsets (audited on the reversal row): re-linking one would mark an invoice paid with net-zero income. */
+async function reversedIds(ids: number[]): Promise<Set<number>> {
+  if (ids.length === 0) return new Set()
+  const rows = await prisma.auditLog.findMany({
+    where: { action: "TRANSACTION_CREATED", resourceType: "Transaction", OR: ids.map((n) => ({ metadata: { path: ["reversesTransactionId"], equals: n } })) },
+    select: { metadata: true },
+  })
+  return new Set(rows.map((r) => (r.metadata as { reversesTransactionId?: unknown } | null)?.reversesTransactionId).filter((v): v is number => typeof v === "number"))
+}
 
 /** Thrown inside a DB transaction to roll back when a guarded write matched no rows (a concurrent change). */
 class Conflict extends Error {}
@@ -87,6 +98,7 @@ async function linkExisting(inv: SentInvoice, transactionId: number, uid: number
   const totalCents = toCents(inv.total.toString())
   if (toCents(t.amount.toString()) !== totalCents) return { error: `The transaction amount must equal the invoice total (${fmtAUD(centsToNumber(totalCents))})` }
   if (t.date < inv.issueDate) return BEFORE_ISSUE
+  if ((await reversedIds([t.id])).size > 0) return { error: "This transaction was reversed when an invoice was unmarked paid. Record a new payment instead." }
   const lockErr = await assertUnlocked(t.date)
   if (lockErr) return { error: lockErr }
   const targetErr = await postingTargetError(inv)
@@ -206,12 +218,20 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     const lockErr = await assertUnlocked(inv.paidAt)
     if (lockErr) return { error: lockErr }
   }
+  // The reversal row is dated today (Sydney); a locked period must never receive a row.
+  const reversalDate = sydneyToday()
+  const revLockErr = await assertUnlocked(reversalDate)
+  if (revLockErr) return { error: revLockErr }
   const uid = actorId(session)
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
+    // Lock the invoice first so the audit/row reads and the flip see one state (concurrent unmark + re-mark waits here).
+    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     const paid = await tx.auditLog.findFirst({ where: { action: "INVOICE_PAID", resourceType: "Invoice", resourceId: id }, orderBy: { id: "desc" }, select: { metadata: true } })
     const meta = (paid?.metadata ?? {}) as { mode?: unknown; transactionId?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
     const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true, amount: true, accountId: true, paymentAccountId: true, fundId: true, personId: true } })
     // Checked before any write: returning an error doesn't roll the transaction back.
+    // No INVOICE_PAID audit row: how the row got there is unknown, so unlinking could leave income that doubles on re-mark. Refuse.
+    if (row && !paid) return { error: NO_PAID_AUDIT }
     if (row?.reconciled && meta.mode === "create") return { error: RECONCILED_UNMARK }
     // Only ever reverse the exact row this INVOICE_PAID event created: an unmark + re-mark (link) between the audit read and the row read
     // could otherwise leave a different, unrelated transaction linked while the stale `create` mode still applies.
@@ -224,11 +244,11 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     if (row && meta.mode === "create") {
       // Reconciled rows are refused above; the predicate also catches one reconciled since the read.
       // The original stays as the record; clearing invoiceId frees the unique link so the invoice can be paid again.
-      const unlink = await tx.transaction.updateMany({ where: { id: row.id, invoiceId: id, reconciled: false }, data: { invoiceId: null } })
+      const unlink = await tx.transaction.updateMany({ where: { id: row.id, invoiceId: id, paymentAccountId: row.paymentAccountId, reconciled: false }, data: { invoiceId: null } })
       if (unlink.count === 0) throw new Conflict()
       const reversal = await tx.transaction.create({
         data: {
-          date: sydneyToday(), type: "INCOME", amount: `-${row.amount.toString()}`, accountId: row.accountId,
+          date: reversalDate, type: "INCOME", amount: `-${row.amount.toString()}`, accountId: row.accountId,
           paymentAccountId: row.paymentAccountId, fundId: row.fundId, personId: row.personId,
           reference: inv.invoiceNo ? encrypt(inv.invoiceNo) : null,
           description: encrypt(`Reversal of ${inv.invoiceNo} payment`), notes: encrypt(`Reverses transaction #${row.id}`),
@@ -289,7 +309,8 @@ export async function listPaymentCandidates(id: number): Promise<PaymentCandidat
     orderBy: { date: "desc" }, take: 20,
     select: { id: true, date: true, amount: true, reference: true, paymentAccountRel: { select: { name: true } }, account: { select: { name: true } } },
   })
-  return rows.map((r) => ({
+  const reversed = await reversedIds(rows.map((r) => r.id))
+  return rows.filter((r) => !reversed.has(r.id)).map((r) => ({
     id: r.id, date: r.date.toISOString().slice(0, 10), amount: r.amount.toString(), reference: r.reference ? safeDecrypt(r.reference) : null,
     paymentAccountName: r.paymentAccountRel?.name ?? null, accountName: r.account.name,
   }))
