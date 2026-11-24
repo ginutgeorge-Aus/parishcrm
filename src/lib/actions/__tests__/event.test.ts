@@ -128,6 +128,16 @@ describe("updateEvent reminder re-arm", () => {
     expect(arg.data.reminderClaimedAt).toBeNull()
   })
 
+  it("decides re-arm from the row read inside the transaction, not the earlier read", async () => {
+    // Earlier existence read looks unchanged; the in-tx read shows a concurrent date move.
+    findUniqueEvent
+      .mockResolvedValueOnce(stored)
+      .mockResolvedValueOnce({ date: new Date("2026-12-01T00:00:00Z"), reminderDaysBefore: 3 })
+    const arg = await runUpdate(form(same))
+    expect(arg.data.reminderSentAt).toBeNull()
+    expect(arg.data.reminderClaimedAt).toBeNull()
+  })
+
   it("does not clear them when only the title changes", async () => {
     const arg = await runUpdate(form({ ...same, title: "Renamed" }))
     expect(arg.data).not.toHaveProperty("reminderSentAt")

@@ -135,6 +135,17 @@ describe("updateManagedEvent write", () => {
     expect(arg.data.reminderClaimedAt).toBeNull()
   })
 
+  it("decides re-arm from the row read inside the transaction", async () => {
+    // Pre-tx read matches the submitted date; in-tx read shows a concurrent move.
+    findUnique
+      .mockResolvedValueOnce(stored)
+      .mockResolvedValueOnce({ date: new Date("2026-12-01T00:00:00Z") })
+    await run(form({ ...base, date: "2026-08-01T10:00", title: "Renamed" }))
+    const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
+    expect(arg.data.reminderSentAt).toBeNull()
+    expect(arg.data.reminderClaimedAt).toBeNull()
+  })
+
   it("leaves the reminder marker when the date is unchanged", async () => {
     // 2026-08-01T10:00 Sydney = stored 2026-08-01T00:00Z
     await run(form({ ...base, date: "2026-08-01T10:00" }))

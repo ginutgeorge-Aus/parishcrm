@@ -105,7 +105,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
 
   // Existence check: a non-existent id would otherwise surface a raw
   // Prisma P2025 as an unhandled 500.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true, date: true, reminderDaysBefore: true } })
+  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true } })
   if (!exists) return { error: "Event not found" }
   // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
   if (exists.isPublished && !parsed.slug) return { error: SLUG_REQUIRED_WHILE_PUBLISHED }
@@ -116,12 +116,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
   // caller is told to reload. Same pattern as person.ts::updatePerson.
   const seenAt = parseOptimisticUpdatedAt(formData)
 
-  // The reminder marker is per event row, not per date. Moving the event or
-  // changing the lead time must re-arm it, or the new date never gets a reminder.
-  // Other edits (title, location) leave it so they never cause a resend.
   const newData = eventData(parsed, tiers)
-  const rearmReminder =
-    !sameValue(exists.date, newData.date) || !sameValue(exists.reminderDaysBefore, newData.reminderDaysBefore)
 
   // Captured inside the $transaction callback; only valid for audit once the
   // transaction commits — every failure path below returns/throws before logAudit.
@@ -198,6 +193,14 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
           data: creates.map((t) => ({ eventId: id, name: t.name, price: t.price, capacity: t.capacity, countsTowardWaiver: t.countsTowardWaiver })),
         })
       }
+      // The reminder marker is per event row, not per date. Moving the event or
+      // changing the lead time must re-arm it, or the new date never gets a
+      // reminder. Compared against the row read inside this Serializable tx, not
+      // the earlier existence read, so a concurrent edit cannot slip past.
+      // Other edits (title, location) leave it so they never cause a resend.
+      const current = await tx.event.findUnique({ where: { id }, select: { date: true, reminderDaysBefore: true } })
+      const rearmReminder =
+        !!current && (!sameValue(current.date, newData.date) || !sameValue(current.reminderDaysBefore, newData.reminderDaysBefore))
       const updateResult = await tx.event.updateMany({
         // Clearing the slug only matches while unpublished, so a concurrent publish
         // between the pre-check and this write cannot leave a published event slug-less.

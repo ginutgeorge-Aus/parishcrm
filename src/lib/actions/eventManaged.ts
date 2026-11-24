@@ -93,6 +93,8 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
 
   try {
     await prisma.$transaction(async (tx) => {
+      // Re-read the date inside the tx so a concurrent edit cannot slip past.
+      const current = await tx.event.findUnique({ where: { id }, select: { date: true } })
       const res = await tx.event.updateMany({
         where: { id, updatedAt: seenAt },
         // Empty array (not undefined) so removing every organiser persists —
@@ -102,7 +104,7 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
           organizers: organizers.length > 0 ? organizers : [],
           // Moving the event re-arms its reminder (marker is per row, not per
           // date). Organisers cannot change the lead time, only the date.
-          ...(sameValue(existing.date, data.date) ? {} : { reminderSentAt: null, reminderClaimedAt: null }),
+          ...(current && sameValue(current.date, data.date) ? {} : { reminderSentAt: null, reminderClaimedAt: null }),
         },
       })
       if (res.count === 0) throw new StaleEventError()

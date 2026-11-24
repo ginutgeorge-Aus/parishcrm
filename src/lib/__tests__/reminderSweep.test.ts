@@ -74,6 +74,8 @@ it("sends to every registration of a due event, claims a lease, then sets the du
     where: {
       id: 1,
       reminderSentAt: null,
+      date: dueEvent.date,
+      reminderDaysBefore: 3,
       OR: [{ reminderClaimedAt: null }, { reminderClaimedAt: { lt: new Date(now.getTime() - 10 * 60 * 1000) } }],
     },
     data: { reminderClaimedAt: now },
@@ -242,6 +244,8 @@ it(" a later sweep reclaims a stale lease left by a crashed run and delivers", a
     where: {
       id: 1,
       reminderSentAt: null,
+      date: dueEvent.date,
+      reminderDaysBefore: 3,
       OR: [{ reminderClaimedAt: null }, { reminderClaimedAt: { lt: new Date(now.getTime() - 10 * 60 * 1000) } }],
     },
     data: { reminderClaimedAt: now },
@@ -307,6 +311,8 @@ it(" claims each event with a fresh wall-clock lease, not the request-start time
     where: {
       id: 1,
       reminderSentAt: null,
+      date: dueEvent.date,
+      reminderDaysBefore: 3,
       OR: [{ reminderClaimedAt: null }, { reminderClaimedAt: { lt: new Date(later - 10 * 60 * 1000) } }],
     },
     data: { reminderClaimedAt: new Date(later) },
@@ -328,4 +334,15 @@ describe("runReminderSweep (in-app scheduler entry)", () => {
     })
     if (orig !== undefined) process.env.CRON_SECRET = orig
   })
+})
+
+it("fences the claim on the snapshot date and lead time; a schedule edit after the snapshot sends nothing", async () => {
+  findMany.mockResolvedValue([dueEvent])
+  updateMany.mockResolvedValue({ count: 0 }) // row changed since snapshot, claim matches nothing
+  const res = await sendDueReminders("Bearer s3cret", now)
+  const claimWhere = (updateMany.mock.calls[0][0] as { where: Record<string, unknown> }).where
+  expect(claimWhere.date).toEqual(dueEvent.date)
+  expect(claimWhere.reminderDaysBefore).toBe(3)
+  expect(send).not.toHaveBeenCalled()
+  expect(res.body).toEqual({ eventsReminded: 0, emailsSent: 0, emailsFailed: 0 })
 })
