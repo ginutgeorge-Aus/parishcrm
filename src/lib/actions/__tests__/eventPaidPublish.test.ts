@@ -81,10 +81,32 @@ describe("updateEvent paid-event rule", () => {
     for (const [k, v] of Object.entries(fields)) f.set(k, v)
     return f
   }
-  it("rejects saving a published paid event with blank bank and card off", async () => {
-    findUnique.mockResolvedValue({ id: 1, slug: "feast", isPublished: true })
+  const pub = (over: Record<string, unknown> = {}) => ({
+    id: 1, slug: "feast", isPublished: true,
+    bankBsb: null, bankAccount: null, onlinePaymentEnabled: false,
+    tieredPricingEnabled: false, familyPricingTiers: null,
+    ticketTypes: [{ price: "25.00" }],
+    ...over,
+  })
+  it("rejects a save that removes bank details from a compliant published paid event", async () => {
+    findUnique.mockResolvedValue(pub({ bankBsb: "012-345", bankAccount: "123" }))
     expect(await updateEvent(1, undefined, fd())).toEqual({ error: PAID_EVENT_NEEDS_PAYMENT_ERROR })
     expect(transaction).not.toHaveBeenCalled()
+  })
+  it("allows an unrelated edit on a legacy non-compliant published event", async () => {
+    findUnique.mockResolvedValue(pub())
+    await expect(updateEvent(1, undefined, fd({ title: "Feast (fixed typo)" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(transaction).toHaveBeenCalled()
+  })
+  it("rejects a price change on a legacy non-compliant published event", async () => {
+    findUnique.mockResolvedValue(pub())
+    expect(await updateEvent(1, undefined, fd({ "ticketType.0.price": "30.00" }))).toEqual({ error: PAID_EVENT_NEEDS_PAYMENT_ERROR })
+    expect(transaction).not.toHaveBeenCalled()
+  })
+  it("rejects turning card off on a card-only published event", async () => {
+    mStripe.mockReturnValue(true)
+    findUnique.mockResolvedValue(pub({ onlinePaymentEnabled: true }))
+    expect(await updateEvent(1, undefined, fd())).toEqual({ error: PAID_EVENT_NEEDS_PAYMENT_ERROR })
   })
   it("allows saving a draft incomplete", async () => {
     findUnique.mockResolvedValue({ id: 1, slug: "feast", isPublished: false })
@@ -92,7 +114,7 @@ describe("updateEvent paid-event rule", () => {
     expect(transaction).toHaveBeenCalled()
   })
   it("allows saving a published paid event with bank details", async () => {
-    findUnique.mockResolvedValue({ id: 1, slug: "feast", isPublished: true })
+    findUnique.mockResolvedValue(pub())
     await expect(updateEvent(1, undefined, fd({ bankBsb: "012-345", bankAccount: "123" }))).rejects.toThrow("NEXT_REDIRECT")
     expect(transaction).toHaveBeenCalled()
   })

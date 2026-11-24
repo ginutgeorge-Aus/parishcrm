@@ -133,3 +133,15 @@ it("blank bank details: office-will-send sentence plus reference, no account lin
   expect(text).toContain("FR0001")
   expect(text).not.toContain("BSB")
 })
+
+it("blank bank but card works: no office-will-send sentence, reference and Pay button shown", async () => {
+  const e = entry("10.00")
+  e.fundraiser.event.bankBsb = ""
+  e.fundraiser.event.bankAccount = ""
+  mFind.mockResolvedValue(e)
+  const text = await renderPage()
+  expect(text).not.toContain("The church office will send you payment details.")
+  expect(text).not.toContain("BSB")
+  expect(text).toContain("FR0001")
+  expect(text).toContain("PAY_BUTTON_MARKER")
+})

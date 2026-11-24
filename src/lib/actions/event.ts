@@ -106,20 +106,57 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
 
   // Existence check: a non-existent id would otherwise surface a raw
   // Prisma P2025 as an unhandled 500.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true } })
+  const exists = await prisma.event.findUnique({ where: { id }, select: {
+    id: true, isPublished: true,
+    bankBsb: true, bankAccount: true, onlinePaymentEnabled: true,
+    tieredPricingEnabled: true, familyPricingTiers: true,
+    ticketTypes: { select: { price: true } },
+  } })
   if (!exists) return { error: "Event not found" }
   // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
   if (exists.isPublished && !parsed.slug) return { error: SLUG_REQUIRED_WHILE_PUBLISHED }
   // A published paid event must keep a way to pay; drafts may stay incomplete.
-  if (exists.isPublished && paidEventLacksPaymentMethod({
-    ticketPrices: ticketTypes.map((t) => t.price),
-    tierPrices: tiers,
-    tieredPricingEnabled: parsed.tieredPricingEnabled,
-    onlinePaymentEnabled: parsed.onlinePaymentEnabled,
-    stripeConfigured: stripeConfigured(),
-    bankBsb: parsed.bankBsb,
-    bankAccount: parsed.bankAccount,
-  })) return { error: PAID_EVENT_NEEDS_PAYMENT_ERROR }
+  // Only enforced when this save touches payment fields or would break a
+  // compliant event, so an unrelated edit (title typo) on a legacy
+  // non-compliant event still saves.
+  if (exists.isPublished) {
+    const stripeOk = stripeConfigured()
+    const oldTiers = Array.isArray(exists.familyPricingTiers)
+      ? exists.familyPricingTiers.filter((t): t is number => typeof t === "number")
+      : []
+    const lacksNow = paidEventLacksPaymentMethod({
+      ticketPrices: ticketTypes.map((t) => t.price),
+      tierPrices: tiers,
+      tieredPricingEnabled: parsed.tieredPricingEnabled,
+      onlinePaymentEnabled: parsed.onlinePaymentEnabled,
+      stripeConfigured: stripeOk,
+      bankBsb: parsed.bankBsb,
+      bankAccount: parsed.bankAccount,
+    })
+    if (lacksNow) {
+      const lackedBefore = paidEventLacksPaymentMethod({
+        ticketPrices: exists.ticketTypes.map((t) => t.price),
+        tierPrices: oldTiers,
+        tieredPricingEnabled: exists.tieredPricingEnabled,
+        onlinePaymentEnabled: exists.onlinePaymentEnabled,
+        stripeConfigured: stripeOk,
+        bankBsb: exists.bankBsb,
+        bankAccount: exists.bankAccount,
+      })
+      const num = (v: { toString(): string }) => Number(v.toString())
+      const oldPrices = exists.ticketTypes.map((t) => num(t.price)).sort((x, y) => x - y)
+      const newPrices = ticketTypes.map((t) => num(t.price)).sort((x, y) => x - y)
+      const paymentFieldsChanged =
+        oldPrices.length !== newPrices.length ||
+        oldPrices.some((p, i) => p !== newPrices[i]) ||
+        exists.tieredPricingEnabled !== parsed.tieredPricingEnabled ||
+        (parsed.tieredPricingEnabled && (oldTiers.length !== tiers.length || oldTiers.some((p, i) => p !== tiers[i]))) ||
+        exists.onlinePaymentEnabled !== parsed.onlinePaymentEnabled ||
+        (exists.bankBsb ?? "") !== (parsed.bankBsb ?? "") ||
+        (exists.bankAccount ?? "") !== (parsed.bankAccount ?? "")
+      if (!lackedBefore || paymentFieldsChanged) return { error: PAID_EVENT_NEEDS_PAYMENT_ERROR }
+    }
+  }
 
   // Optimistic concurrency: the edit form submits the row's last-seen
   // updatedAt. Guard the write on it so two editors saving the same event

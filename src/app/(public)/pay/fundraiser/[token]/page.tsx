@@ -115,7 +115,8 @@ export default async function FundraiserPayPage(props: Readonly<Props>) {
               </>
             ) : (
               <p>
-                {OFFICE_WILL_SEND_PAYMENT_DETAILS} Your reference is <span className="font-mono font-semibold text-foreground">{entry.bankRef}</span>.
+                {/* Card is the only path when it works; the office sentence would contradict Pay Now. */}
+                {!canPayByCard && <>{OFFICE_WILL_SEND_PAYMENT_DETAILS} </>}Your reference is <span className="font-mono font-semibold text-foreground">{entry.bankRef}</span>.
               </p>
             )}
           </div>

@@ -15,6 +15,7 @@ jest.mock("@/components/QrCode", () => ({ QrCode: () => null }))
 jest.mock("../PayNowButton", () => ({ PayNowButton: () => <div>PAY_NOW_MARKER</div> }))
 
 import { prisma } from "@/lib/prisma"
+import { stripeConfigured } from "@/lib/stripe"
 import SuccessPage from "../page"
 
 const event = (bank: { bankBsb: string | null; bankAccount: string | null }) => ({
@@ -55,4 +56,13 @@ it("bank details set: shows the bank block", async () => {
   expect(text).toContain("012-345")
   expect(text).toContain("99887766")
   expect(text).not.toContain("The church office will send you payment details.")
+})
+
+it("blank bank but card works: Pay Now shown, no office-will-send sentence", async () => {
+  ;(stripeConfigured as jest.Mock).mockReturnValue(true)
+  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ ...event({ bankBsb: null, bankAccount: null }), onlinePaymentEnabled: true })
+  const text = await renderPage()
+  expect(text).toContain("PAY_NOW_MARKER")
+  expect(text).not.toContain("The church office will send you payment details.")
+  ;(stripeConfigured as jest.Mock).mockReturnValue(false)
 })
