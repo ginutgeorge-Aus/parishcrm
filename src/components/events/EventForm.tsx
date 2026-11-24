@@ -78,6 +78,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   // mirror each other's on/off state so the UI can grey out the inactive one.
   const [waiverOn, setWaiverOn] = useState(!!defaultValues.familyWaiverEnabled)
   const [tieredOn, setTieredOn] = useState(!!defaultValues.tieredPricingEnabled)
+  const [tierPrices, setTierPrices] = useState<string[]>((defaultValues.familyPricingTiers ?? []).map(String))
   const [bankBsb, setBankBsb] = useState(defaultValues.bankBsb ?? "")
   const [bankAccount, setBankAccount] = useState(defaultValues.bankAccount ?? "")
   const recurring = kind === "recurring"
@@ -95,6 +96,8 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   // the hint only asks for card payment to be ticked; the server has the final say.
   const paidWithoutPayment = paidEventLacksPaymentMethod({
     ticketPrices: ticketRows.map((r) => r.price),
+    tierPrices: tierPrices.map((p) => Number(p) || 0),
+    tieredPricingEnabled: tieredOn,
     onlinePaymentEnabled: onlinePaymentOn,
     stripeConfigured: true,
     bankBsb,
@@ -416,7 +419,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             preserves in-progress tier rows instead of remounting to defaults
 . Server ignores tier fields unless tieredPricingEnabled. */}
         <div className={tieredOn ? "" : "hidden"}>
-          <TieredPricingEditor defaultTiers={defaultValues.familyPricingTiers ?? []} active={tieredOn} />
+          <TieredPricingEditor defaultTiers={defaultValues.familyPricingTiers ?? []} active={tieredOn} onPricesChange={setTierPrices} />
         </div>
       </section>
 

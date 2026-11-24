@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { paidEventLacksPaymentMethod, hasBankDetails } from "../eventPaymentRule"
 
 const base = {

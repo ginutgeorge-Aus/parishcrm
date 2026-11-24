@@ -753,7 +753,7 @@ describe("publishEvent", () => {
 
   it("updates isPublished, syncs to the website, and revalidates", async () => {
     mockSession("PASTOR")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair", ticketTypes: [] })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, true)
     expect(prisma.event.updateMany).toHaveBeenCalledWith({
@@ -767,7 +767,7 @@ describe("publishEvent", () => {
 
   it("revalidates the public event page so a stale publish/unpublish state doesn't survive the cache", async () => {
     mockSession("PASTOR")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair", ticketTypes: [] })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, false)
     expect(revalidatePath).toHaveBeenCalledWith("/e/summer-fair")
@@ -826,7 +826,7 @@ describe("event audit logging", () => {
 
   it("audit-logs EVENT_PUBLISHED with publish state", async () => {
     adminSession()
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: false })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: false, ticketTypes: [] })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(3, true)
     expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: true })
@@ -843,7 +843,7 @@ describe("event audit logging", () => {
 
   it("skips the audit log when publish state is unchanged", async () => {
     adminSession()
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: true })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: true, ticketTypes: [] })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(3, true)
     expect(mockLogAudit).not.toHaveBeenCalled()
