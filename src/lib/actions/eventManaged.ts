@@ -19,21 +19,9 @@ import {
   managedEventData,
   parseImageUpload,
   parseManagedEventForm,
+  sameValue,
 } from "./eventForm"
 import type { ActionResult } from "./types"
-
-/**
- * Equality for audit diffing: dates by instant, everything else by value with
- * `undefined` treated as `null`.
- *
- * @param a - Stored value.
- * @param b - New value.
- * @returns True when the two represent the same value.
- */
-function sameValue(a: unknown, b: unknown): boolean {
-  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime()
-  return (a ?? null) === (b ?? null)
-}
 
 /**
  * Update the public details of one event. Allowed for editors and for an
@@ -109,7 +97,13 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
         where: { id, updatedAt: seenAt },
         // Empty array (not undefined) so removing every organiser persists —
         // same rationale as updateEvent.
-        data: { ...data, organizers: organizers.length > 0 ? organizers : [] },
+        data: {
+          ...data,
+          organizers: organizers.length > 0 ? organizers : [],
+          // Moving the event re-arms its reminder (marker is per row, not per
+          // date). Organisers cannot change the lead time, only the date.
+          ...(sameValue(existing.date, data.date) ? {} : { reminderSentAt: null, reminderClaimedAt: null }),
+        },
       })
       if (res.count === 0) throw new StaleEventError()
       await applyImageOp(tx, id, EventImageKind.BANNER, banner)

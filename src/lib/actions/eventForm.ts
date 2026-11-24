@@ -377,3 +377,16 @@ export function managedEventData(d: z.infer<typeof ManagedEventSchema>) {
     location: d.location || null,
   }
 }
+
+/**
+ * Equality for audit diffing: dates by instant, everything else by value with
+ * `undefined` treated as `null`.
+ *
+ * @param a - Stored value.
+ * @param b - New value.
+ * @returns True when the two represent the same value.
+ */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime()
+  return (a ?? null) === (b ?? null)
+}

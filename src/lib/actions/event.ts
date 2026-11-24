@@ -21,6 +21,7 @@ import {
   TICKET_TYPE_IN_USE,
   CAPACITY_BELOW_SOLD,
   StaleEventError,
+  sameValue,
 } from "./eventForm"
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -104,7 +105,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
 
   // Existence check: a non-existent id would otherwise surface a raw
   // Prisma P2025 as an unhandled 500.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true } })
+  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true, date: true, reminderDaysBefore: true } })
   if (!exists) return { error: "Event not found" }
   // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
   if (exists.isPublished && !parsed.slug) return { error: SLUG_REQUIRED_WHILE_PUBLISHED }
@@ -114,6 +115,13 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
   // can't silently clobber each other — a mismatch matches 0 rows and the
   // caller is told to reload. Same pattern as person.ts::updatePerson.
   const seenAt = parseOptimisticUpdatedAt(formData)
+
+  // The reminder marker is per event row, not per date. Moving the event or
+  // changing the lead time must re-arm it, or the new date never gets a reminder.
+  // Other edits (title, location) leave it so they never cause a resend.
+  const newData = eventData(parsed, tiers)
+  const rearmReminder =
+    !sameValue(exists.date, newData.date) || !sameValue(exists.reminderDaysBefore, newData.reminderDaysBefore)
 
   // Captured inside the $transaction callback; only valid for audit once the
   // transaction commits — every failure path below returns/throws before logAudit.
@@ -199,7 +207,8 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
           ...(parsed.slug ? {} : { isPublished: false }),
         },
         data: {
-          ...eventData(parsed, tiers),
+          ...newData,
+          ...(rearmReminder ? { reminderSentAt: null, reminderClaimedAt: null } : {}),
           // Empty array (not undefined) so removing every custom question
           // persists — undefined makes Prisma omit the column, leaving the old
           // questions in the DB. All readers guard with

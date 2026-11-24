@@ -1,6 +1,6 @@
 /** @jest-environment node */
 jest.mock("@/lib/featureFlags")
-import { createEvent } from "@/lib/actions/event"
+import { createEvent, updateEvent } from "@/lib/actions/event"
 import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
 import { auth } from "@/auth"
 
@@ -17,12 +17,21 @@ jest.mock("next/navigation", () => ({
 }))
 
 const create = jest.fn(async (_arg: { data: Record<string, unknown> }) => ({ id: 42 }))
+const findUniqueEvent = jest.fn()
+const updateManyEvent = jest.fn()
 const findManyUser = jest.fn(async () => [{ id: 5, name: "Jo Organiser", email: "jo@example.com" }])
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    event: { create: (arg: { data: Record<string, unknown> }) => create(arg), update: jest.fn() },
+    event: {
+      create: (arg: { data: Record<string, unknown> }) => create(arg),
+      update: jest.fn(),
+      findUnique: (...a: unknown[]) => findUniqueEvent(...a),
+      updateMany: (...a: unknown[]) => updateManyEvent(...a),
+    },
     eventImage: { upsert: jest.fn(), delete: jest.fn(), deleteMany: jest.fn() },
+    ticketType: { findMany: jest.fn(async () => []), createMany: jest.fn(), update: jest.fn(), deleteMany: jest.fn() },
     user: { findMany: (...args: unknown[]) => findManyUser(...(args as [])) },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(jest.requireMock("@/lib/prisma").prisma),
   },
 }))
 
@@ -86,5 +95,42 @@ describe("listAssignableOrganisers authz gate", () => {
     const result = await listAssignableOrganisers()
     expect(result).toEqual([{ id: 5, name: "Jo Organiser", email: "jo@example.com" }])
     expect(findManyUser).toHaveBeenCalled()
+  })
+})
+
+describe("updateEvent reminder re-arm", () => {
+  const stored = { id: 9, isPublished: false, date: new Date("2026-08-01T00:00:00Z"), reminderDaysBefore: 3 }
+  // 2026-08-01T10:00 Sydney (AEST, +10) = 2026-08-01T00:00Z, i.e. the stored date.
+  const same = { ...base, reminderDaysBefore: "3" }
+
+  async function runUpdate(fd: FormData) {
+    try { await updateEvent(9, undefined, fd) } catch (e) {
+      if (!(e instanceof Error) || e.message !== "NEXT_REDIRECT") throw e
+    }
+    return updateManyEvent.mock.calls[0][0] as { data: Record<string, unknown> }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    findUniqueEvent.mockResolvedValue(stored)
+    updateManyEvent.mockResolvedValue({ count: 1 })
+  })
+
+  it("clears reminderSentAt and reminderClaimedAt when the date changes", async () => {
+    const arg = await runUpdate(form({ ...same, date: "2026-09-01T10:00" }))
+    expect(arg.data.reminderSentAt).toBeNull()
+    expect(arg.data.reminderClaimedAt).toBeNull()
+  })
+
+  it("clears reminderSentAt and reminderClaimedAt when reminderDaysBefore changes", async () => {
+    const arg = await runUpdate(form({ ...same, reminderDaysBefore: "5" }))
+    expect(arg.data.reminderSentAt).toBeNull()
+    expect(arg.data.reminderClaimedAt).toBeNull()
+  })
+
+  it("does not clear them when only the title changes", async () => {
+    const arg = await runUpdate(form({ ...same, title: "Renamed" }))
+    expect(arg.data).not.toHaveProperty("reminderSentAt")
+    expect(arg.data).not.toHaveProperty("reminderClaimedAt")
   })
 })

@@ -188,6 +188,7 @@ passkeys** on **Users**. Password reset also removes them.
 Event reminders, abandoned-checkout cleanup, celebration emails and the optional
 monthly clearance-compliance and weekly error digests run inside the app by default (`IN_APP_CRON`, see `.env.example`).
 Nothing to schedule — as long as the app stays running.
+Changing an event's date or reminder lead time re-arms its reminder, so the new date gets one.
 Run a single app replica: each replica runs its own timer. The weekly error digest is opt-in (`ERROR_DIGEST=true`), as is the monthly
 clearance digest (`CLEARANCE_DIGEST=true`). `POST /api/cron/send-clearance-digest`
 works without the flag and skips if this month's digest was already sent

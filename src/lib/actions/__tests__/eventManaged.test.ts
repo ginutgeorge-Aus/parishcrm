@@ -122,9 +122,25 @@ describe("updateManagedEvent write", () => {
     const arg = updateMany.mock.calls[0][0] as { where: Record<string, unknown>; data: Record<string, unknown> }
     expect(arg.where).toEqual({ id: 7, updatedAt: new Date("2026-08-01T00:00:00.000Z") })
     expect(Object.keys(arg.data).sort()).toEqual(
-      ["category", "date", "description", "endDate", "location", "organizers", "recurs", "recursLabel", "startTime", "title"],
+      // base moves the date, so the reminder marker is cleared too.
+      ["category", "date", "description", "endDate", "location", "organizers", "recurs", "recursLabel", "reminderClaimedAt", "reminderSentAt", "startTime", "title"],
     )
     expect(arg.data.title).toBe("New title")
+  })
+
+  it("clears reminderSentAt and reminderClaimedAt when the date changes", async () => {
+    await run(form(base))
+    const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
+    expect(arg.data.reminderSentAt).toBeNull()
+    expect(arg.data.reminderClaimedAt).toBeNull()
+  })
+
+  it("leaves the reminder marker when the date is unchanged", async () => {
+    // 2026-08-01T10:00 Sydney = stored 2026-08-01T00:00Z
+    await run(form({ ...base, date: "2026-08-01T10:00" }))
+    const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
+    expect(arg.data).not.toHaveProperty("reminderSentAt")
+    expect(arg.data).not.toHaveProperty("reminderClaimedAt")
   })
 
   it("keeps a recurring event's stored end date when it is submitted", async () => {
