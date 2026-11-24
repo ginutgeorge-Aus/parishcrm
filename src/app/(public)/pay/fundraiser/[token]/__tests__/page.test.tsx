@@ -34,7 +34,7 @@ const entry = (paid: string, online = true, deliveryPrice: string | null = null,
     name: "Cake stall",
     unitLabel: "packet",
     deliveryPrice,
-    event: { title: "Feast", onlinePaymentEnabled: online, passCardFee: false },
+    event: { title: "Feast", onlinePaymentEnabled: online, passCardFee: false, bankBsb: "012-345", bankAccount: "99887766" },
   },
 })
 
@@ -113,4 +113,23 @@ it("labels pickup and delivery when the fundraiser has a delivery price", async 
   const text = await renderPage()
   expect(text).toContain("(delivery)")
   expect(text).toContain("$48.00")
+})
+
+it("shows the BSB and account next to the reference when set", async () => {
+  mFind.mockResolvedValue(entry("10.00"))
+  const text = await renderPage()
+  expect(text).toContain("012-345")
+  expect(text).toContain("99887766")
+  expect(text).toContain("FR0001")
+})
+
+it("blank bank details: office-will-send sentence plus reference, no account lines", async () => {
+  const e = entry("10.00")
+  e.fundraiser.event.bankBsb = ""
+  e.fundraiser.event.bankAccount = ""
+  mFind.mockResolvedValue(e)
+  const text = await renderPage()
+  expect(text).toContain("The church office will send you payment details.")
+  expect(text).toContain("FR0001")
+  expect(text).not.toContain("BSB")
 })

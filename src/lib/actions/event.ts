@@ -25,6 +25,8 @@ import {
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
+import { stripeConfigured } from "@/lib/stripe"
+import { paidEventLacksPaymentMethod, PAID_EVENT_NEEDS_PAYMENT_ERROR } from "@/lib/eventPaymentRule"
 
 /** Error shown when a save would leave a published event without a slug. */
 const SLUG_REQUIRED_WHILE_PUBLISHED = "Slug can't be removed while the event is published. Unpublish first."
@@ -108,6 +110,16 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
   if (!exists) return { error: "Event not found" }
   // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
   if (exists.isPublished && !parsed.slug) return { error: SLUG_REQUIRED_WHILE_PUBLISHED }
+  // A published paid event must keep a way to pay; drafts may stay incomplete.
+  if (exists.isPublished && paidEventLacksPaymentMethod({
+    ticketPrices: ticketTypes.map((t) => t.price),
+    tierPrices: tiers,
+    tieredPricingEnabled: parsed.tieredPricingEnabled,
+    onlinePaymentEnabled: parsed.onlinePaymentEnabled,
+    stripeConfigured: stripeConfigured(),
+    bankBsb: parsed.bankBsb,
+    bankAccount: parsed.bankAccount,
+  })) return { error: PAID_EVENT_NEEDS_PAYMENT_ERROR }
 
   // Optimistic concurrency: the edit form submits the row's last-seen
   // updatedAt. Guard the write on it so two editors saving the same event
@@ -409,11 +421,32 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   // Select the slug so the public event page can be revalidated too — publish
   // flips the page between full render and notFound(), so a stale cached
   // render of the previous state must not survive the toggle.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, slug: true, isPublished: true } })
+  const exists = await prisma.event.findUnique({
+    where: { id },
+    select: {
+      id: true, slug: true, isPublished: true,
+      bankBsb: true, bankAccount: true, onlinePaymentEnabled: true,
+      tieredPricingEnabled: true, familyPricingTiers: true,
+      ticketTypes: { select: { price: true } },
+    },
+  })
   if (!exists) return { error: "Event not found" }
 
   // Publishing exposes /e/<slug>; a staff-only event (no slug) has no such page.
   if (publish && !exists.slug) return { error: "Set a slug before publishing" }
+  // A paid event with no card payment and no bank details would tell
+  // registrants to pay by transfer with no account shown.
+  if (publish && paidEventLacksPaymentMethod({
+    ticketPrices: exists.ticketTypes.map((t) => t.price),
+    tierPrices: Array.isArray(exists.familyPricingTiers)
+      ? exists.familyPricingTiers.filter((t): t is number => typeof t === "number")
+      : [],
+    tieredPricingEnabled: exists.tieredPricingEnabled,
+    onlinePaymentEnabled: exists.onlinePaymentEnabled,
+    stripeConfigured: stripeConfigured(),
+    bankBsb: exists.bankBsb,
+    bankAccount: exists.bankAccount,
+  })) return { error: PAID_EVENT_NEEDS_PAYMENT_ERROR }
 
   // Condition lives in the where clause so a concurrent slug-clear can't slip
   // between the read above and the write (DB CHECK is the final backstop).
