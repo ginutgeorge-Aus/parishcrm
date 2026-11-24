@@ -140,7 +140,7 @@ export function InvoicePaymentActions({ id, status, bankAccounts, hasEmail }: Re
   const [msg, setMsg] = useState<Msg>(null)
 
   function unmark() {
-    if (!window.confirm("Unmark as paid? A payment this invoice recorded is kept and cancelled out by a negative reversal entry dated today. A transaction you linked is unlinked and returned to its previous category, unless it is reconciled: a reconciled one keeps its current category (un-reconcile it first to restore the old one).")) return
+    if (!window.confirm("Unmark this invoice as paid?")) return
     setMsg(null)
     start(async () => {
       const r = await unmarkInvoicePaid(id)

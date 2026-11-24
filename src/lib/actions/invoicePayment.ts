@@ -34,9 +34,9 @@ export type PaymentCandidate = { id: number; date: string; amount: string; refer
 const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, ...NOT_XFER }
 
 /** Ids among `ids` that an invoice-unmark reversal already offsets (audited on the reversal row): re-linking one would mark an invoice paid with net-zero income. */
-async function reversedIds(ids: number[]): Promise<Set<number>> {
+async function reversedIds(db: Pick<typeof prisma, "auditLog">, ids: number[]): Promise<Set<number>> {
   if (ids.length === 0) return new Set()
-  const rows = await prisma.auditLog.findMany({
+  const rows = await db.auditLog.findMany({
     where: { action: "TRANSACTION_CREATED", resourceType: "Transaction", OR: ids.map((n) => ({ metadata: { path: ["reversesTransactionId"], equals: n } })) },
     select: { metadata: true },
   })
@@ -58,16 +58,19 @@ type SentInvoice = {
   total: { toString(): string }; issueDate: Date; accountId: number; fundId: number | null; issuer: unknown
 }
 
-/** The payment is posted to the invoice's income account and fund, so both must still be usable. */
-async function postingTargetError(inv: SentInvoice): Promise<string | null> {
-  const acct = await prisma.account.findUnique({ where: { id: inv.accountId } })
+/** A posting (payment or its reversal) lands on an income account and fund, so both must still be usable. */
+async function targetError(db: Pick<typeof prisma, "account" | "fund">, accountId: number, fundId: number | null): Promise<string | null> {
+  const acct = await db.account.findUnique({ where: { id: accountId } })
   if (acct?.type !== "INCOME" || !acct.isActive) return "The invoice's income account is inactive — reactivate it first"
-  if (inv.fundId !== null) {
-    const fund = await prisma.fund.findUnique({ where: { id: inv.fundId } })
+  if (fundId !== null) {
+    const fund = await db.fund.findUnique({ where: { id: fundId } })
     if (!fund?.isActive) return "The invoice's fund is inactive — reactivate it first"
   }
   return null
 }
+
+/** The payment is posted to the invoice's income account and fund. */
+const postingTargetError = (inv: SentInvoice) => targetError(prisma, inv.accountId, inv.fundId)
 
 /** Run a guarded write; a Conflict maps to CHANGED, anything else is logged and reported as a failure. */
 async function guarded<T>(fn: () => Promise<T>): Promise<T | { error: string }> {
@@ -98,13 +101,15 @@ async function linkExisting(inv: SentInvoice, transactionId: number, uid: number
   const totalCents = toCents(inv.total.toString())
   if (toCents(t.amount.toString()) !== totalCents) return { error: `The transaction amount must equal the invoice total (${fmtAUD(centsToNumber(totalCents))})` }
   if (t.date < inv.issueDate) return BEFORE_ISSUE
-  if ((await reversedIds([t.id])).size > 0) return { error: "This transaction was reversed when an invoice was unmarked paid. Record a new payment instead." }
   const lockErr = await assertUnlocked(t.date)
   if (lockErr) return { error: lockErr }
   const targetErr = await postingTargetError(inv)
   if (targetErr) return { error: targetErr }
   const moved = t.accountId !== inv.accountId || t.fundId !== inv.fundId ? { accountId: t.accountId, fundId: t.fundId } : null
   const res = await guarded(() => prisma.$transaction(async (tx) => {
+    // Invoice lock first, so the reversed-row check below and the flip see one state.
+    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${inv.id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
+    if ((await reversedIds(tx, [t.id])).size > 0) return { error: "This transaction was reversed when an invoice was unmarked paid. Record a new payment instead." }
     const flip = await tx.invoice.updateMany({ where: { id: inv.id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.PAID, paidAt: t.date } })
     if (flip.count === 0) throw new Conflict()
     const linked = await tx.transaction.updateMany({
@@ -213,43 +218,55 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   if (off) return off
   const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, paidAt: true } }) : null
   if (inv?.status !== InvoiceStatus.PAID) return { error: "Only paid invoices can be unmarked" }
-  // The paid date drives the GST-collected figure, so a locked period's payment stays put.
-  if (inv.paidAt) {
-    const lockErr = await assertUnlocked(inv.paidAt)
-    if (lockErr) return { error: lockErr }
-  }
   // The reversal row is dated today (Sydney); a locked period must never receive a row.
   const reversalDate = sydneyToday()
-  const revLockErr = await assertUnlocked(reversalDate)
-  if (revLockErr) return { error: revLockErr }
   const uid = actorId(session)
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
     // Lock the invoice first so the audit/row reads and the flip see one state (concurrent unmark + re-mark waits here).
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     const paid = await tx.auditLog.findFirst({ where: { action: "INVOICE_PAID", resourceType: "Invoice", resourceId: id }, orderBy: { id: "desc" }, select: { metadata: true } })
     const meta = (paid?.metadata ?? {}) as { mode?: unknown; transactionId?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
-    const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, reconciled: true, amount: true, accountId: true, paymentAccountId: true, fundId: true, personId: true } })
+    const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, date: true, reconciled: true, amount: true, accountId: true, paymentAccountId: true, fundId: true, personId: true } })
     // Checked before any write: returning an error doesn't roll the transaction back.
     // No INVOICE_PAID audit row: how the row got there is unknown, so unlinking could leave income that doubles on re-mark. Refuse.
     if (row && !paid) return { error: NO_PAID_AUDIT }
-    if (row?.reconciled && meta.mode === "create") return { error: RECONCILED_UNMARK }
+    const createMode = !!row && meta.mode === "create"
+    if (row?.reconciled && createMode) return { error: RECONCILED_UNMARK }
+    // A created payment is kept and offset by a row dated today, so only today's period must be open (this lets a payment in a locked
+    // period be reversed). Otherwise the paid date drives the GST-collected figure, so a locked period's payment stays put.
+    const lockErr = createMode ? await assertUnlocked(reversalDate) : inv.paidAt ? await assertUnlocked(inv.paidAt) : null
+    if (lockErr) return { error: lockErr }
+    // The reversal posts to the payment's own account and fund: both must still be usable.
+    if (row && createMode) {
+      const targetErr = await targetError(tx, row.accountId, row.fundId)
+      if (targetErr) return { error: targetErr }
+    }
     // Only ever reverse the exact row this INVOICE_PAID event created: an unmark + re-mark (link) between the audit read and the row read
     // could otherwise leave a different, unrelated transaction linked while the stale `create` mode still applies.
     // Link mode too: a concurrent unmark + re-mark could swap in a different row, which would be unlinked and left as income.
-    if (row && (meta.mode === "create" || (meta.mode === "link" && typeof meta.transactionId === "number")) && meta.transactionId !== row.id) throw new Conflict()
+    // A create-mode audit row without a numeric id (older rows) can't be checked that way: the row linked to this locked invoice is
+    // taken as the payment, and the unlink below is guarded by its payment account (a created payment always has one).
+    if (row && (meta.mode === "link" || meta.mode === "create") && typeof meta.transactionId === "number" && meta.transactionId !== row.id) throw new Conflict()
+    if (row && meta.mode === "create" && typeof meta.transactionId !== "number" && row.paymentAccountId === null) return { error: NO_PAID_AUDIT }
     const flip = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.PAID }, data: { status: InvoiceStatus.SENT, paidAt: null } })
     if (flip.count === 0) throw new Conflict()
     let reversalId: number | undefined
     let restoredTo: { accountId: number; fundId: number | null } | undefined
-    if (row && meta.mode === "create") {
+    if (row && createMode) {
       // Reconciled rows are refused above; the predicate also catches one reconciled since the read.
       // The original stays as the record; clearing invoiceId frees the unique link so the invoice can be paid again.
-      const unlink = await tx.transaction.updateMany({ where: { id: row.id, invoiceId: id, paymentAccountId: row.paymentAccountId, reconciled: false }, data: { invoiceId: null } })
+      // The pair nets to zero, so both rows are marked reconciled: neither shows as unmatched on the bank reconciliation page, and
+      // editing or deleting one half is blocked. A locked-period original is read-only, so only its link is cleared.
+      const originalLocked = !!(await assertUnlocked(row.date))
+      const unlink = await tx.transaction.updateMany({
+        where: { id: row.id, invoiceId: id, paymentAccountId: row.paymentAccountId, reconciled: false },
+        data: originalLocked ? { invoiceId: null } : { invoiceId: null, reconciled: true },
+      })
       if (unlink.count === 0) throw new Conflict()
       const reversal = await tx.transaction.create({
         data: {
           date: reversalDate, type: "INCOME", amount: `-${row.amount.toString()}`, accountId: row.accountId,
-          paymentAccountId: row.paymentAccountId, fundId: row.fundId, personId: row.personId,
+          paymentAccountId: row.paymentAccountId, fundId: row.fundId, personId: row.personId, reconciled: true,
           reference: inv.invoiceNo ? encrypt(inv.invoiceNo) : null,
           description: encrypt(`Reversal of ${inv.invoiceNo} payment`), notes: encrypt(`Reverses transaction #${row.id}`),
         },
@@ -279,13 +296,13 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
       if (restore) restoredTo = prev
     }
     await logAuditGuardedTx(tx, uid, "INVOICE_UNPAID", "Invoice", id, {
-      invoiceNo: inv.invoiceNo, ...(row ? { transactionId: row.id, deletedTransaction: false, ...(reversalId ? { reversalTransactionId: reversalId } : {}) } : {}), ...(restoredTo ? { restoredTo } : {}),
+      invoiceNo: inv.invoiceNo, ...(row ? { transactionId: row.id, ...(reversalId ? { reversalTransactionId: reversalId } : {}) } : {}), ...(restoredTo ? { restoredTo } : {}),
     })
     return { reversed: reversalId !== undefined }
   }))
   if ("error" in ok) return { error: ok.error as string }
   revalidate(id)
-  return { success: ok.reversed ? `Payment reversed — ${inv.invoiceNo} is unpaid again` : `Payment unlinked — ${inv.invoiceNo} is unpaid again` }
+  return { success: ok.reversed ? `Payment kept and cancelled by a negative entry dated today — ${inv.invoiceNo} is unpaid again` : `Payment unlinked — ${inv.invoiceNo} is unpaid again` }
 }
 
 /**
@@ -309,7 +326,7 @@ export async function listPaymentCandidates(id: number): Promise<PaymentCandidat
     orderBy: { date: "desc" }, take: 20,
     select: { id: true, date: true, amount: true, reference: true, paymentAccountRel: { select: { name: true } }, account: { select: { name: true } } },
   })
-  const reversed = await reversedIds(rows.map((r) => r.id))
+  const reversed = await reversedIds(prisma, rows.map((r) => r.id))
   return rows.filter((r) => !reversed.has(r.id)).map((r) => ({
     id: r.id, date: r.date.toISOString().slice(0, 10), amount: r.amount.toString(), reference: r.reference ? safeDecrypt(r.reference) : null,
     paymentAccountName: r.paymentAccountRel?.name ?? null, accountName: r.account.name,
