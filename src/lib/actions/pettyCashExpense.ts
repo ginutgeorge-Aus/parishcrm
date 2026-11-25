@@ -53,6 +53,15 @@ const ExpenseSchema = z.object({
   confirmNegative: z.string().optional().transform((v) => v === "true"),
 })
 
+/**
+ * Soft-warning text when an expense (new or edited) is larger than the cash available for it.
+ * @param amount the submitted expense amount
+ * @param available running balance before this expense (dollars)
+ */
+function negativeFloatWarning(amount: string, available: number): string {
+  return `This expense of ${amount} exceeds the running balance of ${available.toFixed(2)} and would make the float negative. Submit again to record it anyway.`
+}
+
 // Loads the session (with the ledger rows needed for the negative-float check)
 // and runs the open/dated/lock checks shared by createExpense's setup —
 // bundled so the caller sees one guard clause instead of four.
@@ -221,7 +230,7 @@ export async function createExpense(
   )
   if (!parsed.data.confirmNegative && toCents(parsed.data.amount) > toCents(balance)) {
     return orReplay({
-      error: `This expense of ${parsed.data.amount} exceeds the running balance of ${balance.toFixed(2)} and would make the float negative. Submit again to record it anyway.`,
+      error: negativeFloatWarning(parsed.data.amount, balance),
       negativeBalanceWarning: true,
     })
   }
@@ -302,6 +311,31 @@ export async function updateExpense(
   if (!account) return { error: "Invalid account" }
   if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId, { allowInactive: true })))
     return { error: "Invalid fund" }
+  // Negative-float warning on edit (AUD-3-04), same soft-confirm UX as createExpense.
+  // Cash available to this expense = running balance with its old amount added back.
+  // Only an increase can newly overdraw, so a same-or-lower edit skips the read.
+  if (!parsed.data.confirmNegative && toCents(parsed.data.amount) > toCents(expense.amount)) {
+    const ledger = await prisma.pettyCashSession.findUnique({
+      where: { id: expense.sessionId },
+      select: {
+        openingBalance: true,
+        receipts: { select: { amount: true } },
+        expenses: { select: { id: true, amount: true } },
+        transfers: { select: { amount: true } },
+      },
+    })
+    // Add back this expense's amount from the SAME snapshot as the balance: a concurrent
+    // edit between the first read and this one must not mix two versions. Gone = deleted
+    // concurrently; the write below fails on its own, so no warning.
+    const ledgerExpense = ledger?.expenses.find((e) => e.id === id)
+    if (ledger && ledgerExpense) {
+      const availableCents =
+        toCents(calcRunningBalance(ledger.openingBalance, ledger.receipts, ledger.expenses, ledger.transfers)) +
+        toCents(ledgerExpense.amount)
+      if (toCents(parsed.data.amount) > availableCents)
+        return { error: negativeFloatWarning(parsed.data.amount, availableCents / 100), negativeBalanceWarning: true }
+    }
+  }
   // confirmDuplicate/confirmNegative are form-only flags — strip
   // them so they can't land in the Prisma update payload; PettyCashExpense has
   // no such column and the spread below would otherwise throw

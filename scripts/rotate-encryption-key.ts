@@ -26,7 +26,7 @@ function dbHost(): string {
 
 // Encrypted columns per model — must cover every encrypted field.
 // Canonical models: family, person, transaction, receiptSend, registration,
-// pettyCashExpense, pettyCashReceipt, pettyCashTransfer, familyUpdateSubmission,
+// pettyCashExpense, pettyCashReceipt, pettyCashTransfer, pettyCashSession, familyUpdateSubmission,
 // membershipApplication, dgrReceipt, transactionAttachment.
 // A field encrypted on write but omitted here is silently left on the old key id
 // and becomes undecryptable once that key is retired. The
@@ -66,6 +66,9 @@ export const FIELDS: Record<string, string[]> = {
   pettyCashExpense: ["payee", "description"],
   pettyCashReceipt: ["notes"],
   pettyCashTransfer: ["depositedByName", "notes"],
+  // Close notes, encrypt()ed in actions/pettyCashSession.ts closeSession (AUD-3-04).
+  // Older plaintext rows have no key id, so rotateRow skips them.
+  pettyCashSession: ["notes"],
   // payload is encrypt(JSON.stringify(...)) stored as a string scalar in a Json
   // column; rotateRow skips non-string (legacy plaintext-object) values.
   familyUpdateSubmission: ["payload", "reviewNote"],
