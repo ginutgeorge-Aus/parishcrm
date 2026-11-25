@@ -7,7 +7,7 @@ test("hides the delete button and explains inside the retention period", () => {
   render(<RetentionGate date={new Date()}>{btn}</RetentionGate>)
   expect(screen.queryByText("Delete")).not.toBeInTheDocument()
   expect(screen.getByText(/Kept for 7 years/)).toBeInTheDocument()
-  expect(screen.getByText(/Edit it to correct it/)).toBeInTheDocument()
+  expect(screen.getByText(/Edit it to correct it; if its period is locked, an admin must unlock it first/)).toBeInTheDocument()
 })
 
 test("renders the delete button once past the retention period", () => {
