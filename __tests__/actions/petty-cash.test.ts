@@ -61,6 +61,7 @@ jest.mock("@/lib/prisma", () => ({
       update: jest.fn(),
       delete: jest.fn(),
     },
+    serviceHeadcount: { count: jest.fn().mockResolvedValue(0) },
     person: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -1620,6 +1621,7 @@ describe("createServiceType", () => {
   it("creates service type for ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindFirstServiceType.mockResolvedValue(null)
+    mockCreateServiceType.mockResolvedValue({ id: 1 })
     await createServiceType(undefined, fd({ name: "Sunday Service" }))
     expect(mockCreateServiceType).toHaveBeenCalledWith({ data: { name: "Sunday Service" } })
   })
