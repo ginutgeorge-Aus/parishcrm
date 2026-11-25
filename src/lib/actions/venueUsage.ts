@@ -405,7 +405,7 @@ export async function setVenueUsageStatus(
     const demo = assertNotDemo()
     if (demo) return demo
   }
-  if (ids.length === 0) return { error: "Select at least one booking" }
+  if (!Array.isArray(ids) || ids.length === 0) return { error: "Select at least one booking" }
   if (ids.length > MAX_ROWS_PER_MONTH) return { error: "Too many bookings selected" }
   if (!ids.every(isValidPgId)) return { error: "Invalid booking" }
   const settings = await readVenueUsageSettings()

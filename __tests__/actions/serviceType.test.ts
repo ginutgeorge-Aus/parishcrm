@@ -74,7 +74,7 @@ describe("deleteServiceType", () => {
     rcCount.mockResolvedValue(0) // passes the count check, then a receipt is created
     stDelete.mockRejectedValue({ code: "P2003" })
     const r = await deleteServiceType(5)
-    expect(r).toEqual({ error: "Cannot delete — receipt(s) use this service type" })
+    expect(r).toEqual({ error: "Cannot delete — records use this service type" })
   })
 })
 
@@ -84,7 +84,7 @@ describe("service type hardening (AUD-5-24/25/27)", () => {
     stFindFirst.mockResolvedValue(null)
     stCreate.mockResolvedValue({ id: 9, name: "Sunday" })
     await expect(createServiceType(undefined, fd({ name: "  Sunday  " }))).rejects.toThrow("REDIRECT")
-    expect(stFindFirst).toHaveBeenCalledWith({ where: { name: "Sunday" } })
+    expect(stFindFirst).toHaveBeenCalledWith({ where: { name: { equals: "Sunday", mode: "insensitive" } } })
     expect(stCreate).toHaveBeenCalledWith({ data: { name: "Sunday" } })
   })
   it("rejects a whitespace-only name", async () => {
@@ -112,5 +112,21 @@ describe("service type hardening (AUD-5-24/25/27)", () => {
     await deleteServiceType(9)
     const actions = (logAudit as jest.Mock).mock.calls.map((c) => c[1])
     expect(actions).toEqual(["SERVICE_TYPE_CREATED", "SERVICE_TYPE_TOGGLED", "SERVICE_TYPE_DELETED"])
+  })
+})
+
+describe("createServiceType dedupe and audit placement", () => {
+  it("treats a differently-cased existing name as a duplicate", async () => {
+    mockAuth.mockResolvedValue(ADMIN)
+    stFindFirst.mockResolvedValue({ id: 1, name: " sunday" })
+    expect(await createServiceType(undefined, fd({ name: "Sunday" }))).toEqual({ error: "Service type already exists" })
+    expect(stCreate).not.toHaveBeenCalled()
+  })
+  it("a failing audit write is not swallowed as a duplicate", async () => {
+    mockAuth.mockResolvedValue(ADMIN)
+    stFindFirst.mockResolvedValue(null)
+    stCreate.mockResolvedValue({ id: 9 })
+    ;(logAudit as jest.Mock).mockRejectedValueOnce({ code: "P2002" })
+    await expect(createServiceType(undefined, fd({ name: "Sunday" }))).rejects.toEqual({ code: "P2002" })
   })
 })

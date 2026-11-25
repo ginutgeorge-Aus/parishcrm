@@ -32,17 +32,21 @@ export async function createServiceType(
   if (off) return off
   const parsed = ServiceTypeSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const existing = await prisma.serviceType.findFirst({ where: { name: parsed.data.name } })
+  const existing = await prisma.serviceType.findFirst({
+    // Case-insensitive on the trimmed name, so a legacy " Sunday" row still collides with "sunday".
+    where: { name: { equals: parsed.data.name, mode: "insensitive" } },
+  })
   if (existing) return { error: "Service type already exists" }
   // name is @unique — a concurrent duplicate slips past the findFirst check and
   // throws a raw P2002. Map it to the same friendly error.
+  let created: { id: number }
   try {
-    const created = await prisma.serviceType.create({ data: { name: parsed.data.name } })
-    await logAudit(actorId(session), "SERVICE_TYPE_CREATED", "ServiceType", created.id, {})
+    created = await prisma.serviceType.create({ data: { name: parsed.data.name } })
   } catch (e) {
     if (isP2002(e)) return { error: "Service type already exists" }
     throw e
   }
+  await logAudit(actorId(session), "SERVICE_TYPE_CREATED", "ServiceType", created.id, {})
   revalidatePath("/accounting/petty-cash/service-types")
   redirect("/accounting/petty-cash/service-types")
 }
@@ -83,7 +87,7 @@ export async function deleteServiceType(id: number): Promise<ActionResult> {
     await prisma.serviceType.delete({ where: { id } })
   } catch (e) {
     if (e && typeof e === "object" && "code" in e && e.code === "P2003")
-      return { error: "Cannot delete — receipt(s) use this service type" }
+      return { error: "Cannot delete — records use this service type" }
     throw e
   }
   await logAudit(actorId(session), "SERVICE_TYPE_DELETED", "ServiceType", id, {})

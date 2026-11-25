@@ -992,6 +992,13 @@ describe("listDgrReceipts bounds (AUD-5-56)", () => {
     await listDgrReceipts(2025)
     expect(prisma.dgrReceipt.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { fyEndYear: 2025 }, take: expect.any(Number) }))
   })
+  it("does not truncate a single year at the all-years cap", async () => {
+    await listDgrReceipts(2025)
+    const take = (prisma.dgrReceipt.findMany as jest.Mock).mock.calls[0][0].take
+    ;(prisma.dgrReceipt.findMany as jest.Mock).mockClear()
+    await listDgrReceipts()
+    expect(take).toBeGreaterThan((prisma.dgrReceipt.findMany as jest.Mock).mock.calls[0][0].take)
+  })
   it("ignores a filter object or out-of-range year instead of using it as a where clause", async () => {
     for (const bad of [{ gt: 0 }, 1999, 2101, 2025.5, "2025"]) {
       ;(prisma.dgrReceipt.findMany as jest.Mock).mockClear()

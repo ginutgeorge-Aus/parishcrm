@@ -426,3 +426,14 @@ describe("sendFamilyUpdateInvite archived family (AUD-5-15)", () => {
     expect(sendFamilyUpdateInviteEmail).not.toHaveBeenCalled()
   })
 })
+
+describe("sendFamilyUpdateInvite malformed args (AUD-5-58)", () => {
+  it("rejects a bad id or non-string email with the normal errors, no DB read", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockClear()
+    expect(await sendFamilyUpdateInvite("x" as unknown as number, "f@x.com")).toEqual({ error: "Family not found" })
+    expect(await sendFamilyUpdateInvite(1, undefined as unknown as string)).toEqual({ error: "A valid email address is required" })
+    expect(await sendFamilyUpdateInvite(1, { a: 1 } as unknown as string)).toEqual({ error: "A valid email address is required" })
+    expect(prisma.family.findUnique).not.toHaveBeenCalled()
+  })
+})

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
+import { isValidPgId } from "@/lib/validation"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { encryptPersonFields } from "@/lib/personFields"
 import { logAudit } from "@/lib/audit"
@@ -39,6 +40,8 @@ export async function sendFamilyUpdateInvite(
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("familyUpdates")
   if (off) return off
+  if (!isValidPgId(familyId)) return { error: "Family not found" }
+  if (typeof email !== "string") return { error: "A valid email address is required" }
 
   const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true, archivedAt: true } })
   // An archived family's link would only show "expired": refuse instead of wasting an email.

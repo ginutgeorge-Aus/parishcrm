@@ -1169,3 +1169,12 @@ describe("setVenueUsageStatus input checks (AUD-5-55, AUD-5-58)", () => {
     await expect(setVenueUsageStatus([1], "CANCELLED", null as unknown as { emailVenue?: boolean })).resolves.toEqual({ error: "Unauthorized" })
   })
 })
+
+describe("setVenueUsageStatus ids shape (AUD-5-58)", () => {
+  it("returns the normal error for a non-array ids argument", async () => {
+    asRole("PASTOR")
+    for (const bad of [null, undefined, "1", { length: 1 }]) {
+      expect(await setVenueUsageStatus(bad as unknown as number[], "CONFIRMED")).toEqual({ error: "Select at least one booking" })
+    }
+  })
+})

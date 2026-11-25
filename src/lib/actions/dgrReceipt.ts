@@ -41,6 +41,8 @@ const LIST_PATH = "/accounting/dgr-receipts"
 // the oldest receipts — DgrReceipt grows ~1 row/donor/FY, so this is never hit in
 // practice but keeps the query bounded by construction.
 const LIST_ALL_YEARS_CAP = 1000
+// A single financial year is naturally small; this ceiling only bounds a runaway query, far above real use.
+const LIST_ONE_YEAR_CAP = 10000
 
 const DUP_RACE_ERROR = "A receipt for this donor and year was just created. Refresh the list and check before trying again."
 const EDIT_RACE_ERROR = "This receipt is being sent or was sent"
@@ -571,7 +573,7 @@ export async function listDgrReceipts(
   const rows = await prisma.dgrReceipt.findMany({
     where: fy ? { fyEndYear: fy } : {},
     // Always capped, so no argument can load the whole table in one request.
-    take: LIST_ALL_YEARS_CAP,
+    take: fy ? LIST_ONE_YEAR_CAP : LIST_ALL_YEARS_CAP,
     orderBy: [{ fyEndYear: "desc" }, { seq: "desc" }],
     select: {
       id: true,
