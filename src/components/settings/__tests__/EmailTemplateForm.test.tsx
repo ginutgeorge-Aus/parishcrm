@@ -10,6 +10,12 @@ jest.mock("@/lib/actions/emailTemplates", () => ({
   sendTestEmail: jest.fn(),
 }))
 
+/** Opens the reset confirm dialog and confirms it. */
+async function clickReset() {
+  fireEvent.click(screen.getByRole("button", { name: "Reset to default" }))
+  fireEvent.click(await screen.findByRole("button", { name: "Reset" }))
+}
+
 describe("EmailTemplateForm", () => {
   beforeEach(() => {
     jest.resetAllMocks()
@@ -37,7 +43,8 @@ describe("EmailTemplateForm", () => {
     })
     render(<EmailTemplateForm templateKey="welcome" initial={{ subject: "draft", intro: "", body: "", signoff: "" }} />)
     fireEvent.change(screen.getByDisplayValue("draft"), { target: { value: "edited" } })
-    fireEvent.click(screen.getByRole("button", { name: button }))
+    if (button === "Reset to default") await clickReset()
+    else fireEvent.click(screen.getByRole("button", { name: button }))
 
     if (timing === "before") {
       await act(async () => { resolveMount({ html: "<p>Stale mount preview</p>" }) })
@@ -76,7 +83,7 @@ describe("EmailTemplateForm", () => {
     render(<EmailTemplateForm templateKey="welcome" initial={{ subject: "MY OLD DRAFT", intro: "x", body: "b", signoff: "s" }} />)
     expect(screen.getByDisplayValue("MY OLD DRAFT")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText("Reset to default"))
+    await clickReset()
 
     await waitFor(() =>
       expect(screen.getByDisplayValue(DEFAULT_EMAIL_TEMPLATES.welcome.subject)).toBeInTheDocument()
@@ -119,9 +126,21 @@ describe("EmailTemplateForm", () => {
       ;(resetEmailTemplate as jest.Mock).mockResolvedValue({ success: "Reset to default." })
       render(<EmailTemplateForm templateKey="welcome" initial={initial} />)
       fireEvent.change(screen.getByDisplayValue("s"), { target: { value: "edited" } })
-      fireEvent.click(screen.getByText("Reset to default"))
+      await clickReset()
       await waitFor(() => expect(screen.getByDisplayValue(DEFAULT_EMAIL_TEMPLATES.welcome.subject)).toBeInTheDocument())
       expect(isDirty()).toBe(false)
     })
+  })
+})
+
+describe("reset confirm", () => {
+  beforeEach(() => (resetEmailTemplate as jest.Mock).mockClear())
+  it("does not reset on the first click, only after confirming", async () => {
+    ;(resetEmailTemplate as jest.Mock).mockResolvedValue({ success: "Reset to default." })
+    render(<EmailTemplateForm templateKey="welcome" initial={{ subject: "s", intro: "", body: "", signoff: "" }} />)
+    fireEvent.click(screen.getByRole("button", { name: "Reset to default" }))
+    expect(resetEmailTemplate).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole("button", { name: "Reset" }))
+    await waitFor(() => expect(resetEmailTemplate).toHaveBeenCalledWith("welcome"))
   })
 })

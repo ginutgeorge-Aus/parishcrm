@@ -63,8 +63,8 @@ async function lockPerson(tx: Prisma.TransactionClient, personId: number): Promi
 /**
  * Record a date range a person cannot serve (`from`, `to` form fields,
  * inclusive Sydney dates). When the person is already rostered on a covered
- * day (and has not declined), the range is still saved and the success text
- * warns which services to move them off.
+ * day (and has not declined), the range is still saved and a separate
+ * `warning` names which services to move them off.
  * @param personId the person
  * @param _prev previous action state (useActionState)
  * @param formData `from` and `to` as `YYYY-MM-DD`
@@ -113,7 +113,7 @@ export async function addPersonUnavailability(
   if (hit.length === 0) return { success: "Unavailable dates saved" }
   const named = hit.slice(0, MAX_WARNED).map((c) => `${c.title} on ${c.ymd}`).join("; ")
   const more = hit.length > MAX_WARNED ? ` and ${hit.length - MAX_WARNED} more` : ""
-  return { success: `Saved. Warning: already rostered at ${named}${more}. Remove them from the roster if they cannot serve` }
+  return { success: "Unavailable dates saved", warning: `Already rostered at ${named}${more}. Remove them from the roster if they cannot serve` }
 }
 
 /**

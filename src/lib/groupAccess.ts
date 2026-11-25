@@ -12,6 +12,20 @@ export async function isGroupLeaderLogin(userId: number, groupId: number): Promi
 }
 
 /**
+ * True when this login leads at least one live (unarchived) group that
+ * `personId` belongs to. Callers must still check the caller's role.
+ * @param userId the caller's user id
+ * @param personId the person whose group membership is checked
+ */
+export async function leadsGroupWithMember(userId: number, personId: number): Promise<boolean> {
+  const row = await prisma.groupLeaderAccess.findFirst({
+    where: { userId, group: { archivedAt: null, members: { some: { personId } } } },
+    select: { id: true },
+  })
+  return row !== null
+}
+
+/**
  * May this user change this group's membership? Group managers: any group.
  * EVENT_ORGANISER: only groups they are linked to via GroupLeaderAccess. The
  * role check is load-bearing: access rows only cascade on user delete, not on

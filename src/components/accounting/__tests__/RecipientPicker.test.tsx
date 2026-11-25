@@ -146,7 +146,7 @@ describe("InvoiceForm keeps input after a rejected save", () => {
     fireEvent.change(screen.getByLabelText("Fund (optional)"), { target: { value: "2" } })
     fireEvent.change(screen.getByLabelText("Notes (printed on the invoice)"), { target: { value: "Keep me" } })
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }))
-    expect(await screen.findByText("Due date must be on or after the issue date")).toBeInTheDocument()
+    expect(await screen.findByRole("alert")).toHaveTextContent("Due date must be on or after the issue date")
     expect(screen.getByLabelText("Due date")).toHaveValue("2026-10-01")
     expect(screen.getByLabelText("Issue date")).toHaveValue("2026-10-20")
     expect(screen.getByLabelText("Income account")).toHaveValue("4")

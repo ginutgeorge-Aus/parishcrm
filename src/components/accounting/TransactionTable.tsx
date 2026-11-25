@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { RetentionGate } from "@/components/shared/RetentionGate"
 import { isDateLocked } from "@/lib/accountingLock"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -117,7 +118,7 @@ export function TransactionTable({
                           </Button>
                         )
                       )}
-                      {userIsAdmin && <DeleteTransactionButton id={tx.id} locked={locked} />}
+                      {userIsAdmin && <RetentionGate date={tx.date}><DeleteTransactionButton id={tx.id} locked={locked} /></RetentionGate>}
                       {locked && !userIsAdmin && <span className="text-xs text-muted-foreground">Period locked</span>}
                     </>
                   )}

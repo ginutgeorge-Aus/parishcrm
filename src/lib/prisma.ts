@@ -11,7 +11,17 @@ export { Prisma } from "./generated/prisma/client"
 function createPrismaClient() {
   // Fail loudly at first use instead of an opaque adapter crash on every DB route.
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
+  // Without these, pg waits forever for a pool slot or a reply on a dead socket, which
+  // hangs callers (and the in-app scheduler's jobs). The statement timeout sits above the
+  // longest explicit interactive transaction (90s) so it never cuts a legitimate one short.
+  const adapter = new PrismaPg({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: 10_000,
+    statement_timeout: 120_000,
+    // Client-side deadline (pg default: off). Above statement_timeout so the server cancels
+    // slow statements first; this only frees the connection if no reply ever arrives.
+    query_timeout: 130_000,
+  })
 
   // perf baseline: opt-in JSONL query log. Both env vars must be set, so the
   // prod path (neither set) constructs the identical plain client as before — no

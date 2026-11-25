@@ -420,6 +420,22 @@ describe("enrolChildren", () => {
     const moveOrder = (prisma.sundaySchoolEnrolment.updateMany as jest.Mock).mock.invocationCallOrder[0]
     expect(moveOrder).toBeLessThan((prisma.sundaySchoolEnrolment.upsert as jest.Mock).mock.invocationCallOrder[0])
   })
+  it("locks the existing enrolment rows before reading them for the move count (#721)", async () => {
+    as(UserRole.ADMIN)
+    liveClass()
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }])
+    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+    await enrolChildren(1, [2])
+    const raw$ = prisma.$queryRaw as jest.Mock
+    const idx = raw$.mock.calls.findIndex(
+      (c) => (c[0] as TemplateStringsArray).join("?").includes('FROM "SundaySchoolEnrolment"'),
+    )
+    expect(idx).toBeGreaterThanOrEqual(0)
+    expect((raw$.mock.calls[idx][0] as TemplateStringsArray).join("?")).toContain("FOR UPDATE")
+    expect(raw$.mock.invocationCallOrder[idx]).toBeLessThan(
+      (prisma.sundaySchoolEnrolment.findMany as jest.Mock).mock.invocationCallOrder[0],
+    )
+  })
   it("refuses when the class is archived before the enrolment transaction", async () => {
     as(UserRole.ADMIN)
     liveClass()

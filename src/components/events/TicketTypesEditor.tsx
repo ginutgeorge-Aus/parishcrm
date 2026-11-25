@@ -17,14 +17,18 @@ type Props = {
   onUpdate: (i: number, field: keyof TicketTypeRow, value: string) => void
 }
 
+/** Editable list of ticket types; each row stacks with visible labels below `sm:` and stays one line from `sm:` up. */
 export function TicketTypesEditor({ rows, onAdd, onRemove, onUpdate }: Readonly<Props>) {
   return (
     <div>
       <div className="flex flex-col gap-2">
         {rows.map((row, i) => (
-          <div key={row._key} className="flex flex-wrap gap-2 items-center">
+          <div key={row._key} className="flex flex-wrap gap-2 items-end sm:items-center">
             <input type="hidden" name={`ticketType.${i}.id`} value={row.id ?? ""} />
+            <div className="basis-full sm:basis-auto sm:flex-1">
+            <label htmlFor={`ticketType.${i}.name`} className="text-xs font-medium text-muted-foreground sm:sr-only">Ticket name</label>
             <Input
+              id={`ticketType.${i}.name`}
               aria-label={`Ticket name (row ${i + 1})`}
               name={`ticketType.${i}.name`}
               value={row.name}
@@ -33,7 +37,11 @@ export function TicketTypesEditor({ rows, onAdd, onRemove, onUpdate }: Readonly<
               className="flex-1"
               required
             />
+            </div>
+            <div className="flex-1 sm:flex-none">
+            <label htmlFor={`ticketType.${i}.price`} className="text-xs font-medium text-muted-foreground sm:sr-only">Price</label>
             <Input
+              id={`ticketType.${i}.price`}
               aria-label={`Ticket price (row ${i + 1})`}
               name={`ticketType.${i}.price`}
               value={row.price}
@@ -42,10 +50,14 @@ export function TicketTypesEditor({ rows, onAdd, onRemove, onUpdate }: Readonly<
               type="number"
               min="0"
               step="0.01"
-              className="w-28"
+              className="w-full sm:w-28"
               required
             />
+            </div>
+            <div className="flex-1 sm:flex-none">
+            <label htmlFor={`ticketType.${i}.capacity`} className="text-xs font-medium text-muted-foreground sm:sr-only">Capacity</label>
             <Input
+              id={`ticketType.${i}.capacity`}
               aria-label={`Ticket capacity (row ${i + 1})`}
               name={`ticketType.${i}.capacity`}
               value={row.capacity}
@@ -53,8 +65,9 @@ export function TicketTypesEditor({ rows, onAdd, onRemove, onUpdate }: Readonly<
               placeholder="Capacity (blank = ∞)"
               type="number"
               min="1"
-              className="w-36"
+              className="w-full sm:w-36"
             />
+            </div>
             <label htmlFor={`ticketType.${i}.countsToward`} className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
               <Checkbox
                 id={`ticketType.${i}.countsToward`}

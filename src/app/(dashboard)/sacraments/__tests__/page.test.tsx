@@ -1,6 +1,6 @@
 /** @jest-environment node */
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/prisma", () => ({ prisma: { sacramentRecord: { findMany: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({ prisma: { sacramentRecord: { findMany: jest.fn(), count: jest.fn() } } }))
 jest.mock("next/navigation", () => ({
   notFound: jest.fn(() => { throw new Error("NOT_FOUND") }),
   redirect: jest.fn((to: string) => { throw new Error(`REDIRECT:${to}`) }),
@@ -13,6 +13,7 @@ import SacramentsPage from "../page"
 
 const mockAuth = auth as jest.Mock
 const findMany = prisma.sacramentRecord.findMany as jest.Mock
+const count = prisma.sacramentRecord.count as jest.Mock
 
 const ROW = {
   id: 3,
@@ -24,7 +25,7 @@ const ROW = {
 }
 
 /** Render the page for given search params. */
-async function render(sp: { type?: string; year?: string } = {}): Promise<string> {
+async function render(sp: { type?: string; year?: string; page?: string } = {}): Promise<string> {
   return renderToStaticMarkup((await SacramentsPage({ searchParams: Promise.resolve(sp) })) as React.ReactElement)
 }
 
@@ -32,6 +33,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockAuth.mockResolvedValue({ user: { id: "1", role: "PASTOR" } })
   findMany.mockResolvedValue([ROW])
+  count.mockResolvedValue(1)
 })
 
 describe("SacramentsPage", () => {
@@ -76,13 +78,66 @@ describe("SacramentsPage", () => {
     expect(JSON.stringify(findMany.mock.calls[0][0].select)).not.toMatch(/notes|godparents|spouseName/)
   })
 
-  it("shows a cap notice when more than 500 rows exist", async () => {
-    findMany.mockResolvedValue(Array.from({ length: 501 }, (_, i) => ({ ...ROW, id: i + 1 })))
-    expect(await render()).toContain("Showing the latest 500 entries")
+  it("paginates: skips earlier pages and keeps filters in links", async () => {
+    count.mockResolvedValue(250)
+    const html = await render({ type: "MARRIAGE", year: "2026", page: "2" })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 100, take: 100 }))
+    expect(html).toContain("Page 2 of 3")
+    expect(html).toContain("/sacraments?type=MARRIAGE&amp;year=2026")
+    expect(html).toContain("page=3")
   })
 
-  it("shows the empty state", async () => {
+  it("clamps an out-of-range or malformed page", async () => {
+    count.mockResolvedValue(250)
+    await render({ page: "99" })
+    expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 200 }))
+    await render({ page: "abc" })
+    expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 0 }))
+  })
+
+  it("recovers when a delete empties the requested page between count and fetch", async () => {
+    count.mockResolvedValueOnce(201).mockResolvedValueOnce(200)
+    findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([ROW])
+    const html = await render({ page: "3" })
+    expect(findMany).toHaveBeenCalledTimes(2)
+    expect(findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ skip: 200 }))
+    expect(findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ skip: 100 }))
+    expect(html).toContain("Page 2 of 2")
+  })
+
+  it("shows the empty state when the recount after an emptied page is zero", async () => {
+    count.mockResolvedValueOnce(101).mockResolvedValueOnce(0)
     findMany.mockResolvedValue([])
-    expect(await render({ year: "2026" })).toContain("No entries match these filters.")
+    const html = await render({ page: "2" })
+    expect(findMany).toHaveBeenCalledTimes(2)
+    expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 0 }))
+    expect(html).toContain("No entries in the register yet")
+  })
+
+  it("hides pagination for a single page", async () => {
+    expect(await render()).not.toContain("Register pages")
+  })
+
+  it("shows the no-match empty state with a clear-filters action", async () => {
+    count.mockResolvedValue(0)
+    findMany.mockResolvedValue([])
+    const html = await render({ year: "2026" })
+    expect(html).toContain("No entries match these filters")
+    expect(html).toContain("Clear filters")
+  })
+
+  it("shows the no-data empty state with one add action for editors", async () => {
+    count.mockResolvedValue(0)
+    findMany.mockResolvedValue([])
+    const html = await render()
+    expect(html).toContain("No entries in the register yet")
+    expect(html.match(/Add entry/g)).toHaveLength(1)
+  })
+
+  it("no-data empty state has no add action for read-only roles", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } })
+    count.mockResolvedValue(0)
+    findMany.mockResolvedValue([])
+    expect(await render()).not.toContain("Add entry")
   })
 })

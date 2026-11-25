@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useActionState, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,6 +15,8 @@ import {
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import { useSubmissionToken } from "./useSubmissionToken"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Account = { id: number; code: string; name: string }
 type Fund = { id: number; name: string }
@@ -41,7 +43,7 @@ export function ExpenseForm({
   const router = useRouter()
   // Idempotency token (#487), stable per mounted form; updateExpense ignores it.
   const submitWithToken = useSubmissionToken(action)
-  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(submitWithToken)
   const generalFundId = funds.find((f) => f.name === "General")?.id
   // When editing, honour the stored fund even when it is "" (unassigned) — a
   // falsy check would silently re-default an unassigned expense to General.
@@ -53,19 +55,17 @@ export function ExpenseForm({
   )
 
   return (
-    <form action={formAction} className="max-w-lg space-y-4">
+    <form onSubmit={onSubmit} className="max-w-lg space-y-4">
       {/* Implicit submission (Enter in a field) clicks the FIRST submit button in tree
           order. The "Post anyway"/"Record anyway" confirms render above the real submit,
           so a nameless default button first keeps Enter on the ordinary, re-validating path. */}
       <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" disabled={isPending} />
-      {state?.error && (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-          <p className="text-sm text-destructive">{state.error}</p>
+      <FormError error={state?.error} errorKey={errorSeq} className="p-3">
           {/* Likely-duplicate warning: the button's own name/value pair
               is only included in the submitted FormData when it — not the main
               submit button — triggers the form, so re-submitting via the
               regular button never silently confirms a duplicate. */}
-          {state.duplicateWarning && (
+          {state?.duplicateWarning && (
             <Button type="submit" name="confirmDuplicate" value="true" variant="outline" size="sm" disabled={isPending}>
               Post anyway
             </Button>
@@ -75,7 +75,7 @@ export function ExpenseForm({
               — otherwise a row that is both a duplicate and overdrawn would
               ping-pong between the two warnings. The hidden input is scoped to
               this block so it never auto-confirms a duplicate in the normal flow. */}
-          {state.negativeBalanceWarning && (
+          {state?.negativeBalanceWarning && (
             <>
               <input type="hidden" name="confirmDuplicate" value="true" />
               <Button type="submit" name="confirmNegative" value="true" variant="outline" size="sm" disabled={isPending}>
@@ -83,8 +83,7 @@ export function ExpenseForm({
               </Button>
             </>
           )}
-        </div>
-      )}
+      </FormError>
 
       {/* Date is not collected — server sets it to the session date */}
       <div className="space-y-1">

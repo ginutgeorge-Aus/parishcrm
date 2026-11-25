@@ -12,7 +12,7 @@ jest.mock("@/lib/crypto", () => ({ safeDecrypt: (v: string) => v }))
 
 const transfer = {
   id: 4,
-  date: new Date("2026-07-31T00:00:00.000Z"),
+  date: new Date("2010-07-31T00:00:00.000Z"),
   amount: "100.00",
   retainedFloat: "0",
   depositSlipRef: null,
@@ -58,4 +58,20 @@ test("no actions on a closed session", () => {
   setup({ isOpen: false })
   expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument()
   expect(screen.queryByRole("columnheader", { name: "Actions" })).not.toBeInTheDocument()
+})
+
+test("inside the 7-year retention period Delete is replaced by an explanatory note", () => {
+  render(
+    <SessionTransfersTable
+      sessionId={1}
+      transfers={[{ ...transfer, date: new Date() } as unknown as SessionTransfer]}
+      totalTransfers={100}
+      userCanEdit
+      userIsAdmin
+      isOpen
+      lockDate={null}
+    />,
+  )
+  expect(screen.queryByText("Delete 4")).not.toBeInTheDocument()
+  expect(screen.getAllByText(/Kept for 7 years/).length).toBeGreaterThan(0)
 })

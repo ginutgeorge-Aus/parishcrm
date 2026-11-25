@@ -432,7 +432,7 @@ describe("FIELDS map", () => {
     // (dgrReceipt.ts) and filename (transactionAttachment.ts). The attachment
     // blob column `data` (BYTEA) is now re-keyed via the blob path and
     // listed in BLOB_FIELDS, so it belongs here too.
-    dgrReceipt: ["donorEmail"],
+    dgrReceipt: ["donorEmail", "frozenPdf"],
     transactionAttachment: ["filename", "data"],
     // TOTP authenticator secrets (src/lib/actions/totp.ts).
     user: ["totpSecret", "totpPendingSecret"],

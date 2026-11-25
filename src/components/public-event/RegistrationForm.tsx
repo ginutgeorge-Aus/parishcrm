@@ -8,6 +8,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { turnstileLoadFailedMessage } from "@/components/public/TurnstileWidget"
 import { useRegistrationForm } from "./useRegistrationForm"
 import type { RegistrationFormProps } from "./useRegistrationForm"
+import { OFFICE_WILL_SEND_PAYMENT_DETAILS } from "@/lib/eventPaymentRule"
 
 export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
   const {
@@ -21,7 +22,8 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
     handleSubmit, handleQuantityChange, handleNameChange, handleAttendeeAnswerChange, attendeeQuestions,
   } = useRegistrationForm(props)
 
-  const { ticketTypes, soldCounts, allSoldOut } = props
+  const { ticketTypes, soldCounts, allSoldOut, hasBankDetails = true } = props
+  const cardAvailable = !!props.onlinePaymentEnabled && !!props.stripeConfigured
 
   if (allSoldOut) {
     return (
@@ -94,7 +96,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
               className="mt-1"
             />
           </div>
-          <div className="col-span-2">
+          <div className="md:col-span-2">
             <label htmlFor="reg-email" className="text-sm font-medium text-foreground">Email *</label>
             <Input
               id="reg-email"
@@ -107,7 +109,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
               className="mt-1"
             />
           </div>
-          <div className="col-span-2">
+          <div className="md:col-span-2">
             <label htmlFor="reg-phone" className="text-sm font-medium text-foreground">Phone</label>
             <Input
               id="reg-phone"
@@ -161,7 +163,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
                 checked={method === "bank"}
                 onChange={() => setMethod("bank")}
               />
-              Pay later by bank transfer
+              {hasBankDetails ? "Pay later by bank transfer" : "Pay later (the office will send details)"}
             </label>
           </div>
         </div>
@@ -210,9 +212,18 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
         >
           {submitting ? "Processing…" : "Reserve My Tickets"}
         </button>
-        <p className="text-xs text-muted-foreground text-center mt-2">
-          Bank transfer details shown on next page
-        </p>
+        {hasBankDetails ? (
+          <p className="text-xs text-muted-foreground text-center mt-2">
+            Bank transfer details shown on next page
+          </p>
+        ) : (
+          // Card on: the next page offers a card button, so the office line would be untrue.
+          !cardAvailable && (
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              {OFFICE_WILL_SEND_PAYMENT_DETAILS}
+            </p>
+          )
+        )}
       </div>
     </form>
   )

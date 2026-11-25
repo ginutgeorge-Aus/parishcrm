@@ -40,6 +40,21 @@ describe("RegistrationConfirmationEmail", () => {
     expect(noPay).not.toContain("BSB")
   })
 
+  it("blank bank details: office-will-send line, no bank block, no 7-day hold", () => {
+    for (const payment of [
+      { bankBsb: null, bankAccount: null, reference: "REG-ABC123" },
+      { bankBsb: "012-345", bankAccount: " ", reference: "REG-ABC123" },
+    ]) {
+      const html = renderToStaticMarkup(
+        React.createElement(RegistrationConfirmationEmail, { ...base, payment })
+      )
+      expect(html).toContain("The church office will send you payment details.")
+      expect(html).toContain("REG-ABC123")
+      expect(html).not.toContain("Bank transfer details")
+      expect(html).not.toContain("held for 7 days")
+    }
+  })
+
   it("shows organiser contacts only when organizers present", () => {
     const withOrg = renderToStaticMarkup(
       React.createElement(RegistrationConfirmationEmail, {

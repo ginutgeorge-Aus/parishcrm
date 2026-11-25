@@ -1,13 +1,13 @@
 "use client"
 
-import { useActionState } from "react"
 import { useRouter } from "next/navigation"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { MAX_LEVEL } from "@/lib/sundaySchool"
 import type { ActionResult } from "@/lib/actions/types"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type ClassValues = { name: string; level: number; location: string }
 
@@ -22,12 +22,12 @@ export function ClassForm({
   cls?: ClassValues
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const submitLabel = cls ? "Save changes" : "Create class"
 
   return (
-    <form action={formAction} className="max-w-md space-y-4">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="max-w-md space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} />
       <p className="text-sm text-muted-foreground">School year {year}</p>
 
       <div className="space-y-1">

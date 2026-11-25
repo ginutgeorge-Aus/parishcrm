@@ -10,14 +10,16 @@ import { Prisma } from "@/lib/generated/prisma/client"
 import { DEMO_ERROR, isDemoMode } from "@/lib/demoMode"
 
 const EventBase = z.object({
-  title: z.string().min(1, "Title required").max(200),
+  title: z.string().min(1, "Title required").max(200, "Title must be 200 characters or fewer"),
   // Optional: blank/whitespace -> null (staff-only event, no public page).
   // Only an all-whitespace value becomes null; any other value is validated as typed,
   // so "page " fails the format check instead of being silently trimmed.
   slug: z.string().optional().transform((v) => (v && v.trim() !== "" ? v : null)).pipe(
     z.string().max(200, "Slug is too long").regex(/^[a-z0-9-]+$/, "Slug: lowercase letters, numbers, hyphens only").nullable(),
   ),
-  description: z.string().max(2000).optional(),
+  // Normalise CRLF (how browsers submit textarea newlines) to LF before the length check so it
+  // matches the textarea's maxLength, which counts a line break as one character.
+  description: z.string().transform((s) => s.replace(/\r\n/g, "\n")).pipe(z.string().max(2000, "Description must be 2000 characters or fewer")).optional(),
   kind: z.enum(["one_off", "recurring"]).default("one_off"),
   category: z.enum(CATEGORIES).catch("worship"),
   // Same strict `YYYY-MM-DDTHH:mm` calendar check sydneyDatetimeLocalToUTC uses,
@@ -27,17 +29,17 @@ const EventBase = z.object({
   endDate: z.string().optional().refine(v => !v || isValidDatetimeLocal(v), "Invalid end date"),
   registrationDeadline: z.string().optional().refine(v => !v || isValidDatetimeLocal(v), "Invalid registration deadline"),
   recurs: z.enum(RECURS).optional(),
-  recursLabel: z.string().max(40).optional(),
-  startTime: z.string().max(40).optional(),
-  location: z.string().max(200).optional(),
-  bankBsb: z.string().max(20).optional(),
-  bankAccount: z.string().max(20).optional(),
+  recursLabel: z.string().max(40, "Recurrence label must be 40 characters or fewer").optional(),
+  startTime: z.string().max(40, "Start time must be 40 characters or fewer").optional(),
+  location: z.string().max(200, "Location must be 200 characters or fewer").optional(),
+  bankBsb: z.string().max(20, "BSB must be 20 characters or fewer").optional(),
+  bankAccount: z.string().max(20, "Account number must be 20 characters or fewer").optional(),
   onlinePaymentEnabled: z.string().optional().transform((v) => v === "on"),
   passCardFee: z.string().optional().transform((v) => v === "on"),
   familyWaiverEnabled: z.string().optional().transform((v) => v === "on"),
   familyWaiverThreshold: z.coerce.number().int().min(0, "Threshold must be 0 or more").max(1000, "Threshold too large").optional(),
   tieredPricingEnabled: z.string().optional().transform((v) => v === "on"),
-  imageUrl: z.string().trim().max(2048).regex(/^https:\/\//, "Image URL must start with https://").optional(),
+  imageUrl: z.string().trim().max(2048, "Image URL must be 2048 characters or fewer").regex(/^https:\/\//, "Image URL must start with https://").optional(),
   reminderDaysBefore: z.coerce.number().int().min(1, "Reminder days must be at least 1").max(90, "Reminder days too large").optional(),
 })
 

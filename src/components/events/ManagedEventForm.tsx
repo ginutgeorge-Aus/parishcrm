@@ -1,6 +1,5 @@
 "use client"
 
-import { useActionState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,11 +7,12 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { OrganizersEditor } from "./OrganizersEditor"
 import type { Organizer } from "@/lib/eventOrganizers"
 import type { ActionResult } from "@/lib/actions/types"
 import { CATEGORIES, RECURS_OPTIONS } from "@/lib/eventConstants"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Props = {
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
@@ -47,7 +47,7 @@ type Props = {
  * @returns The form element.
  */
 export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props>) {
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const recurring = kind === "recurring"
   const updatedAtIso =
     typeof defaultValues.updatedAt === "string" ? defaultValues.updatedAt : defaultValues.updatedAt.toISOString()
@@ -55,8 +55,8 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
   const cacheBust = `?v=${Date.parse(updatedAtIso)}`
 
   return (
-    <form action={formAction} className="flex max-w-2xl flex-col gap-8">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="flex max-w-2xl flex-col gap-8">
+      <FormError error={state?.error} errorKey={errorSeq} />
       <input type="hidden" name="updatedAt" value={updatedAtIso} />
 
       <section>
@@ -64,11 +64,11 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
         <div className="flex flex-col gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="title">Title *</Label>
-            <Input id="title" name="title" defaultValue={defaultValues.title} required />
+            <Input id="title" name="title" defaultValue={defaultValues.title} maxLength={200} required />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="description">Description</Label>
-            <Textarea id="description" name="description" defaultValue={defaultValues.description} rows={4} />
+            <Textarea id="description" name="description" defaultValue={defaultValues.description} maxLength={2000} rows={4} />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="category">Category</Label>
@@ -97,11 +97,11 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="recursLabel">Short label</Label>
-                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} placeholder="2nd Sun" />
+                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} maxLength={40} placeholder="2nd Sun" />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="startTime">Time</Label>
-                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} placeholder="9:30 AM" />
+                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} maxLength={40} placeholder="9:30 AM" />
               </div>
               <div className="grid gap-1.5 md:col-span-3">
                 <Label htmlFor="endDate">End date &amp; time</Label>
@@ -123,7 +123,7 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
 
           <div className="grid gap-1.5">
             <Label htmlFor="location">Location</Label>
-            <Input id="location" name="location" defaultValue={defaultValues.location} />
+            <Input id="location" name="location" defaultValue={defaultValues.location} maxLength={200} />
           </div>
 
           <div className="grid gap-1.5">

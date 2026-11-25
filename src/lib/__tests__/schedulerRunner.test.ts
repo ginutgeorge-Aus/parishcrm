@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { initialState } from "@/lib/scheduler"
-import { tick, startScheduler, FIRST_TICK_MS, TICK_MS, type Jobs } from "@/lib/schedulerRunner"
+import { tick, startScheduler, FIRST_TICK_MS, TICK_MS, JOB_TIMEOUT_MS, type Jobs } from "@/lib/schedulerRunner"
 
 const NOW = new Date("2026-07-01T17:00:00Z") // Thu 03:00 AEST — only reminders/checkouts due
 
@@ -134,6 +134,30 @@ describe("tick", () => {
     const line = (console.log as jest.Mock).mock.calls.map((c) => c[0]).find((l: string) => l.includes('"job":"reminders"'))
     expect(line).toContain('"eventsReminded":2')
     expect(line).not.toContain("Alice")
+  })
+})
+
+describe("job timeout", () => {
+  afterEach(() => jest.useRealTimers())
+
+  it("releases a job that never settles and logs a timeout", async () => {
+    jest.useFakeTimers({ now: NOW })
+    const s = initialState()
+    const j = jobs({ reminders: jest.fn(() => new Promise<unknown>(() => {})) })
+    const p = tick(s, j, NOW)
+    expect(s.reminders.running).toBe(true)
+    await jest.advanceTimersByTimeAsync(JOB_TIMEOUT_MS + 1)
+    await p
+    expect(s.reminders.running).toBe(false)
+    expect(s.reminders.lastSuccessKey).toBeNull()
+    const errs = (console.error as jest.Mock).mock.calls.map((c) => String(c[0]))
+    expect(errs.filter((l) => l.includes("timed out"))).toHaveLength(1)
+  })
+
+  it("does not leave a pending timer after a job settles", async () => {
+    jest.useFakeTimers({ now: NOW })
+    await tick(initialState(), jobs(), NOW)
+    expect(jest.getTimerCount()).toBe(0)
   })
 })
 

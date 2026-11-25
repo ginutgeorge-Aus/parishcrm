@@ -6,15 +6,27 @@ import { canEditSacraments, canViewSacraments } from "@/lib/roleGuard"
 import { SacramentType } from "@/lib/generated/prisma/enums"
 import { SACRAMENT_LABEL, formatLongYmd } from "@/lib/sacraments"
 import { utcYmd } from "@/lib/dates"
+import { ScrollText } from "lucide-react"
+import { EmptyState } from "@/components/shared/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-type Props = { searchParams: Promise<{ type?: string; year?: string }> }
+type Props = { searchParams: Promise<{ type?: string; year?: string; page?: string }> }
 
-/** Most rows one page shows; a notice appears when the register is longer. */
-const LIST_CAP = 500
+/** Rows per register page. */
+const PAGE_SIZE = 100
+
+/**
+ * Parse the `?page=` param: a positive safe integer, else 1.
+ * @param raw query-string value
+ */
+function parsePage(raw: string | undefined): number {
+  if (!raw || !/^\d+$/.test(raw)) return 1
+  const n = Number(raw)
+  return Number.isSafeInteger(n) && n >= 1 ? n : 1
+}
 
 const SELECT_CLASS =
   "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -39,27 +51,59 @@ export default async function SacramentsPage(props: Readonly<Props>) {
   const type = Object.values(SacramentType).find((t) => t === sp.type) ?? null
   const year = parseYear(sp.year)
 
-  const rows = await prisma.sacramentRecord.findMany({
-    where: { ...(type ? { type } : {}), ...(year ? { year } : {}) },
-    orderBy: [{ date: "desc" }, { id: "desc" }],
-    take: LIST_CAP + 1,
-    select: {
-      id: true,
-      type: true,
-      registerNo: true,
-      date: true,
-      place: true,
-      person: { select: { id: true, firstName: true, lastName: true } },
-    },
-  })
-  const capped = rows.length > LIST_CAP
-  const shown = capped ? rows.slice(0, LIST_CAP) : rows
+  const where = { ...(type ? { type } : {}), ...(year ? { year } : {}) }
+  const requestedPage = parsePage(sp.page)
+  let total = await prisma.sacramentRecord.count({ where })
+  let totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  let page = Math.min(requestedPage, totalPages)
+
+  /**
+   * Fetch one register page for the active filters.
+   * @param p 1-based page number
+   */
+  const fetchPage = (p: number) =>
+    prisma.sacramentRecord.findMany({
+      where,
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      skip: (p - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      select: {
+        id: true,
+        type: true,
+        registerNo: true,
+        date: true,
+        place: true,
+        person: { select: { id: true, firstName: true, lastName: true } },
+      },
+    })
+  let shown = await fetchPage(page)
+  if (shown.length === 0 && page > 1) {
+    // A delete emptied this page between the count and the fetch: recount and show the last valid page.
+    total = await prisma.sacramentRecord.count({ where })
+    totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    page = Math.min(page, totalPages)
+    shown = await fetchPage(page)
+  }
+  const filtered = Boolean(type || year)
+
+  /**
+   * Build a register URL for a page, carrying the active type and year filters.
+   * @param p target page number
+   */
+  const pageHref = (p: number): string => {
+    const params = new URLSearchParams()
+    if (type) params.set("type", type)
+    if (year) params.set("year", String(year))
+    if (p > 1) params.set("page", String(p))
+    const qs = params.toString()
+    return qs ? `/sacraments?${qs}` : "/sacraments"
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-semibold text-foreground">Sacramental register</h2>
-        {editor && (
+        {editor && !(shown.length === 0 && !filtered) && (
           <Button asChild>
             <Link href="/sacraments/new">Add entry</Link>
           </Button>
@@ -89,9 +133,18 @@ export default async function SacramentsPage(props: Readonly<Props>) {
       </form>
 
       {shown.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {type || year ? "No entries match these filters." : "No entries in the register yet."}
-        </p>
+        <EmptyState
+          icon={ScrollText}
+          title={filtered ? "No entries match these filters" : "No entries in the register yet"}
+          description={filtered ? "Try a different sacrament or year." : "Entries you add will appear here."}
+          actions={
+            filtered
+              ? [{ label: "Clear filters", href: "/sacraments" }]
+              : editor
+                ? [{ label: "Add entry", href: "/sacraments/new" }]
+                : []
+          }
+        />
       ) : (
         <>
           <Table aria-label="Sacramental register">
@@ -122,10 +175,24 @@ export default async function SacramentsPage(props: Readonly<Props>) {
               ))}
             </TableBody>
           </Table>
-          {capped && (
-            <p className="text-sm text-muted-foreground">
-              Showing the latest {LIST_CAP} entries. Filter by sacrament or year to narrow the list.
-            </p>
+          {totalPages > 1 && (
+            <nav aria-label="Register pages" className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+              {page > 1 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={pageHref(page - 1)}>Previous</Link>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" disabled>Previous</Button>
+              )}
+              <span>Page {page} of {totalPages}</span>
+              {page < totalPages ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={pageHref(page + 1)}>Next</Link>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" disabled>Next</Button>
+              )}
+            </nav>
           )}
         </>
       )}

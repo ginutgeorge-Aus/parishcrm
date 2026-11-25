@@ -1,6 +1,5 @@
 "use client"
 
-import { useActionState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,11 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { ActionResult } from "@/lib/actions/types"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { canAssignRole } from "@/lib/roleGuard"
 import { ROLE_LABELS } from "@/lib/roleLabels"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type User = { id: number; name: string; email: string; role: UserRole }
 
@@ -38,15 +38,15 @@ export function UserForm({
   currentUserRole?: UserRole
   isSelf?: boolean
 }>) {
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   // Same rule the server enforces: a non-ADMIN actor (OFFICE_ADMIN) cannot
   // grant ADMIN, PASTOR or its own role.
   const roleOptions = Object.values(UserRole).filter((r) => canAssignRole(currentUserRole, r))
   const selfEdit = isSelf && !!user
 
   return (
-    <form action={formAction} className="max-w-md space-y-4">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="max-w-md space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       <div className="space-y-1">
         <Label htmlFor="name">Name</Label>

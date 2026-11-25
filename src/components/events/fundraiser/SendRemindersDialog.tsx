@@ -136,7 +136,7 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
       <p className="text-foreground">
         {sendable === 0
           ? "Nobody can be reminded right now."
-          : `This will email about ${sendable} ${plural(sendable, "person who still owes", "people who still owe")} money.`}
+          : `This will email up to ${sendable} ${plural(sendable, "person who still owes", "people who still owe")} money.`}
       </p>
       {skippedNoEmail > 0 && (
         <p className="text-muted-foreground">
@@ -151,6 +151,11 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
       {deferred > 0 && (
         <p className="text-muted-foreground">
           Reminders go out in batches: {deferred} more {deferred === 1 ? "person" : "people"} will be left for later runs.
+        </p>
+      )}
+      {sendable > 0 && (
+        <p className="text-muted-foreground">
+          Each run has a time limit. If some people are left, run it again to continue.
         </p>
       )}
       <p className="text-muted-foreground">

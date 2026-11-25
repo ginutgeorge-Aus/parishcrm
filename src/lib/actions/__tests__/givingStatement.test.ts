@@ -311,6 +311,18 @@ describe("sendGivingStatements", () => {
       expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1", value: expect.stringMatching(/^PENDING:/) } })
     })
 
+    it("frees the claim and counts in progress when the email layer reports the deadline expired", async () => {
+      mockSend.mockResolvedValueOnce("expired")
+      const res = await sendGivingStatements(2025, [1])
+      expect(res).toEqual(expect.objectContaining({ sent: 0, failed: 0, inProgress: 1 }))
+      expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1", value: expect.stringMatching(/^PENDING:/) } })
+    })
+
+    it("passes the deadline check to the email sender", async () => {
+      await sendGivingStatements(2025, [1])
+      expect(mockSend).toHaveBeenCalledWith("s@x.com",expect.anything(), expect.anything(), expect.any(Function))
+    })
+
     it("reports a send that exceeds the per-send timeout as in progress", async () => {
       jest.useFakeTimers()
       mockSend.mockImplementationOnce(() => new Promise(() => undefined))

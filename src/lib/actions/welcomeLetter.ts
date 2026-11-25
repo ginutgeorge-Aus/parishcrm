@@ -9,12 +9,13 @@ import { logAudit } from "@/lib/audit"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getLetterSettings } from "@/lib/letterSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
-import { buildWelcomeLetterModel, fullName, type WelcomeLetterModel } from "@/lib/welcomeLetter"
+import { buildWelcomeLetterModel, fullName, MAX_WELCOME_RECIPIENTS, ModelSchema, type WelcomeLetterModel } from "@/lib/welcomeLetter"
 import { renderWelcomeLetterPdf } from "@/lib/pdf/WelcomeLetterPdf"
 import { sendWelcomeLetterEmail } from "@/lib/email"
 import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { featureGuard } from "@/lib/featureFlags"
+import { isValidPgId } from "@/lib/validation"
 
 export type WelcomeLetterRecipient = { personId: number; name: string; email: string }
 export type DraftResult =
@@ -94,14 +95,29 @@ export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<
   const off = await featureGuard("welcomeLetter")
   if (off) return off
 
-  const { familyId, model, recipientPersonIds } = input
+  if (typeof input !== "object" || input === null) return { error: "Invalid request" }
+  const { familyId, recipientPersonIds } = input
+  if (typeof familyId !== "number" || !isValidPgId(familyId)) return { error: "Invalid family" }
   if (!Array.isArray(recipientPersonIds) || recipientPersonIds.length === 0) {
     return { error: "Select at least one recipient" }
   }
+  if (recipientPersonIds.length > MAX_WELCOME_RECIPIENTS) {
+    return { error: `Select at most ${MAX_WELCOME_RECIPIENTS} recipients` }
+  }
+  // Array.from fills sparse holes with undefined (every() would skip them).
+  if (!Array.from(recipientPersonIds).every((id) => typeof id === "number" && isValidPgId(id))) {
+    return { error: "Invalid recipient" }
+  }
+  const parsedModel = ModelSchema.safeParse(input.model)
+  if (!parsedModel.success) return { error: "Invalid letter" }
+  const model = parsedModel.data
+
+  const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, archivedAt: true } })
+  if (!family || family.archivedAt) return { error: "Family not found" }
 
   // Re-resolve emails server-side from the DB — never trust client-supplied addresses.
   const people = await prisma.person.findMany({
-    where: { id: { in: recipientPersonIds.slice(0, 20) }, familyId, archivedAt: null },
+    where: { id: { in: recipientPersonIds }, familyId, archivedAt: null },
     select: { id: true, email: true },
   })
   const emails = people

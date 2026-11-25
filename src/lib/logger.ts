@@ -1,5 +1,5 @@
 import { trace } from "@opentelemetry/api"
-import { captureError } from "@/lib/errorCapture"
+import { captureError, scrubContact } from "@/lib/errorCapture"
 
 /**
  * Thin structured logger.
@@ -41,10 +41,16 @@ function emit(level: Level, message: string, fields?: LogFields): void {
   // Spread caller fields FIRST so the core metadata below always wins — a stray
   // `level`/`message`/`time`/`correlationId` key in `fields` must never clobber
   // the real values a log parser keys off.
+  // Scrub emails/phones from free-form string fields (e.g. an SMTP error that
+  // echoes the recipient) so call sites cannot forget.
+  const safe: LogFields = { ...fields }
+  for (const key of ["error", "message"]) {
+    if (typeof safe[key] === "string") safe[key] = scrubContact(safe[key])
+  }
   const line = JSON.stringify({
-    ...fields,
+    ...safe,
     level,
-    message,
+    message: scrubContact(message),
     ...(cid ? { correlationId: cid } : {}),
     time: new Date().toISOString(),
   })
