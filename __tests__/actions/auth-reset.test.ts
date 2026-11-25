@@ -273,6 +273,18 @@ describe("requestPasswordReset — rate limit", () => {
     }))
   })
 
+  it("releases the claim and returns silent success when the email limiter throws", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    mockFindUnique.mockResolvedValue(ACTIVE_USER)
+    mockDbRateLimit.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error("db down"))
+    expect(await requestPasswordReset("victim@example.com")).toEqual({ success: true })
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(mockUpdateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: { passwordResetToken: null, passwordResetExpires: null },
+    }))
+    errSpy.mockRestore()
+  })
+
   it("limits per-email with a sha256 key, independent of IP, when sending", async () => {
     mockFindUnique.mockResolvedValue(ACTIVE_USER)
     mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "9.9.9.9" }))

@@ -150,7 +150,15 @@ export async function requestPasswordReset(
   // Per-target-email cap on mail actually sent (see the note above). Exhausted: release the claim
   // and return the same silent success, so the cap is never visible to a prober.
   const emailKey = `pwreset:email:${createHash("sha256").update(normalizeEmail(email)).digest("hex")}`
-  if (!(await dbRateLimit(emailKey, RESET_LIMIT, RESET_WINDOW_MS))) {
+  // A limiter failure is treated like exhaustion: release the claim (only our tokenHash) and return
+  // the same silent success, so no stranded claim blocks retries for the 1h TTL.
+  let emailAllowed = false
+  try {
+    emailAllowed = await dbRateLimit(emailKey, RESET_LIMIT, RESET_WINDOW_MS)
+  } catch {
+    console.error("requestPasswordReset: email rate limiter failed")
+  }
+  if (!emailAllowed) {
     await prisma.user
       .updateMany({
         where: { id: user.id, passwordResetToken: tokenHash },

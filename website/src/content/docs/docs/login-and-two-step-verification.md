@@ -176,8 +176,8 @@ the email belongs to an account, and a deliberate small random delay is added to
 account" and "already have an active reset link" paths so they can't be distinguished from
 each other by response timing. The reset token itself is single-use and time-boxed, consumed
 atomically so two submissions of the same link can't both succeed. A completed reset is written
-to the audit log (with the requester's IP) and the account owner is emailed a "your password was
-changed" notice.
+to the audit log (with the requester's IP) and the app attempts to email the account owner a "your password was
+changed" notice (best effort: a failed send does not block the reset).
 
 **Session lifetime.** A sign-in issues a JWT-based session. Every request re-validates the
 token server-side against the database: a deleted, archived, or now-locked account, or one

@@ -437,6 +437,17 @@ const READ_FIXTURES: Record<string, { args: unknown[]; rows: unknown[] }> = {
   },
 }
 
+/**
+ * Readers whose documented refusal is a built-in default (never the configured value) rather than an
+ * empty/error shape (AUD-1-11). The matrix accepts a non-empty object from these as a refusal, provided
+ * the guard made no Prisma call (so the configured row was never read).
+ */
+const DEFAULT_RETURN_READERS = new Set([
+  "settings.getBirthdayTemplate",
+  "settings.getAnniversaryTemplate",
+  "settings.getAutoEmailFlags",
+])
+
 /** An empty FormData, passed as the second argument of every action. */
 function formData(): FormData {
   return new FormData()
@@ -616,6 +627,10 @@ sacrament.getSacramentRecord:canViewSacraments
 serviceType.createServiceType:isAdmin
 serviceType.toggleServiceTypeActive:isAdmin
 serviceType.deleteServiceType:isAdmin
+settings.getBirthdayTemplate:canEdit
+settings.getAnniversaryTemplate:canEdit
+settings.getAutoEmailFlags:canEdit
+settings.getPettyCashDefaultCustodianId:canViewAccounting
 settings.upsertSetting:isAdmin
 settings.updateChurchInfo:isAdmin
 settings.updateBirthdayTemplate:isAdmin
@@ -919,8 +934,10 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(dbCalls).toEqual([])
     // A refusal is a returned error/empty shape or a thrown redirect/not-found error. Any other
     // throw is a crash, not a refusal, and any other result is a success payload.
-    if (thrown === undefined) expect(isRefusalShape(result)).toBe(true)
-    else expect(isRefusalThrow(thrown)).toBe(true)
+    if (thrown !== undefined) expect(isRefusalThrow(thrown)).toBe(true)
+    else if (DEFAULT_RETURN_READERS.has(`${entry.file}.${entry.fn}`)) {
+      expect(result).toEqual(expect.any(Object))
+    } else expect(isRefusalShape(result)).toBe(true)
   })
 })
 

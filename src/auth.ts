@@ -770,12 +770,12 @@ export async function jwtCallback({
       // 7-day sliding idle: a continuously-used remembered session stays alive;
       // 7 days without activity ends it. A 30-day absolute cap from loginAt stops a
       // stolen cookie used weekly from living forever (AUD-1-08).
-      if (loginAt && now - loginAt > REMEMBERED_MAX_DAYS * 24 * 60 * 60 * 1000) return null
+      if (now - (loginAt ?? 0) > REMEMBERED_MAX_DAYS * 24 * 60 * 60 * 1000) return null
       if (lastActivity && now - lastActivity > REMEMBERED_IDLE_MINUTES * 60 * 1000) return null
     } else {
       // Non-remembered: 4h hard cap + DB-configurable idle (default 60min).
       const FOUR_HOURS_MS = 4 * 60 * 60 * 1000
-      if (loginAt && now - loginAt > FOUR_HOURS_MS) return null
+      if (now - (loginAt ?? 0) > FOUR_HOURS_MS) return null
       if (lastActivity && now - lastActivity > (await getIdleMs())) return null
     }
     token.lastActivity = now
