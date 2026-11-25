@@ -1,7 +1,8 @@
 /** @jest-environment node */
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { sendPasswordResetEmail } from "@/lib/email"
+import { sendPasswordResetEmail, sendEmail } from "@/lib/email"
+import { logAudit } from "@/lib/audit"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
@@ -13,7 +14,9 @@ jest.mock("@/lib/prisma", () => ({
     passkey: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   },
 }))
-jest.mock("@/lib/email", () => ({ sendPasswordResetEmail: jest.fn() }))
+jest.mock("@/lib/email", () => ({ sendPasswordResetEmail: jest.fn(), sendEmail: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/emailTemplateStore", () => ({ getChurchName: jest.fn().mockResolvedValue("Test Church") }))
 jest.mock("next/headers", () => ({ headers: jest.fn() }))
 jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn() }))
 
@@ -176,6 +179,23 @@ describe("resetPassword", () => {
     }))
   })
 
+  // AUD-1-07: completed reset is audited with the client IP and the owner is told.
+  it("logs PASSWORD_RESET_COMPLETED with the client IP and emails the owner", async () => {
+    mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "9.9.9.9" }))
+    mockFindUnique.mockResolvedValue({ id: 1, email: "owner@example.com", passwordResetExpires: new Date(Date.now() + 60000) })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    expect(await resetPassword(VALID_TOKEN, "StrongPass1!")).toEqual({ success: true })
+    expect(logAudit).toHaveBeenCalledWith(1, "PASSWORD_RESET_COMPLETED", "User", 1, undefined, "9.9.9.9")
+    expect(sendEmail).toHaveBeenCalledWith("owner@example.com", expect.stringContaining("password"), expect.any(String), expect.any(String))
+  })
+
+  it("still succeeds when the password-changed notice fails to send", async () => {
+    mockFindUnique.mockResolvedValue({ id: 1, email: "owner@example.com", passwordResetExpires: new Date(Date.now() + 60000) })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp down"))
+    expect(await resetPassword(VALID_TOKEN, "StrongPass1!")).toEqual({ success: true })
+  })
+
   it("invalidates existing sessions on success", async () => {
     mockFindUnique.mockResolvedValue({ id: 1, passwordResetExpires: new Date(Date.now() + 60000) })
     mockUpdateMany.mockResolvedValue({ count: 1 })
@@ -221,57 +241,67 @@ describe("requestPasswordReset — rate limit", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockDbRateLimit.mockResolvedValue(true)
+    mockQueryRaw.mockResolvedValue([{ id: 1 }])
+    mockUpdateMany.mockResolvedValue({ count: 1 })
     process.env.AUTH_URL = "http://localhost:3000"
   })
+  const ACTIVE_USER = { id: 1, email: "victim@example.com", passwordResetExpires: null }
 
-  it("blocks when the email limiter denies", async () => {
-    mockDbRateLimit.mockResolvedValueOnce(false) // first call is the email key
-    expect(await requestPasswordReset("victim@example.com")).toEqual({
-      error: "Too many requests. Please try again later.",
-    })
-    expect(mockFindUnique).not.toHaveBeenCalled()
-  })
-
-  it("limits per-email with a sha256 key, independent of IP", async () => {
+  // AUD-1-09: the per-email bucket counts only requests that actually send mail, so a stranger's
+  // requests for unknown / throttled addresses can't burn a victim's allowance.
+  it("does not touch the per-email bucket on the no-user path", async () => {
     mockFindUnique.mockResolvedValue(null)
     mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "9.9.9.9" }))
     await requestPasswordReset("u@e.com")
-    const emailKey = mockDbRateLimit.mock.calls[0][0]
-    expect(emailKey).toMatch(/^pwreset:email:[0-9a-f]{64}$/)
+    expect(mockDbRateLimit).toHaveBeenCalledTimes(1)
+    expect(mockDbRateLimit.mock.calls[0][0]).toBe("pwreset:ip:9.9.9.9")
   })
 
-  it("checks the per-IP limiter keyed on the client IP", async () => {
-    mockFindUnique.mockResolvedValue(null)
+  it("returns silent success and sends no mail when the email bucket is exhausted", async () => {
+    mockFindUnique.mockResolvedValue(ACTIVE_USER)
+    mockDbRateLimit.mockResolvedValueOnce(true).mockResolvedValueOnce(false) // ip ok, email exhausted
+    expect(await requestPasswordReset("victim@example.com")).toEqual({ success: true })
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it("releases the claimed token slot when the email bucket is exhausted", async () => {
+    mockFindUnique.mockResolvedValue(ACTIVE_USER)
+    mockDbRateLimit.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    await requestPasswordReset("victim@example.com")
+    expect(mockUpdateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: { passwordResetToken: null, passwordResetExpires: null },
+    }))
+  })
+
+  it("limits per-email with a sha256 key, independent of IP, when sending", async () => {
+    mockFindUnique.mockResolvedValue(ACTIVE_USER)
     mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "9.9.9.9" }))
-    await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit).toHaveBeenCalledTimes(2)
-    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:9.9.9.9")
+    await requestPasswordReset("victim@example.com")
+    expect(mockDbRateLimit.mock.calls[1][0]).toMatch(/^pwreset:email:[0-9a-f]{64}$/)
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 
   it("applies the shared 'unknown' per-IP bucket when no XFF header is present", async () => {
     mockFindUnique.mockResolvedValue(null)
     mockHeaders.mockResolvedValue(new Headers()) // no x-forwarded-for
     await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit).toHaveBeenCalledTimes(2)
-    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:unknown")
+    expect(mockDbRateLimit.mock.calls[0][0]).toBe("pwreset:ip:unknown")
   })
 
   it.each(["999.1.1.1", "unknown"])("uses the 'unknown' per-IP bucket when the rightmost XFF entry (%s) is not a valid IP", async (xff) => {
     mockFindUnique.mockResolvedValue(null)
     mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": xff }))
     await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit).toHaveBeenCalledTimes(2)
-    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:unknown")
+    expect(mockDbRateLimit.mock.calls[0][0]).toBe("pwreset:ip:unknown")
   })
 
-  it("blocks when the IP limiter denies (email allowed)", async () => {
-    mockDbRateLimit
-      .mockResolvedValueOnce(true) // email allowed
-      .mockResolvedValueOnce(false) // ip denied
+  it("blocks when the IP limiter denies, before any lookup", async () => {
+    mockDbRateLimit.mockResolvedValueOnce(false)
     mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "9.9.9.9" }))
     expect(await requestPasswordReset("u@e.com")).toEqual({
       error: "Too many requests. Please try again later.",
     })
+    expect(mockFindUnique).not.toHaveBeenCalled()
   })
 
   it("delays the no-user path to mask user existence", async () => {

@@ -16,7 +16,7 @@ import { resolveClientIp } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
-import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
+import { REMEMBERED_IDLE_MINUTES, REMEMBERED_MAX_DAYS } from "@/lib/sessionWindows"
 import { verifyAuthenticationResponse, type AuthenticationResponseJSON } from "@simplewebauthn/server"
 import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 
@@ -758,7 +758,7 @@ export async function jwtCallback({
     }
     // Remember-aware session windows.
     // Non-remembered: 4h hard cap from loginAt + DB-configurable idle (default 60min).
-    // Remembered: 7-day sliding idle from lastActivity, no separate hard cap.
+    // Remembered: 7-day sliding idle from lastActivity, 30-day absolute cap from loginAt.
     // A token minted before this change has no lastActivity — grandfather it in
     // by stamping now (below) and enforcing from this request onward.
     const now = Date.now()
@@ -768,7 +768,9 @@ export async function jwtCallback({
 
     if (remember) {
       // 7-day sliding idle: a continuously-used remembered session stays alive;
-      // 7 days without activity ends it. No separate hard cap.
+      // 7 days without activity ends it. A 30-day absolute cap from loginAt stops a
+      // stolen cookie used weekly from living forever (AUD-1-08).
+      if (loginAt && now - loginAt > REMEMBERED_MAX_DAYS * 24 * 60 * 60 * 1000) return null
       if (lastActivity && now - lastActivity > REMEMBERED_IDLE_MINUTES * 60 * 1000) return null
     } else {
       // Non-remembered: 4h hard cap + DB-configurable idle (default 60min).

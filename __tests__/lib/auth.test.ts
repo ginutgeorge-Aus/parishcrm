@@ -1212,6 +1212,24 @@ describe("jwtCallback — remember windows", () => {
     expect(token).not.toBeNull()
   })
 
+  it("kills a remembered session past the 30-day absolute cap even when active (AUD-1-08)", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ role: "ADMIN", lockedUntil: null, sessionsValidFrom: null })
+    const thirtyOneDaysAgo = Date.now() - 31 * 24 * 60 * 60_000
+    const token = await jwtCallback({
+      token: { id: "1", role: "ADMIN", remember: true, loginAt: thirtyOneDaysAgo, lastActivity: Date.now() - 60_000 },
+    })
+    expect(token).toBeNull()
+  })
+
+  it("keeps an active remembered session 29 days after login", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ role: "ADMIN", lockedUntil: null, sessionsValidFrom: null })
+    const twentyNineDaysAgo = Date.now() - 29 * 24 * 60 * 60_000
+    const token = await jwtCallback({
+      token: { id: "1", role: "ADMIN", remember: true, loginAt: twentyNineDaysAgo, lastActivity: Date.now() - 60_000 },
+    })
+    expect(token).not.toBeNull()
+  })
+
   it("kills a remembered session idle past 7 days", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ role: "ADMIN", lockedUntil: null, sessionsValidFrom: null })
     const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60_000
