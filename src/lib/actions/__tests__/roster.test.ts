@@ -266,6 +266,28 @@ describe("deleteRosterService", () => {
   })
 })
 
+describe("restoreRosterRole group guard", () => {
+  it("refuses to restore a role whose group is archived", async () => {
+    p.rosterRole.findFirst.mockResolvedValueOnce({ groupId: 4 })
+    p.$queryRaw.mockResolvedValueOnce([])
+    await expect(restoreRosterRole(3)).resolves.toEqual({ error: "Restore the role's group first" })
+    expect(p.rosterRole.updateMany).not.toHaveBeenCalled()
+  })
+  it("restores when the group is live, and archive skips the group check", async () => {
+    p.rosterRole.findFirst.mockResolvedValueOnce({ groupId: 4 })
+    p.$queryRaw.mockResolvedValueOnce([{ id: 4 }])
+    await expect(restoreRosterRole(3)).resolves.toEqual({ success: "Roster role restored" })
+    p.rosterRole.findFirst.mockClear()
+    await expect(archiveRosterRole(3)).resolves.toEqual({ success: "Roster role archived" })
+    expect(p.rosterRole.findFirst).not.toHaveBeenCalled()
+  })
+  it("reports an already-live role as not found rather than a group error", async () => {
+    p.rosterRole.findFirst.mockResolvedValueOnce(null)
+    p.rosterRole.updateMany.mockResolvedValueOnce({ count: 0 })
+    await expect(restoreRosterRole(3)).resolves.toEqual({ error: "Roster role not found" })
+  })
+})
+
 describe("assignment access", () => {
   it.each([UserRole.VIEWER, UserRole.AUDITOR, UserRole.TEACHER, UserRole.HEADMASTER, undefined])("refuses %s", async (role) => {
     as(role)
@@ -275,9 +297,10 @@ describe("assignment access", () => {
   })
   it("refuses an organiser who does not lead the role's group", async () => {
     as(UserRole.EVENT_ORGANISER)
-    await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: "Unauthorized" })
-    await expect(unassignRosterAssignment(11)).resolves.toEqual({ error: "Unauthorized" })
-    await expect(suggestRosterAssignees(5)).resolves.toEqual({ error: "Unauthorized" })
+    // Slot-scoped actions answer "Slot not found", the same as a missing id (no id probing).
+    await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: "Slot not found" })
+    await expect(unassignRosterAssignment(11)).resolves.toEqual({ error: "Assignment not found" })
+    await expect(suggestRosterAssignees(5)).resolves.toEqual({ error: "Slot not found" })
     expect(p.groupLeaderAccess.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { groupId_userId: { groupId: 4, userId: 9 } } }))
     expect(p.rosterAssignment.create).not.toHaveBeenCalled()
     expect(p.rosterAssignment.deleteMany).not.toHaveBeenCalled()
