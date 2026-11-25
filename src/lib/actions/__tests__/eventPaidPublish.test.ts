@@ -55,13 +55,13 @@ describe("publishEvent paid-event rule", () => {
     findUnique.mockResolvedValue(draft({ bankBsb: "012-345", bankAccount: "123" }))
     expect(await publishEvent(1, true)).toBeUndefined()
     expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 1, slug: { not: null }, updatedAt: new Date(1000) },
+      where: { id: 1, isPublished: false, slug: { not: null }, updatedAt: new Date(1000) },
     }))
   })
   it("reports a changed event when the guarded write matches 0 rows", async () => {
     findUnique.mockResolvedValue(draft({ bankBsb: "012-345", bankAccount: "123" }))
     updateMany.mockResolvedValueOnce({ count: 0 })
-    expect(await publishEvent(1, true)).toEqual({ error: "Event changed while publishing — reload and try again" })
+    expect(await publishEvent(1, true)).toEqual({ error: "Event changed concurrently, please try again" })
   })
   it("allows publishing with card on and Stripe configured", async () => {
     mStripe.mockReturnValue(true)
