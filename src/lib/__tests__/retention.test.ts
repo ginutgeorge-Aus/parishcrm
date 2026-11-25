@@ -22,5 +22,5 @@ describe("isWithinRetention", () => {
 })
 
 test("retentionError names the next step", () => {
-  expect(retentionError(new Date("2025-01-02T00:00:00.000Z"))).toMatch(/reversing entry/)
+  expect(retentionError(new Date("2025-01-02T00:00:00.000Z"))).toMatch(/Edit the entry to correct it/)
 })

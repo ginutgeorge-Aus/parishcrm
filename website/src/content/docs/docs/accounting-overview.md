@@ -56,7 +56,7 @@ The FY start month is configurable per install via `APP_FY_START_MONTH` (`src/li
 
 ### Locking a period
 
-**Retention and corrections**: a transaction or petty-cash entry dated within the last 7 years (ATO record retention) cannot be deleted by anyone. The Delete button is replaced by the note "Kept for 7 years (ATO). Edit it or enter a reversing entry." Fix a wrong entry by editing it, or post an opposite (reversing) entry. The server enforces the same rule.
+**Retention and corrections**: a transaction or petty-cash entry dated within the last 7 years (ATO record retention) cannot be deleted by anyone. The Delete button is replaced by the note "Kept for 7 years (ATO). Edit it to correct it." Fix a wrong entry by editing it. The server enforces the same rule.
 
 An ADMIN can set an **accounting lock date** (Accounting settings → Period lock). Any transaction, petty-cash entry, or reconciliation statement dated on or before that date becomes read-only — no create, edit, or delete — enforced server-side in every relevant action (`assertUnlocked` / `isDateLocked` in `src/lib/accountingLock.ts`), not just hidden in the UI. This is how a parish "closes the books" for a period after it's been reviewed.
 

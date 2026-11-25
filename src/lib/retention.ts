@@ -32,5 +32,5 @@ export function isWithinRetention(date: Date, now: Date = new Date()): boolean {
  * @param date Record date shown in the message.
  */
 export function retentionError(date: Date): string {
-  return `This transaction is dated ${date.toISOString().slice(0, 10)}, within the ${RETENTION_YEARS}-year financial record retention period required by the ATO. It cannot be deleted until the retention period has passed. Edit the entry, or enter a reversing entry instead.`
+  return `This transaction is dated ${date.toISOString().slice(0, 10)}, within the ${RETENTION_YEARS}-year financial record retention period required by the ATO. It cannot be deleted until the retention period has passed. Edit the entry to correct it.`
 }

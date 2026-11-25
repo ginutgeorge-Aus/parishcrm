@@ -11,7 +11,7 @@ export function RetentionGate({ date, children }: Readonly<{ date: Date; childre
   if (!isWithinRetention(date)) return <>{children}</>
   return (
     <span className="text-xs text-muted-foreground max-w-48">
-      Kept for 7 years (ATO). Edit it or enter a reversing entry.
+      Kept for 7 years (ATO). Edit it to correct it.
     </span>
   )
 }
