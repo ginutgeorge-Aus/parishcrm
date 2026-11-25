@@ -98,7 +98,8 @@ describe("listAssignableOrganisers authz gate", () => {
   })
 })
 
-describe("updateEvent reminder re-arm", () => {
+// #3344: a moved event kept reminderSentAt, so its new date never got a reminder.
+describe("updateEvent reminder re-arm (regression #3344: moved event never got a fresh reminder)", () => {
   const stored = { id: 9, isPublished: false, date: new Date("2026-08-01T00:00:00Z"), reminderDaysBefore: 3 }
   // 2026-08-01T10:00 Sydney (AEST, +10) = 2026-08-01T00:00Z, i.e. the stored date.
   const same = { ...base, reminderDaysBefore: "3" }
@@ -164,8 +165,8 @@ describe("updateEvent reminder re-arm", () => {
       expect(arg.data).not.toHaveProperty("reminderSentAt")
     })
 
-    it("keeps the marker when the kind changes to recurring", async () => {
-      const arg = await runUpdate(form({ ...same, kind: "recurring", recurs: "every-sunday" }))
+    it("keeps the marker when the kind changes to recurring (date moved too, so the kind rule decides)", async () => {
+      const arg = await runUpdate(form({ ...same, date: "2026-09-01T10:00", kind: "recurring", recurs: "every-sunday" }))
       expect(arg.data).not.toHaveProperty("reminderSentAt")
     })
 

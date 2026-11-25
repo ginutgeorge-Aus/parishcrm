@@ -82,7 +82,7 @@ it("sends to every registration of a due event, claims a lease, then sets the du
   })
   // Durable marker set only after delivery work completes, lease released.
   expect(updateMany).toHaveBeenNthCalledWith(2, {
-    where: { id: 1, reminderClaimedAt: now },
+    where: { id: 1, reminderClaimedAt: now, date: dueEvent.date, reminderDaysBefore: 3 },
     data: { reminderSentAt: now, reminderClaimedAt: null },
   })
   expect(updateMany).toHaveBeenCalledTimes(2)
@@ -102,7 +102,7 @@ it(" retries the durable sent-marker write on a transient DB error so a blip can
   // claim + marker(fail) + marker(retry) = 3 writes; last carries the durable marker.
   expect(updateMany).toHaveBeenCalledTimes(3)
   expect(updateMany).toHaveBeenLastCalledWith({
-    where: { id: 1, reminderClaimedAt: now },
+    where: { id: 1, reminderClaimedAt: now, date: dueEvent.date, reminderDaysBefore: 3 },
     data: { reminderSentAt: now, reminderClaimedAt: null },
   })
 })
@@ -153,7 +153,7 @@ it("counts a failed send but still sets the durable marker (partial delivery)", 
   // claim + durable-mark = 2 calls (no release, partial success keeps it).
   expect(updateMany).toHaveBeenCalledTimes(2)
   expect(updateMany).toHaveBeenLastCalledWith({
-    where: { id: 1, reminderClaimedAt: now },
+    where: { id: 1, reminderClaimedAt: now, date: dueEvent.date, reminderDaysBefore: 3 },
     data: { reminderSentAt: now, reminderClaimedAt: null },
   })
 })
@@ -275,11 +275,11 @@ describe(" lease renewal across a long send loop", () => {
     expect(updateMany).toHaveBeenCalledTimes(4)
     const renew1 = updateMany.mock.calls[1][0]
     const renew2 = updateMany.mock.calls[2][0]
-    expect(renew1.where).toEqual({ id: 1, reminderSentAt: null, reminderClaimedAt: now })
+    expect(renew1.where).toEqual({ id: 1, reminderSentAt: null, reminderClaimedAt: now, date: dueEvent.date, reminderDaysBefore: 3 })
     expect(renew1.data.reminderClaimedAt.getTime()).toBeGreaterThan(now.getTime())
     expect(renew2.where.reminderClaimedAt).toEqual(renew1.data.reminderClaimedAt)
     expect(updateMany).toHaveBeenLastCalledWith({
-      where: { id: 1, reminderClaimedAt: renew2.data.reminderClaimedAt },
+      where: { id: 1, reminderClaimedAt: renew2.data.reminderClaimedAt, date: dueEvent.date, reminderDaysBefore: 3 },
       data: { reminderSentAt: now, reminderClaimedAt: null },
     })
   })
@@ -318,7 +318,7 @@ it(" claims each event with a fresh wall-clock lease, not the request-start time
     data: { reminderClaimedAt: new Date(later) },
   })
   expect(updateMany).toHaveBeenLastCalledWith({
-    where: { id: 1, reminderClaimedAt: new Date(later) },
+    where: { id: 1, reminderClaimedAt: new Date(later), date: dueEvent.date, reminderDaysBefore: 3 },
     data: { reminderSentAt: now, reminderClaimedAt: null },
   })
 })
@@ -345,4 +345,19 @@ it("fences the claim on the snapshot date and lead time; a schedule edit after t
   expect(claimWhere.reminderDaysBefore).toBe(3)
   expect(send).not.toHaveBeenCalled()
   expect(res.body).toEqual({ eventsReminded: 0, emailsSent: 0, emailsFailed: 0 })
+})
+
+it("regression #3344: a schedule edit mid-send must not stamp the old send as sent on the new schedule", async () => {
+  findMany.mockResolvedValue([dueEvent])
+  updateMany
+    .mockResolvedValueOnce({ count: 1 }) // claim under the old schedule
+    .mockResolvedValueOnce({ count: 0 }) // marker: date/lead time changed since the claim
+  const err = jest.spyOn(console, "error").mockImplementation(() => {})
+  const res = await sendDueReminders("Bearer s3cret", now)
+  const markWhere = (updateMany.mock.calls[1][0] as { where: Record<string, unknown> }).where
+  expect(markWhere.date).toEqual(dueEvent.date)
+  expect(markWhere.reminderDaysBefore).toBe(3)
+  expect(res.body).toEqual({ eventsReminded: 0, emailsSent: 2, emailsFailed: 0 })
+  expect(err).toHaveBeenCalledWith(expect.stringContaining("lease lost before the durable sent marker"))
+  err.mockRestore()
 })
