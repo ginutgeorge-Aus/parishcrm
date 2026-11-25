@@ -66,11 +66,14 @@ jest.setTimeout(60_000)
 
   afterAll(async () => {
     if (!prisma) return
-    await prisma.transaction.deleteMany({ where: { accountId: { in: accountIds } } })
-    await prisma.account.deleteMany({ where: { id: { in: accountIds } } })
-    await prisma.accountGroup.deleteMany({ where: { id: groupId } })
-    await prisma.paymentAccount.deleteMany({ where: { id: paymentAccountId } })
-    await prisma.$disconnect()
+    try {
+      await prisma.transaction.deleteMany({ where: { accountId: { in: accountIds } } })
+      await prisma.account.deleteMany({ where: { id: { in: accountIds } } })
+      if (groupId) await prisma.accountGroup.deleteMany({ where: { id: groupId } })
+      if (paymentAccountId) await prisma.paymentAccount.deleteMany({ where: { id: paymentAccountId } })
+    } finally {
+      await prisma.$disconnect()
+    }
   })
 
   it("same plain statement line confirmed 6x in parallel: one transaction", async () => {
@@ -92,6 +95,10 @@ jest.setTimeout(60_000)
     ]
     const results = await Promise.all(Array.from({ length: 6 }, () => confirmBankImport(body(a, 2, splits))))
     // A loser may be refused with a DB_ERROR instead of counted as a duplicate; never a throw.
+    // Every result is a success or exactly that refusal, and losers import nothing.
+    for (const r of results) {
+      if (!r.ok) expect(r.code).toBe("DB_ERROR")
+    }
     const imported = results.reduce((t, r) => t + (r.ok ? r.imported : 0), 0)
     expect(imported).toBe(1)
     expect(await prisma.transaction.count({ where: { accountId: { in: [a, b] } } })).toBe(2)
