@@ -1155,3 +1155,17 @@ describe("per-month row cap", () => {
     expect(prisma.venueUsage.createMany).not.toHaveBeenCalled()
   })
 })
+
+describe("setVenueUsageStatus input checks (AUD-5-55, AUD-5-58)", () => {
+  it("rejects a status other than CONFIRMED or CANCELLED before any write", async () => {
+    asRole("PASTOR")
+    for (const bad of ["REQUESTED", "garbage", undefined, 5]) {
+      expect(await setVenueUsageStatus([1], bad as unknown as "CONFIRMED")).toEqual({ error: "Invalid status" })
+    }
+    expect(prisma.venueUsage.updateMany).not.toHaveBeenCalled()
+  })
+  it("does not throw on a null opts argument for an unauthorised caller", async () => {
+    asRole("AUDITOR")
+    await expect(setVenueUsageStatus([1], "CANCELLED", null as unknown as { emailVenue?: boolean })).resolves.toEqual({ error: "Unauthorized" })
+  })
+})

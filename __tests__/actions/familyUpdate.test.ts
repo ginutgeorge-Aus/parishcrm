@@ -416,3 +416,13 @@ describe("rejectFamilyUpdate", () => {
     expect(prisma.familyUpdateInvite.update).not.toHaveBeenCalled()
   })
 })
+
+describe("sendFamilyUpdateInvite archived family (AUD-5-15)", () => {
+  it("refuses an archived family and sends nothing", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 1, name: "Smith", archivedAt: new Date("2020-01-01") })
+    expect(await sendFamilyUpdateInvite(1, "f@x.com")).toEqual({ error: "Family not found" })
+    expect(prisma.familyUpdateInvite.create).not.toHaveBeenCalled()
+    expect(sendFamilyUpdateInviteEmail).not.toHaveBeenCalled()
+  })
+})

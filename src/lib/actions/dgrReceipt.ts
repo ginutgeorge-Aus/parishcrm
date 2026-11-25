@@ -566,11 +566,12 @@ export async function listDgrReceipts(
   const off = await featureGuard("dgrReceipts")
   if (off) return off
 
+  // Only a whole-number year in range filters; anything else (a filter object, NaN) means "all years".
+  const fy = typeof fyEndYear === "number" && Number.isInteger(fyEndYear) && fyEndYear >= MIN_YEAR && fyEndYear <= MAX_YEAR ? fyEndYear : undefined
   const rows = await prisma.dgrReceipt.findMany({
-    where: fyEndYear ? { fyEndYear } : {},
-    // A single-FY filter is naturally small; the all-years branch is capped so an
-    // absent/invalid `?fy` param can't load the whole table.
-    ...(fyEndYear ? {} : { take: LIST_ALL_YEARS_CAP }),
+    where: fy ? { fyEndYear: fy } : {},
+    // Always capped, so no argument can load the whole table in one request.
+    take: LIST_ALL_YEARS_CAP,
     orderBy: [{ fyEndYear: "desc" }, { seq: "desc" }],
     select: {
       id: true,

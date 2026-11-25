@@ -173,3 +173,10 @@ describe("isValidEmail", () => {
     expect(isValidEmail(`${"a".repeat(65)}@example.com`)).toBe(false)
   })
 })
+
+describe("non-string arguments (AUD-5-58)", () => {
+  it.each([undefined, null, 5, {}, ["2025-01-01"]])("isRealCalendarDate and isValidEmail return false for %j", (v) => {
+    expect(isRealCalendarDate(v as unknown as string)).toBe(false)
+    expect(isValidEmail(v as unknown as string)).toBe(false)
+  })
+})

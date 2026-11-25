@@ -10,11 +10,13 @@ import { isValidPgId, isP2002 } from "@/lib/validation"
 import type { ActionResult } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
+import { logAudit } from "@/lib/audit"
+import { actorId } from "@/lib/actor"
 
 // --- Service types ---
 
 const ServiceTypeSchema = z.object({
-  name: z.string().min(1, "Name is required").max(100, "Name is too long"),
+  name: z.string().trim().min(1, "Name is required").max(100, "Name is too long"),
 })
 
 /** Add a petty cash service type. ADMIN; blocked in demo mode and while Petty cash is off. */
@@ -35,7 +37,8 @@ export async function createServiceType(
   // name is @unique — a concurrent duplicate slips past the findFirst check and
   // throws a raw P2002. Map it to the same friendly error.
   try {
-    await prisma.serviceType.create({ data: { name: parsed.data.name } })
+    const created = await prisma.serviceType.create({ data: { name: parsed.data.name } })
+    await logAudit(actorId(session), "SERVICE_TYPE_CREATED", "ServiceType", created.id, {})
   } catch (e) {
     if (isP2002(e)) return { error: "Service type already exists" }
     throw e
@@ -56,6 +59,7 @@ export async function toggleServiceTypeActive(id: number): Promise<ActionResult>
   const existing = await prisma.serviceType.findUnique({ where: { id } })
   if (!existing) return { error: "Service type not found" }
   await prisma.serviceType.update({ where: { id }, data: { isActive: !existing.isActive } })
+  await logAudit(actorId(session), "SERVICE_TYPE_TOGGLED", "ServiceType", id, { isActive: !existing.isActive })
   revalidatePath("/accounting/petty-cash/service-types")
 }
 
@@ -70,6 +74,9 @@ export async function deleteServiceType(id: number): Promise<ActionResult> {
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const count = await prisma.pettyCashReceipt.count({ where: { serviceTypeId: id } })
   if (count > 0) return { error: `Cannot delete — ${count} receipt(s) use this service type` }
+  // Headcounts reference the type with onDelete: Restrict, so they block the delete too.
+  const headcounts = await prisma.serviceHeadcount.count({ where: { serviceTypeId: id } })
+  if (headcounts > 0) return { error: `Cannot delete — ${headcounts} headcount record(s) use this service type` }
   // A receipt referencing this type can be created between the count and the
   // delete — the FK then throws a raw P2003. Map it to the same message.
   try {
@@ -79,5 +86,6 @@ export async function deleteServiceType(id: number): Promise<ActionResult> {
       return { error: "Cannot delete — receipt(s) use this service type" }
     throw e
   }
+  await logAudit(actorId(session), "SERVICE_TYPE_DELETED", "ServiceType", id, {})
   revalidatePath("/accounting/petty-cash/service-types")
 }

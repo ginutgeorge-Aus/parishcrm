@@ -983,6 +983,24 @@ describe("getDonorEmail", () => {
   })
 })
 
+describe("listDgrReceipts bounds (AUD-5-56)", () => {
+  beforeEach(() => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "AUDITOR" } })
+    ;(prisma.dgrReceipt.findMany as jest.Mock).mockResolvedValue([])
+  })
+  it("always applies a row limit, even with a year", async () => {
+    await listDgrReceipts(2025)
+    expect(prisma.dgrReceipt.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { fyEndYear: 2025 }, take: expect.any(Number) }))
+  })
+  it("ignores a filter object or out-of-range year instead of using it as a where clause", async () => {
+    for (const bad of [{ gt: 0 }, 1999, 2101, 2025.5, "2025"]) {
+      ;(prisma.dgrReceipt.findMany as jest.Mock).mockClear()
+      await listDgrReceipts(bad as unknown as number)
+      expect(prisma.dgrReceipt.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {}, take: expect.any(Number) }))
+    }
+  })
+})
+
 describe("listDgrReceipts", () => {
   it("rejects roles without accounting view access", async () => {
     mockAuth.mockResolvedValue({ user: { id: "1", role: "VIEWER" } })

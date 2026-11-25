@@ -396,13 +396,15 @@ export async function setVenueUsageStatus(
   status: "CONFIRMED" | "CANCELLED",
   opts: { emailVenue?: boolean } = {},
 ): Promise<VenueMutationResult> {
-  const emailVenue = status === "CANCELLED" && !!opts.emailVenue
+  const session = await auth()
+  if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  // Allow-list: this bulk path must not write any other status (e.g. REQUESTED) or echo arbitrary text.
+  if (status !== "CONFIRMED" && status !== "CANCELLED") return { error: "Invalid status" }
+  const emailVenue = status === "CANCELLED" && !!opts?.emailVenue
   if (emailVenue) {
     const demo = assertNotDemo()
     if (demo) return demo
   }
-  const session = await auth()
-  if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (ids.length === 0) return { error: "Select at least one booking" }
   if (ids.length > MAX_ROWS_PER_MONTH) return { error: "Too many bookings selected" }
   if (!ids.every(isValidPgId)) return { error: "Invalid booking" }

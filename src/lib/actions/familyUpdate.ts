@@ -40,8 +40,9 @@ export async function sendFamilyUpdateInvite(
   const off = await featureGuard("familyUpdates")
   if (off) return off
 
-  const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true } })
-  if (!family) return { error: "Family not found" }
+  const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true, archivedAt: true } })
+  // An archived family's link would only show "expired": refuse instead of wasting an email.
+  if (!family || family.archivedAt) return { error: "Family not found" }
 
   const parsedEmail = z.string().email().max(255).safeParse(email.trim())
   if (!parsedEmail.success) return { error: "A valid email address is required" }
