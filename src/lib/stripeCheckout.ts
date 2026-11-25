@@ -457,6 +457,38 @@ export async function handleStripeWebhook(
   }
 }
 
+// A COMPLETED claim younger than this may still be mid-persist in another
+// delivery, so it is never reopened.
+const STRANDED_CLAIM_MS = 2 * 60 * 1000
+
+/**
+ * Cut-off time: a COMPLETED claim stamped before this is old enough to be stranded.
+ * @returns the cut-off Date
+ */
+function strandedCutoff(): Date {
+  return new Date(Date.now() - STRANDED_CLAIM_MS)
+}
+
+/**
+ * AUD-4-17: whether a COMPLETED staging row with no token is a claim that
+ * never got as far as saving a registration (restart between claim and save).
+ * Needs a held payload, no pay-now registration, and an old completedAt.
+ * @param staging the staged CheckoutSession fields
+ * @returns true when the row can safely be reopened and re-run
+ */
+function isStrandedClaim(staging: {
+  registrationId?: number | null
+  payload?: string | null
+  completedAt?: Date | null
+}): boolean {
+  return (
+    staging.registrationId == null &&
+    !!staging.payload &&
+    !!staging.completedAt &&
+    staging.completedAt < strandedCutoff()
+  )
+}
+
 // Staging row already claimed (or terminal) by a prior delivery. Handles the
 // crash-recovery token backfill and the EXPIRED-after-paid alert; every other
 // terminal status is a benign already-handled redelivery. Split out of
@@ -469,6 +501,8 @@ async function handleNonOpenStaging(
     publicToken: string | null
     eventId: number
     registrationId?: number | null
+    payload?: string | null
+    completedAt?: Date | null
   },
 ): Promise<{ status: number }> {
   // Crash-recovery: a prior pass claimed COMPLETED and persisted the
@@ -493,6 +527,17 @@ async function handleNonOpenStaging(
         where: { id: staging.id },
         data: { publicToken: reg.publicToken },
       })
+    } else if (isStrandedClaim(staging)) {
+      // AUD-4-17: the claim was written but the process died before any
+      // registration was saved, and the payload is still held. Put the row
+      // back to OPEN and run the normal path again. The conditional update
+      // lets only one concurrent redelivery win the reopen.
+      const reopened = await prisma.checkoutSession.updateMany({
+        where: { id: staging.id, status: "COMPLETED", publicToken: null, completedAt: { lt: strandedCutoff() } },
+        data: { status: "OPEN", completedAt: null, expiresAt: new Date(Date.now() + CHECKOUT_EXPIRY_MS) },
+      })
+      if (reopened.count === 0) return { status: 500 } // another delivery changed it; retry
+      return completePaidCheckout(session)
     } else {
       console.error(
         `Stripe webhook: COMPLETED session ${session.id} has no publicToken and no registration matches its PaymentIntent ${pi ?? "?"}; success page cannot resolve it, manual review needed`,
@@ -557,6 +602,32 @@ async function rejectOnAmountMismatch(
   // of "being finalised" forever. Payload is kept — ops needs it to
   // resolve the retained payment manually.
   await prisma.checkoutSession.update({ where: { id: staging.id }, data: { status: "UNFULFILLED" } })
+  return { status: 200 }
+}
+
+/**
+ * AUD-4-23: a paid pay-now checkout whose registration was deleted. Marks the
+ * row UNFULFILLED with a specific ops alert; money is retained (no-refund policy).
+ * @param session the Stripe Checkout Session
+ * @param staging the staged row (id used)
+ * @returns 200 so Stripe stops retrying
+ */
+async function terminalizeDeletedPayNowRegistration(
+  session: import("stripe").Stripe.Checkout.Session,
+  staging: { id: number },
+): Promise<{ status: number }> {
+  const paymentIntent = piOf(session.payment_intent)
+  console.error(
+    `Stripe webhook: paid pay-now session ${session.id} (PI ${paymentIntent ?? "?"}) has no registration and no payload; registration was deleted, money retained, manual review needed`,
+  )
+  await notifyStripeAlert(
+    "card pay-now: registration deleted before payment settled",
+    `PI ${paymentIntent ?? "?"} (session ${session.id}): a pay-now payment settled but its registration had been deleted. Nothing to mark PAID. Money retained; refund or resolve manually.`,
+  )
+  await prisma.checkoutSession.updateMany({
+    where: { id: staging.id, status: "OPEN" },
+    data: { status: "UNFULFILLED", completedAt: new Date() },
+  })
   return { status: 200 }
 }
 
@@ -682,6 +753,14 @@ async function completePaidCheckout(
   // so it can still mark its registration PAID.
   const payNowLate = isPayNowLateClaimable(staging)
   if (staging.status !== "OPEN" && !lateClaim && !payNowLate) return handleNonOpenStaging(session, staging)
+
+  // AUD-4-23: an OPEN row with an empty payload and no registration is a
+  // pay-now checkout whose registration was deleted (FK is SetNull). It can
+  // never be built from a payload, so settle it instead of throwing and
+  // being retried by Stripe for days.
+  if (staging.status === "OPEN" && !staging.payload && staging.registrationId == null) {
+    return terminalizeDeletedPayNowRegistration(session, staging)
+  }
 
   // Atomically claim the row: flip OPEN→COMPLETED (or a late EXPIRED→COMPLETED,
   // see isLateClaimable) in a single conditional UPDATE before any side effect.
