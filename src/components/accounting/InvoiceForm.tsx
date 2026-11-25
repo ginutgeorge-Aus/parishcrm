@@ -130,19 +130,28 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
       <fieldset className="space-y-2">
         <legend className="font-medium">Lines {gstEnabled && <span className="text-sm text-muted-foreground">(prices exclude GST)</span>}</legend>
         {lines.map((l, i) => (
-          <div key={i} className="grid grid-cols-12 items-end gap-2">
-            <Input className="col-span-6" aria-label={`Line ${i + 1} description`} value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
-            <Input className="col-span-2" aria-label={`Line ${i + 1} quantity`} inputMode="numeric" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
-            <Input className="col-span-2" aria-label={`Line ${i + 1} unit price`} inputMode="decimal" value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: e.target.value })} />
+          <div key={i} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-12">
+            <div className="col-span-2 sm:col-span-6">
+              <Label htmlFor={`line-${i}-description`} className="sm:sr-only">Description</Label>
+              <Input id={`line-${i}-description`} aria-label={`Line ${i + 1} description`} value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor={`line-${i}-qty`} className="sm:sr-only">Qty</Label>
+              <Input id={`line-${i}-qty`} aria-label={`Line ${i + 1} quantity`} inputMode="numeric" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor={`line-${i}-unitPrice`} className="sm:sr-only">Unit price</Label>
+              <Input id={`line-${i}-unitPrice`} aria-label={`Line ${i + 1} unit price`} inputMode="decimal" value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: e.target.value })} />
+            </div>
             {gstEnabled && (
-              <label className="col-span-1 flex items-center gap-1 text-sm">
+              <label className="flex items-center gap-1 text-sm sm:col-span-1">
                 <input type="checkbox" aria-label={`Line ${i + 1} GST`} checked={l.gst} onChange={(e) => setLine(i, { gst: e.target.checked })} /> GST
               </label>
             )}
-            <Button type="button" variant="ghost" size="sm" className="col-span-1" aria-label={`Remove line ${i + 1}`}
+            <Button type="button" variant="ghost" size="sm" className={`justify-self-end sm:col-span-1${gstEnabled ? "" : " col-span-2"}`} aria-label={`Remove line ${i + 1}`}
               disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>✕</Button>
             {l.unitPrice.trim() !== "" && !MONEY_DECIMAL_RE.test(normaliseMoneyInput(l.unitPrice)) && (
-              <p className="col-span-12 text-xs text-destructive">Line {i + 1}: enter a price such as 1000.00</p>
+              <p className="col-span-2 text-xs text-destructive sm:col-span-12">Line {i + 1}: enter a price such as 1000.00</p>
             )}
           </div>
         ))}
@@ -159,6 +168,8 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
       <div className="space-y-1"><Label htmlFor="notes">Notes (printed on the invoice)</Label>
         <Textarea id="notes" name="notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
 
+      {/* Phone only: the top-of-form alert is off screen next to the Save button. */}
+      {state?.error && <p aria-hidden="true" className="text-sm text-destructive sm:hidden">{state.error}</p>}
       <Button type="submit" disabled={isPending || lookupPending}>{isPending ? "Saving…" : "Save draft"}</Button>
     </form>
   )

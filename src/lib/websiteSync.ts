@@ -325,7 +325,8 @@ export async function resyncAllEvents(): Promise<{ synced: number; failed: numbe
   const deletes = await replayDeletedEvents(new Set(events.map((e) => e.id)))
   synced += deletes.synced
   failed += deletes.failed
-  return { synced, failed, truncated, disabled: false }
+  // Truncation of either the live events or the audited-delete replays means some were not resynced.
+  return { synced, failed, truncated: truncated || deletes.truncated, disabled: false }
 }
 
 /**
@@ -337,9 +338,10 @@ export async function resyncAllEvents(): Promise<{ synced: number; failed: numbe
  * sync). The replay revision is earlier than the original send-time revision, so
  * receivers must keep the highest tombstone revision. Deletes are idempotent by crmId.
  * @param liveIds - ids of events that still exist; never sent a delete.
- * @returns counts of delete replays that succeeded / failed.
+ * @returns counts of delete replays that succeeded / failed, and whether the audit
+ * query hit the replay cap (older deletions beyond it were not replayed).
  */
-async function replayDeletedEvents(liveIds: Set<number>): Promise<{ synced: number; failed: number }> {
+async function replayDeletedEvents(liveIds: Set<number>): Promise<{ synced: number; failed: number; truncated: boolean }> {
   const rows = await prisma.auditLog.findMany({
     where: { action: "EVENT_DELETED", resourceType: "Event", resourceId: { not: null } },
     select: { resourceId: true, createdAt: true },
@@ -347,6 +349,10 @@ async function replayDeletedEvents(liveIds: Set<number>): Promise<{ synced: numb
     orderBy: { id: "desc" },
     take: RESYNC_LIMIT,
   })
+  const truncated = rows.length === RESYNC_LIMIT
+  if (truncated) {
+    logger.warn("[website-sync] resync hit the delete-replay cap — older deletions were not replayed", { cap: RESYNC_LIMIT })
+  }
   const byId = new Map<number, Date>()
   for (const r of rows) {
     if (r.resourceId !== null && !liveIds.has(r.resourceId) && !byId.has(r.resourceId)) {
@@ -373,5 +379,5 @@ async function replayDeletedEvents(liveIds: Set<number>): Promise<{ synced: numb
       }
     })
   }
-  return { synced, failed }
+  return { synced, failed, truncated }
 }

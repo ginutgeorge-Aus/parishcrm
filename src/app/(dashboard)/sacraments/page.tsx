@@ -52,23 +52,38 @@ export default async function SacramentsPage(props: Readonly<Props>) {
   const year = parseYear(sp.year)
 
   const where = { ...(type ? { type } : {}), ...(year ? { year } : {}) }
-  const total = await prisma.sacramentRecord.count({ where })
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const page = Math.min(parsePage(sp.page), totalPages)
-  const shown = await prisma.sacramentRecord.findMany({
-    where,
-    orderBy: [{ date: "desc" }, { id: "desc" }],
-    skip: (page - 1) * PAGE_SIZE,
-    take: PAGE_SIZE,
-    select: {
-      id: true,
-      type: true,
-      registerNo: true,
-      date: true,
-      place: true,
-      person: { select: { id: true, firstName: true, lastName: true } },
-    },
-  })
+  const requestedPage = parsePage(sp.page)
+  let total = await prisma.sacramentRecord.count({ where })
+  let totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  let page = Math.min(requestedPage, totalPages)
+
+  /**
+   * Fetch one register page for the active filters.
+   * @param p 1-based page number
+   */
+  const fetchPage = (p: number) =>
+    prisma.sacramentRecord.findMany({
+      where,
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      skip: (p - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      select: {
+        id: true,
+        type: true,
+        registerNo: true,
+        date: true,
+        place: true,
+        person: { select: { id: true, firstName: true, lastName: true } },
+      },
+    })
+  let shown = await fetchPage(page)
+  if (shown.length === 0 && page > 1) {
+    // A delete emptied this page between the count and the fetch: recount and show the last valid page.
+    total = await prisma.sacramentRecord.count({ where })
+    totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    page = Math.min(page, totalPages)
+    shown = await fetchPage(page)
+  }
   const filtered = Boolean(type || year)
 
   /**

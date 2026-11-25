@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useActionState, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,6 +14,8 @@ import { WINDOW_GUARD_TAG } from "@/lib/xferRefs"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
 import { useSubmissionToken } from "./useSubmissionToken"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 export function TransferForm({
   action,
@@ -40,7 +42,7 @@ export function TransferForm({
   const router = useRouter()
   // Idempotency token (#491), stable per mounted form — see useSubmissionToken.
   const submitWithToken = useSubmissionToken(action)
-  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(submitWithToken)
   // Controlled (not an uncontrolled field) so it survives React's post-action form reset.
   const [override, setOverride] = useState(false)
   const [importedId, setImportedId] = useState("")
@@ -76,8 +78,8 @@ export function TransferForm({
   if (importedId !== "" && !imported.some((o) => String(o.id) === importedId)) pickImported("")
 
   return (
-    <form action={formAction} className="max-w-lg space-y-4">
-      {state?.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
+    <form onSubmit={onSubmit} className="max-w-lg space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       {isAdmin && state?.error?.includes(WINDOW_GUARD_TAG) && (
         <label className="flex items-start gap-2 text-sm">

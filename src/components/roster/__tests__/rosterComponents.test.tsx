@@ -35,6 +35,19 @@ describe("SlotCell", () => {
     expect(r.suggestRosterAssignees).toHaveBeenCalledTimes(1)
   })
 
+  it("disables retained options while the focus refresh is pending", async () => {
+    const bo = { personId: 7, firstName: "Bo", lastName: "Kim", lastServedYMD: null }
+    r.suggestRosterAssignees.mockResolvedValueOnce({ suggestions: [bo] })
+    render(<SlotCell slotId={5} assignments={[]} open={1} />)
+    const option = await screen.findByRole("option", { name: "Bo Kim (never served)" })
+    let release: (v: unknown) => void = () => {}
+    r.suggestRosterAssignees.mockReturnValueOnce(new Promise((res) => { release = res }))
+    await userEvent.click(screen.getByLabelText("Assign a person"))
+    await waitFor(() => expect(option).toBeDisabled())
+    release({ suggestions: [bo] })
+    await waitFor(() => expect(option).toBeEnabled())
+  })
+
   it("does not load suggestions when the slot is full", () => {
     render(<SlotCell slotId={5} assignments={people} open={0} />)
     expect(r.suggestRosterAssignees).not.toHaveBeenCalled()

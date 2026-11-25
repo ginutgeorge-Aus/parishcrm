@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useActionState } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { transactionListHref } from "@/lib/transactionFilters"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,8 @@ import {
   formatUpdatedAt,
   submitLabel,
 } from "@/lib/transactionFormHelpers"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Account = { id: number; code: string; name: string; type: AccountType }
 type Family = { id: number; name: string; people: { id: number; firstName: string; lastName: string }[] }
@@ -83,7 +85,7 @@ export function TransactionForm({
   /** Sanitised list filter query to return to after save/cancel (edit only). */
   backQuery?: string
 }>) {
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
 
   const incomeAccounts = accounts.filter((a) => a.type === AccountType.INCOME)
   const expenseAccounts = accounts.filter((a) => a.type === AccountType.EXPENSE)
@@ -138,21 +140,18 @@ export function TransactionForm({
   }, [familyId])
 
   return (
-    <form action={formAction} className="max-w-lg space-y-4">
-      {state?.error && (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-          <p className="text-sm text-destructive">{state.error}</p>
+    <form onSubmit={onSubmit} className="max-w-lg space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} className="p-3">
           {/* Likely-duplicate warning: the button's own name/value pair
               is only included in the submitted FormData when it — not the main
               submit button — triggers the form, so re-submitting via the
               regular button never silently confirms a duplicate. */}
-          {state.duplicateWarning && (
+          {state?.duplicateWarning && (
             <Button type="submit" name="confirmDuplicate" value="true" variant="outline" size="sm" disabled={isPending}>
               Post anyway
             </Button>
           )}
-        </div>
-      )}
+      </FormError>
 
       {/* Optimistic-concurrency token — the row's last-seen version, so
           the server can reject a save that would clobber a concurrent edit. */}
@@ -198,6 +197,7 @@ export function TransactionForm({
             name="accountId"
             value={selectedAccountId}
             onValueChange={setSelectedAccountId}
+            required
           >
             <SelectTrigger id="account">
               <SelectValue placeholder="Select category" />

@@ -1,7 +1,6 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useActionState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DECRYPTION_ERROR_PLACEHOLDER } from "@/lib/decryptionPlaceholder"
@@ -15,10 +14,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import type { ActionResult } from "@/lib/actions/types"
 import type { MinistryRole } from "@/lib/generated/prisma/enums"
 import { MINISTRY_ROLES, MINISTRY_ROLE_LABELS } from "@/lib/ministryRoles"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Person = {
   firstName?: string
@@ -85,11 +85,11 @@ export function PersonForm({
   canSeePastoralNotes: boolean
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
 
   return (
-    <form action={formAction} className="space-y-8 max-w-2xl">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="space-y-8 max-w-2xl">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       {/* Optimistic-concurrency token — the row's last-seen version, so
           the server can reject a save that would clobber a concurrent edit. */}

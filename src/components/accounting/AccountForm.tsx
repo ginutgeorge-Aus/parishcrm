@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useActionState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -12,9 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { AccountType } from "@/lib/generated/prisma/enums"
 import { ActionResult } from "@/lib/actions/types"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Account = {
   id: number
@@ -38,7 +39,7 @@ export function AccountForm({
   groups: AccountGroup[]
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const [selectedType, setSelectedType] = useState<AccountType>(
     account?.type ?? AccountType.INCOME
   )
@@ -56,8 +57,8 @@ export function AccountForm({
   }
 
   return (
-    <form action={formAction} className="max-w-md space-y-4">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="max-w-md space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       <div className="space-y-1">
         <Label htmlFor="code">Code</Label>

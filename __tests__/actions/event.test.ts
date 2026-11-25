@@ -757,7 +757,7 @@ describe("publishEvent", () => {
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, true)
     expect(prisma.event.updateMany).toHaveBeenCalledWith({
-      where: { id: 1, slug: { not: null } },
+      where: { id: 1, isPublished: false, slug: { not: null } },
       data: { isPublished: true },
     })
     expect(syncEventToWebsite).toHaveBeenCalledWith(1)
@@ -844,9 +844,20 @@ describe("event audit logging", () => {
   it("skips the audit log when publish state is unchanged", async () => {
     adminSession()
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: true })
+    // conditional write matches nothing: already published
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const result = await publishEvent(3, true)
+    expect(result).toBeUndefined()
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("audits only when the conditional write flipped the flag (concurrent toggle safe)", async () => {
+    adminSession()
+    // the pre-write read is stale (says published) but the write still flipped it
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: true })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(3, true)
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: true })
   })
 })
 
@@ -1450,7 +1461,7 @@ describe("optional event slug", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: null })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, false)
-    expect(prisma.event.updateMany).toHaveBeenCalledWith({ where: { id: 1 }, data: { isPublished: false } })
+    expect(prisma.event.updateMany).toHaveBeenCalledWith({ where: { id: 1, isPublished: true }, data: { isPublished: false } })
     expect(revalidatePath).not.toHaveBeenCalledWith(expect.stringMatching(/^\/e\//))
   })
 

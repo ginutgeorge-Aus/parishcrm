@@ -32,6 +32,13 @@ describe("InvoiceForm", () => {
     expect(screen.queryByLabelText("Line 1 GST")).not.toBeInTheDocument()
     expect(screen.queryByTestId("invoice-gst")).not.toBeInTheDocument()
   })
+  it("labels each line field and only restores the 12-column row from sm:", () => {
+    render(<InvoiceForm {...props} />)
+    for (const f of ["description", "qty", "unitPrice"]) {
+      expect(document.querySelector(`label[for="line-0-${f}"]`)).not.toBeNull()
+    }
+    expect(document.getElementById("line-0-description")!.closest("div.grid")).toHaveClass("grid-cols-2", "sm:grid-cols-12")
+  })
   it("adds and removes lines", () => {
     render(<InvoiceForm {...props} />)
     fireEvent.click(screen.getByRole("button", { name: "Add line" }))
