@@ -174,6 +174,20 @@ describe("GET /api/people/[id]/export", () => {
     )
   })
 
+  it("includes roster assignments and unavailability, and lists them in the audit fields", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockPersonFindFirst.mockResolvedValue({
+      ...mockPerson,
+      rosterAssignments: [{ status: "CONFIRMED", respondedAt: null, createdAt: new Date("2026-09-01T00:00:00.000Z"), slot: { role: { name: "Reader" }, service: { title: "Sunday", date: new Date("2026-12-06T00:00:00.000Z") } } }],
+      unavailability: [{ startDate: new Date("2026-12-01T00:00:00.000Z"), endDate: new Date("2026-12-10T00:00:00.000Z"), createdAt: new Date("2026-09-01T00:00:00.000Z") }],
+    })
+    const body = await (await GET(makeRequest(), makeProps("1"))).json()
+    expect(body.rosterAssignments[0]).toMatchObject({ status: "CONFIRMED", slot: { role: { name: "Reader" } } })
+    expect(body.unavailability).toHaveLength(1)
+    expect(body.person).not.toHaveProperty("rosterAssignments")
+    expect(mockLogAudit.mock.calls[0][4].exportedFields).toEqual(expect.arrayContaining(["rosterAssignments", "unavailability"]))
+  })
+
   it("includes decrypted clearances (no document blob) and lists them in the audit fields", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockPersonFindFirst.mockResolvedValue({
