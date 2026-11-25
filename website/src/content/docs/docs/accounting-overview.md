@@ -58,6 +58,8 @@ The FY start month is configurable per install via `APP_FY_START_MONTH` (`src/li
 
 An ADMIN can set an **accounting lock date** (Accounting settings → Period lock). Any transaction, petty-cash entry, or reconciliation statement dated on or before that date becomes read-only — no create, edit, or delete — enforced server-side in every relevant action (`assertUnlocked` / `isDateLocked` in `src/lib/accountingLock.ts`), not just hidden in the UI. This is how a parish "closes the books" for a period after it's been reviewed.
 
+**Retention and corrections**: a transaction or petty-cash entry dated within the last 7 years (ATO record retention) cannot be deleted by anyone. The Delete button is replaced by the note "Kept for 7 years (ATO). Edit it to correct it; if its period is locked, an admin must unlock it first." Fix a wrong entry by editing it. If the entry falls on or before the lock date, an ADMIN must first move the lock date earlier. The server enforces the same rule.
+
 ### Audit trail
 
 Every accounting mutation — and every read of donor-identifying data (receipt sends, decrypted email addresses) — is written to an append-only `AuditLog` via `logAudit()` (`src/lib/audit.ts`). Report page loads log `VIEW_FINANCIAL_REPORT`; CSV/PDF exports log `EXPORT_FINANCIAL_REPORT`/`EXPORT_TRANSACTION_CSV`. This lets an AUDITOR (or the parish council) answer "who looked at what, and when."

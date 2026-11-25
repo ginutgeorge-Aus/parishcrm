@@ -7,12 +7,30 @@
 // delete paths (DRY).
 const RETENTION_YEARS = 7
 
-export function retentionFloor(): Date {
-  const floor = new Date()
+/**
+ * Oldest date still inside the retention window: `now` minus 7 years.
+ * @param now Reference instant (defaults to the current time; injectable for tests).
+ */
+export function retentionFloor(now: Date = new Date()): Date {
+  const floor = new Date(now)
   floor.setFullYear(floor.getFullYear() - RETENTION_YEARS)
   return floor
 }
 
+/**
+ * True when a record dated `date` is inside the retention window and so cannot be hard-deleted.
+ * Single source for the server guards (`date >= retentionFloor()`) and the UI, so they never disagree.
+ * @param date Record date.
+ * @param now Reference instant (defaults to the current time).
+ */
+export function isWithinRetention(date: Date, now: Date = new Date()): boolean {
+  return date >= retentionFloor(now)
+}
+
+/**
+ * Server error for a blocked delete; ends with the correction path staff can use instead.
+ * @param date Record date shown in the message.
+ */
 export function retentionError(date: Date): string {
-  return `This transaction is dated ${date.toISOString().slice(0, 10)}, within the ${RETENTION_YEARS}-year financial record retention period required by the ATO. It cannot be deleted until the retention period has passed.`
+  return `This transaction is dated ${date.toISOString().slice(0, 10)}, within the ${RETENTION_YEARS}-year financial record retention period required by the ATO. It cannot be deleted until the retention period has passed. Edit the entry to correct it.`
 }
