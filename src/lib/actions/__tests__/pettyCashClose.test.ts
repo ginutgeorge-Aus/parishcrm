@@ -163,6 +163,29 @@ test("already-closed session rejected", async () => {
   expect(res).toEqual({ error: "Session already closed" })
 })
 
+/** AUD-3-04: closing an auto-opened session while its source session is still OPEN must be refused. */
+test("close refused while the AUTO_OPENED source session is still OPEN", async () => {
+  const auditFind = prisma.auditLog.findFirst as jest.Mock
+  auditFind.mockResolvedValueOnce({ metadata: { carriedFromSessionId: 7 } })
+  mockFind.mockImplementation(async ({ where }: { where: { id: number } }) =>
+    where.id === 7 ? { title: "29-DEC-2019", status: "OPEN" } : openSession({ id: 1 })
+  )
+  const res = await closeSession(1, undefined, fd({}))
+  expect(res).toEqual({ error: expect.stringContaining("Close the earlier session (29-DEC-2019) first") })
+  expect(mockUpdate).not.toHaveBeenCalled()
+  expect(mockAudit).not.toHaveBeenCalled()
+})
+
+test("close allowed once the AUTO_OPENED source session is CLOSED", async () => {
+  const auditFind = prisma.auditLog.findFirst as jest.Mock
+  auditFind.mockResolvedValueOnce({ metadata: { carriedFromSessionId: 7 } })
+  mockFind.mockImplementation(async ({ where }: { where: { id: number } }) =>
+    where.id === 7 ? { title: "29-DEC-2019", status: "CLOSED" } : openSession({ id: 1 })
+  )
+  await closeSession(1, undefined, fd({}))
+  expect(mockUpdate).toHaveBeenCalled()
+})
+
 test("closes via a conditional OPEN-only update", async () => {
   mockFind.mockResolvedValue(openSession())
   await closeSession(1, undefined, fd({ notes: "handover" }))

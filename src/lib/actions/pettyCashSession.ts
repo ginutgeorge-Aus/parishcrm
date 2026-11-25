@@ -423,6 +423,22 @@ export async function closeSession(
       if (!current) return { error: "Session not found" }
       if (current.status === "CLOSED") return { error: "Session already closed" }
 
+      // Out-of-order close: this session's opening was auto-carried from an earlier session
+      // that is still OPEN. Closing now would freeze a provisional opening, and the earlier
+      // session's later close could no longer roll its final figure forward (delta lost).
+      // Find the source through this session's own AUTO_OPENED provenance row.
+      const autoOpened = await tx.auditLog.findFirst({
+        where: { action: "PETTY_CASH_SESSION_AUTO_OPENED", resourceType: "PettyCashSession", resourceId: id },
+        orderBy: { id: "desc" },
+        select: { metadata: true },
+      })
+      const sourceId = (autoOpened?.metadata as { carriedFromSessionId?: unknown } | null | undefined)?.carriedFromSessionId
+      if (typeof sourceId === "number") {
+        const source = await tx.pettyCashSession.findUnique({ where: { id: sourceId }, select: { title: true, status: true } })
+        if (source?.status === "OPEN")
+          return { error: `Close the earlier session (${source.title}) first — this session's opening balance is carried from it.` }
+      }
+
       // Optional physical cash count → variance vs the system balance.
       // System balance is recomputed server-side (never trust a client value); a
       // non-zero variance must be explained. Closed sessions are locked, so the
