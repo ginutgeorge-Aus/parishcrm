@@ -351,6 +351,30 @@ describe("AUD-4-23 pay-now checkout whose registration was deleted", () => {
     expect(persistRegistration).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })
+
+  it("still alerts when the OPEN-only update loses to the sweep (row EXPIRED)", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique
+      .mockResolvedValueOnce({ id: 5, eventId: 7, status: "OPEN", publicToken: null, registrationId: null, surchargeCents: 0, payload: "" })
+      .mockResolvedValueOnce({ status: "EXPIRED" })
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringContaining("registration deleted"), expect.any(String))
+    errSpy.mockRestore()
+  })
+
+  it("stays quiet when another delivery already settled it (UNFULFILLED)", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique
+      .mockResolvedValueOnce({ id: 5, eventId: 7, status: "OPEN", publicToken: null, registrationId: null, surchargeCents: 0, payload: "" })
+      .mockResolvedValueOnce({ status: "UNFULFILLED" })
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(notifyStripeAlert).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
 })
 
 it("does NOT alert on a SAME-session redelivery after the publicToken update previously threw — quiet, expected, only one charge ever happened", async () => {

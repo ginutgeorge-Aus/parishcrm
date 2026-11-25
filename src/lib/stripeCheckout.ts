@@ -553,9 +553,12 @@ async function handleNonOpenStaging(
       })
       if (reopened.count === 0) return { status: 500 } // another delivery changed it; retry
       // Known limitation: if a registration WAS saved but its token write
-      // failed, and that registration was later deleted or anonymised (so the
-      // PaymentIntent lookup above finds nothing), this re-creates it. The
-      // dedupe window in persistRegistration only covers recent duplicates.
+      // failed, and that registration was later deleted (so the PaymentIntent
+      // lookup above finds nothing), this re-creates it. The only delete path
+      // (resetEventRegistrations) refuses while a COMPLETED checkout or a
+      // registration with a paymentRef exists, and anonymisation keeps
+      // paymentRef, so the app cannot produce this state; only a manual DB
+      // delete could.
       return completePaidCheckout(session)
     } else if (isRecoverableClaimShape(staging)) {
       // Claim is too young to tell "mid-persist elsewhere" from "stranded".
@@ -631,8 +634,8 @@ async function rejectOnAmountMismatch(
 
 /**
  * AUD-4-23: a paid pay-now checkout whose registration was deleted. Marks the
- * row UNFULFILLED, then sends one specific ops alert (only to the delivery
- * that settled it); money is retained (no-refund policy). A DB error
+ * row UNFULFILLED, then sends one specific ops alert (suppressed only when
+ * another delivery already settled it; a row lost to the sweep still alerts); money is retained (no-refund policy). A DB error
  * propagates so Stripe retries.
  * @param session the Stripe Checkout Session
  * @param staging the staged row (id used)
@@ -652,7 +655,14 @@ async function terminalizeDeletedPayNowRegistration(
     where: { id: staging.id, status: "OPEN" },
     data: { status: "UNFULFILLED", completedAt: new Date() },
   })
-  if (settled.count === 1) {
+  // Lost the OPEN-only update: re-read. Only a delivery that already settled
+  // it (UNFULFILLED) owns the alert; any other state (e.g. the sweep expired
+  // the row after our read) still needs the ops email.
+  const alreadySettled =
+    settled.count === 0 &&
+    (await prisma.checkoutSession.findUnique({ where: { id: staging.id }, select: { status: true } }))?.status ===
+      "UNFULFILLED"
+  if (!alreadySettled) {
     await notifyStripeAlert(
       "card pay-now: registration deleted before payment settled",
       `PI ${paymentIntent ?? "?"} (session ${session.id}): a pay-now payment settled but its registration had been deleted. Nothing to mark PAID. Money retained; refund or resolve manually.`,
