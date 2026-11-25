@@ -148,7 +148,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
                 <input type="checkbox" aria-label={`Line ${i + 1} GST`} checked={l.gst} onChange={(e) => setLine(i, { gst: e.target.checked })} /> GST
               </label>
             )}
-            <Button type="button" variant="ghost" size="sm" className="justify-self-end sm:col-span-1" aria-label={`Remove line ${i + 1}`}
+            <Button type="button" variant="ghost" size="sm" className={`justify-self-end sm:col-span-1${gstEnabled ? "" : " col-span-2"}`} aria-label={`Remove line ${i + 1}`}
               disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>✕</Button>
             {l.unitPrice.trim() !== "" && !MONEY_DECIMAL_RE.test(normaliseMoneyInput(l.unitPrice)) && (
               <p className="col-span-2 text-xs text-destructive sm:col-span-12">Line {i + 1}: enter a price such as 1000.00</p>
