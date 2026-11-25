@@ -353,7 +353,7 @@ async function rollOpeningForward(
   closing: ClosingSession,
   finalCents: number,
   basis: "counted" | "system",
-): Promise<void> {
+): Promise<number | null> {
   // Find the recipient through its recorded provenance, not by date: a manual session
   // backfilled between the two weeks must not hide the auto-opened successor.
   const carried = await tx.auditLog.findFirst({
@@ -366,14 +366,14 @@ async function rollOpeningForward(
     select: { resourceId: true },
   })
   const nextId = carried?.resourceId
-  if (nextId == null) return
+  if (nextId == null) return null
   const next = await tx.pettyCashSession.findUnique({
     where: { id: nextId },
     select: { status: true, openingBalance: true },
   })
-  if (next?.status !== "OPEN") return
+  if (next?.status !== "OPEN") return null
   const oldCents = toCents(next.openingBalance)
-  if (oldCents === finalCents) return
+  if (oldCents === finalCents) return null
   const newOpeningBalance = (finalCents / 100).toFixed(2)
   await tx.pettyCashSession.update({ where: { id: nextId }, data: { openingBalance: newOpeningBalance } })
   await logAuditGuardedTx(tx, userId, "PETTY_CASH_SESSION_OPENING_ROLLED_FORWARD", "PettyCashSession", nextId, {
@@ -382,6 +382,7 @@ async function rollOpeningForward(
     newOpeningBalance,
     basis,
   })
+  return nextId
 }
 
 /** Close a petty cash session. ADMIN/PASTOR only. */
@@ -403,6 +404,7 @@ export async function closeSession(
   const userId = actorId(session)
 
   let result: { error: string } | null
+  let rolledId: number | null = null
   try {
     // Serializable: the system balance (variance, roll-forward) is read in the same
     // transaction as the close, so an entry posted concurrently either lands before
@@ -482,7 +484,7 @@ export async function closeSession(
         countedCash,
         variance: closingVariance,
       })
-      await rollOpeningForward(
+      rolledId = await rollOpeningForward(
         tx,
         userId,
         current,
@@ -498,6 +500,7 @@ export async function closeSession(
   if (result) return result
   revalidatePath("/accounting/petty-cash")
   revalidatePath(`/accounting/petty-cash/sessions/${id}`)
+  if (rolledId !== null) revalidatePath(`/accounting/petty-cash/sessions/${rolledId}`) // its opening changed
   revalidatePath("/") // dashboard open-session count
   redirect("/accounting/petty-cash")
 }
