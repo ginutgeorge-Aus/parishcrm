@@ -233,6 +233,10 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
     // Lock the invoice first so the audit/row reads and the flip see one state (concurrent unmark + re-mark waits here).
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
+    // paidAt is re-read under the lock: the pre-transaction read can be stale if a concurrent unmark + re-mark changed it.
+    const fresh = await tx.invoice.findUnique({ where: { id }, select: { status: true, paidAt: true } })
+    if (fresh?.status !== InvoiceStatus.PAID) throw new Conflict()
+    const paidAt = fresh.paidAt
     const paid = await tx.auditLog.findFirst({ where: { action: "INVOICE_PAID", resourceType: "Invoice", resourceId: id }, orderBy: { id: "desc" }, select: { metadata: true } })
     const meta = (paid?.metadata ?? {}) as { mode?: unknown; transactionId?: unknown; recategorisedFrom?: { accountId?: unknown; fundId?: unknown } }
     const row = await tx.transaction.findFirst({ where: { invoiceId: id }, select: { id: true, date: true, reconciled: true, amount: true, accountId: true, paymentAccountId: true, fundId: true, personId: true } })
@@ -247,8 +251,8 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     // must be open. A created payment also gets a reversal row dated today, so today's period must be open too, and so must the
     // payment row's own date (equal to paidAt for a created payment; checked so the original is never in a locked period below).
     const lockErr = createMode
-      ? await assertUnlocked(reversalDate) ?? (await lockedPaymentError(inv.paidAt) ?? (row ? await lockedPaymentError(row.date) : null))
-      : inv.paidAt ? await assertUnlocked(inv.paidAt) : null
+      ? await assertUnlocked(reversalDate) ?? (await lockedPaymentError(paidAt) ?? (row ? await lockedPaymentError(row.date) : null))
+      : paidAt ? await assertUnlocked(paidAt) : null
     if (lockErr) return { error: lockErr }
     // The reversal posts to the payment's own account and fund: both must still be usable.
     if (row && createMode) {

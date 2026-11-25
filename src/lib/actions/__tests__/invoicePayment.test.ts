@@ -214,14 +214,15 @@ describe("unmarkInvoicePaid", () => {
     expect(await unmarkInvoicePaid(11)).toEqual({ error: "Unauthorized" })
   })
   it("keeps the created income row, unlinks it and adds an offsetting negative row, so re-marking paid cannot double it", async () => {
+    ;(prisma.transaction.create as jest.Mock).mockResolvedValueOnce({ id: 52 })
     expect(await unmarkInvoicePaid(11)).toEqual({ success: "Payment kept and cancelled by a negative entry dated today — INV-0007 is unpaid again" })
     expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 51, invoiceId: 11, paymentAccountId: 2, reconciled: false }, data: { invoiceId: null, reconciled: true } })
     expect(prisma.transaction.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ type: "INCOME", amount: "-120.00", accountId: 4, reconciled: true }),
     }))
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "PAID" }, data: { status: "SENT", paidAt: null } })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_UNPAID", "Invoice", 11, { invoiceNo: "INV-0007", transactionId: 51, reversalTransactionId: 51 })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "TRANSACTION_CREATED", "Transaction", 51, { amount: "-120.00", type: "INCOME", accountId: 4, source: "invoice-unmark", invoiceId: 11, reversesTransactionId: 51 })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_UNPAID", "Invoice", 11, { invoiceNo: "INV-0007", transactionId: 51, reversalTransactionId: 52 })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "TRANSACTION_CREATED", "Transaction", 52, { amount: "-120.00", type: "INCOME", accountId: 4, source: "invoice-unmark", invoiceId: 11, reversesTransactionId: 51 })
   })
   it("conflicts and unlinks nothing when a link audit row is for a different transaction", async () => {
     ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "link", transactionId: 49, recategorisedFrom: { accountId: 9, fundId: 3 } } })
