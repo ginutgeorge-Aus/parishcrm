@@ -88,7 +88,15 @@ restarts on the new image — see [Upgrading](/parishcrm/docs/upgrading/).
 sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' .env > .env.docker
 
 docker run -d --restart unless-stopped --name parishcrm --env-file .env.docker -p 3000:3000 \
-  ghcr.io/<owner>/<repo>:vX.Y.Z
+  ghcr.io/<owner>/<repo>@sha256:<digest>
+```
+
+Release tags are mutable in a registry, so pin the image by digest and verify
+its signed build provenance before running it:
+
+```bash
+docker buildx imagetools inspect ghcr.io/<owner>/<repo>:vX.Y.Z   # note the Digest: sha256:<digest>
+gh attestation verify oci://ghcr.io/<owner>/<repo>@sha256:<digest> --repo <owner>/<repo>
 ```
 
 - Put a TLS-terminating reverse proxy (Caddy, nginx, a platform's ingress) in

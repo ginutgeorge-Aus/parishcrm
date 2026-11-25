@@ -34,8 +34,10 @@ async function main() {
   // Marks this database as the demo. .github/workflows/demo-reset.yml refuses to
   // `migrate reset` any non-empty database that lacks it (the workflow also
   // re-writes it right after each reset). Written only AFTER the guard above, so
-  // a rejected run against a real database never authorises a later wipe, but
-  // before the seed work so a failed seed still leaves a valid demo marked.
+  // a rejected run never marks the database. The guard is weak though (an empty
+  // install passes it), so never run this against a real DB; the workflow's
+  // host check is the second barrier. Written before the seed work so a failed
+  // seed still leaves a valid demo marked.
   await prisma.appSetting.upsert({ where: { key: "demoSentinel" }, update: { value: "true" }, create: { key: "demoSentinel", value: "true" } })
 
   // Church calendar day (APP_TIMEZONE, default Sydney) — the dashboard's
