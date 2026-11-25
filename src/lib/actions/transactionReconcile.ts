@@ -9,6 +9,7 @@ import { canAccessAccounting } from "@/lib/roleGuard"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { isP2034 } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
+import { isReversalPairRow } from "@/lib/reversalPair"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -50,6 +51,9 @@ export async function toggleReconciled(
   if (lockError) return { error: lockError }
 
   const next = !existing.reconciled
+  // An invoice-unmark reversal pair stays reconciled: un-reconciling one half would allow editing/deleting it alone.
+  if (!next && (await isReversalPairRow(prisma, id)))
+    return { error: "This transaction is part of an invoice reversal and must stay reconciled." }
   try {
     await prisma.$transaction(async (tx) => {
       await tx.transaction.update({
