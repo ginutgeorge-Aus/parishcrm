@@ -1,6 +1,5 @@
 "use client"
 
-import { useActionState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +13,8 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import type { ActionResult } from "@/lib/actions/types"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Family = {
   id?: number
@@ -46,15 +47,11 @@ export function FamilyForm({
   /** False while Subscription dues is off: the field is omitted and the stored value kept. */
   showDues?: boolean
 }>) {
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
 
   return (
-    <form action={formAction} className="space-y-6 max-w-lg">
-      {state?.error && (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {state.error}
-        </div>
-      )}
+    <form onSubmit={onSubmit} className="space-y-6 max-w-lg">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       {/* Optimistic-concurrency token — the row's last-seen version, so
           the server can reject a save that would clobber a concurrent edit. */}

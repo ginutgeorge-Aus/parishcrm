@@ -29,6 +29,8 @@ export function SlotCell({
   const [options, setOptions] = useState<RosterSuggestion[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const latest = useRef(0)
+  // True while a refetch is in flight: the retained options may be stale, so they are not selectable.
+  const [refreshing, setRefreshing] = useState(false)
   // Still loading until the first response (or a load failure) arrives.
   const loading = options === null && loadError === null
   const assignedCount = assignments.length
@@ -47,6 +49,9 @@ export function SlotCell({
       })
       .catch(() => {
         if (id === latest.current) setLoadError("Could not load people. Please try again.")
+      })
+      .finally(() => {
+        if (id === latest.current) setRefreshing(false)
       })
   }, [slotId])
 
@@ -100,7 +105,7 @@ export function SlotCell({
             value=""
             disabled={pending}
             // Background refresh on open: another slot of this service may have taken someone since mount.
-            onFocus={fetchOptions}
+            onFocus={() => { setRefreshing(true); fetchOptions() }}
             onChange={(e) => {
               const personId = Number(e.target.value)
               if (personId) run(() => assignToRosterSlot(slotId, personId))
@@ -109,7 +114,7 @@ export function SlotCell({
             <option value="">{loading ? "Loading…" : `Assign (${open} open)…`}</option>
             {options?.length === 0 && <option disabled value="-1">No one available</option>}
             {options?.map((o) => (
-              <option key={o.personId} value={o.personId}>
+              <option key={o.personId} value={o.personId} disabled={refreshing}>
                 {o.firstName} {o.lastName}{o.lastServedYMD ? ` (last ${o.lastServedYMD})` : " (never served)"}
               </option>
             ))}

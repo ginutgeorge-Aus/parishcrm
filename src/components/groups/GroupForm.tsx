@@ -1,14 +1,14 @@
 "use client"
 
-import { useActionState } from "react"
 import { useRouter } from "next/navigation"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { GROUP_CATEGORIES, GROUP_CATEGORY_LABELS, MAX_GROUP_DESCRIPTION, MAX_GROUP_NAME } from "@/lib/groups"
 import type { ActionResult } from "@/lib/actions/types"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type GroupValues = { name: string; category: string; description: string }
 
@@ -21,12 +21,12 @@ export function GroupForm({
   group?: GroupValues
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const submitLabel = group ? "Save changes" : "Create group"
 
   return (
-    <form action={formAction} className="max-w-md space-y-4">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="max-w-md space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       <div className="space-y-1">
         <Label htmlFor="name">Name</Label>

@@ -500,15 +500,18 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
     bankAccount: exists.bankAccount,
   })) return { error: paidEventPaymentError(exists.onlinePaymentEnabled, stripeOk) }
 
-  // Condition lives in the where clause so a concurrent slug-clear can't slip
-  // between the read above and the write (DB CHECK is the final backstop).
+  // Conditions live in the where clause so a concurrent slug-clear can't slip
+  // between the read above and the write (DB CHECK is the final backstop), and
+  // `isPublished: !publish` makes the write itself prove a real state change:
+  // only the request that actually flipped the flag audits it, so a stale
+  // pre-write read can't skip or double an audit row (logAudit itself swallows errors).
   // Publishing also pins updatedAt to the row we validated: any concurrent save
   // (e.g. clearing bank details) bumps it, so the write matches 0 rows instead
   // of publishing a paid event that no longer has a payment method.
   let count: number
   try {
     ;({ count } = await prisma.event.updateMany({
-      where: publish ? { id, slug: { not: null }, updatedAt: exists.updatedAt } : { id },
+      where: publish ? { id, isPublished: false, slug: { not: null }, updatedAt: exists.updatedAt } : { id, isPublished: true },
       data: { isPublished: publish },
     }))
   } catch (e: unknown) {
@@ -516,9 +519,14 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
     if (msg.includes(PUBLISHED_SLUG_CONSTRAINT)) return { error: "Set a slug before publishing" }
     throw e
   }
-  if (count === 0) return { error: publish ? "Event changed while publishing — reload and try again" : "Event not found" }
-  // Log the direction actually taken; a no-op toggle (already in that state) is not an auditable change.
-  if (exists.isPublished !== publish) {
+  if (count === 0) {
+    // Nothing flipped: already in the requested state (no-op, not auditable), or the event vanished / lost its slug.
+    const now = await prisma.event.findUnique({ where: { id }, select: { isPublished: true, slug: true } })
+    if (!now) return { error: "Event not found" }
+    // Derive the error from the real cause, not from the state a racing toggle may have just changed.
+    if (publish && !now.slug) return { error: "Set a slug before publishing" }
+    if (now.isPublished !== publish) return { error: "Event changed concurrently, please try again" }
+  } else {
     await logAudit(actorId(session), publish ? "EVENT_PUBLISHED" : "EVENT_UNPUBLISHED", "Event", id, { published: publish })
   }
   await syncEventToWebsite(id)
@@ -564,7 +572,7 @@ export async function resyncEventsToWebsite(): Promise<ActionResultWithSuccess> 
   // ADMIN-only bulk push of up to 500 events' public data — leave a trail of who
   // triggered a full resync and when, like every sibling event action.
   await logAudit(actorId(session), "EVENTS_RESYNCED", "Event", undefined, { synced, failed, truncated })
-  return { success: `Synced ${synced} event${synced === 1 ? "" : "s"} to website${failed ? `, ${failed} failed` : ""}${truncated ? " (capped at 500 — some events not synced)" : ""}` }
+  return { success: `Synced ${synced} event${synced === 1 ? "" : "s"} to website${failed ? `, ${failed} failed` : ""}${truncated ? " (capped at 500 — some events or deletions not synced)" : ""}` }
 }
 
 // Event access-delegation actions (volunteer view token, organiser assignment)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition, useActionState } from "react"
+import { useState, useTransition } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,6 +39,8 @@ import {
 } from "@/lib/actions/paymentAccount"
 import type { ActionResultWithSuccess } from "@/lib/actions/types"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 export function PaymentAccountsManager({ accounts }: Readonly<{ accounts: PaymentAccountLite[] }>) {
   return (
@@ -236,14 +238,12 @@ function RenameAccountDialog({ account }: Readonly<{ account: PaymentAccountLite
 
 function RenameAccountForm({ account }: Readonly<{ account: PaymentAccountLite }>) {
   const renameAccount = renamePaymentAccount.bind(null, account.id)
-  const [state, formAction, isPending] = useActionState<ActionResultWithSuccess, FormData>(
-    renameAccount,
-    undefined
-  )
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(renameAccount)
 
   return (
-    <form action={formAction} className="space-y-4">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="space-y-4">
+      <FormError error={state && "error" in state ? state.error : undefined} errorKey={errorSeq} />
+      <FormFeedback state={state && "success" in state ? state : undefined} />
       <div className="space-y-1">
         <Label htmlFor={`pa-rename-${account.id}`}>Name</Label>
         <Input
@@ -290,11 +290,12 @@ function AddAccountDialog() {
 
 function AddAccountForm() {
   const [kind, setKind] = useState<"BANK" | "CASH" | "">("")
-  const [state, formAction, isPending] = useActionState(createPaymentAccount, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(createPaymentAccount)
 
   return (
-    <form action={formAction} className="space-y-4">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="space-y-4">
+      <FormError error={state && "error" in state ? state.error : undefined} errorKey={errorSeq} />
+      <FormFeedback state={state && "success" in state ? state : undefined} />
       <div className="space-y-1">
         <Label htmlFor="pa-name">Name</Label>
         <Input id="pa-name" name="name" maxLength={60} required />

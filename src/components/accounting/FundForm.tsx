@@ -1,13 +1,13 @@
 "use client"
 
-import { useActionState } from "react"
 import { useRouter } from "next/navigation"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import type { ActionResult } from "@/lib/actions/types"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Fund = { id: number; name: string; isActive: boolean; sortOrder: number }
 
@@ -19,11 +19,11 @@ export function FundForm({
   fund?: Fund
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
 
   return (
-    <form action={formAction} className="max-w-md space-y-4">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="max-w-md space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       <div className="space-y-1">
         <Label htmlFor="name">Name</Label>

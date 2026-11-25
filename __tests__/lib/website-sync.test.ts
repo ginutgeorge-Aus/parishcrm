@@ -368,6 +368,16 @@ describe("resyncAllEvents", () => {
     await expect(resyncAllEvents()).resolves.toEqual({ synced: 1, failed: 1, truncated: false, disabled: false })
   })
 
+  it("flags truncated when the audited-delete replay hits the 500 cap", async () => {
+    ;(prisma.event.findMany as jest.Mock).mockResolvedValue([baseEvent])
+    ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue(
+      Array.from({ length: 500 }, (_, i) => ({ resourceId: 1000 + i, createdAt: new Date("2026-05-01T00:00:00.000Z") }))
+    )
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
+    await expect(resyncAllEvents()).resolves.toEqual({ synced: 501, failed: 0, truncated: true, disabled: false })
+  })
+
   it("returns zero counts for an empty event list", async () => {
     ;(prisma.event.findMany as jest.Mock).mockResolvedValue([])
     const fetchSpy = jest.spyOn(global, "fetch" as never)
