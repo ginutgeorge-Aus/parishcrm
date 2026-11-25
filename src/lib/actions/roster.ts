@@ -87,7 +87,8 @@ async function slotEditor(slotId: number): Promise<{ error: string } | { session
   if (!isValidPgId(slotId)) return { error: "Invalid slot" }
   const slot = await loadSlot(slotId)
   if (!slot) return { error: SLOT_GONE }
-  if (!(await mayEditGroupRole(g.session, slot.role.groupId))) return { error: UNAUTHORIZED }
+  // Same error as a missing slot, so a caller cannot probe which slot ids exist.
+  if (!(await mayEditGroupRole(g.session, slot.role.groupId))) return { error: SLOT_GONE }
   return { session: g.session, slot }
 }
 
@@ -156,6 +157,13 @@ async function setRoleArchived(id: number, archive: boolean): Promise<ActionResu
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(id)) return { error: "Invalid role" }
   const count = await prisma.$transaction(async (tx) => {
+    if (!archive) {
+      // A role under an archived group stays unusable, so restoring it would only mislead.
+      const row = await tx.rosterRole.findFirst({ where: { id, archivedAt: { not: null } }, select: { groupId: true } })
+      if (!row) return 0
+      // FOR SHARE: a concurrent group archive waits, so the role is never restored under it.
+      if (!(await lockLiveGroup(tx, row.groupId))) return -1
+    }
     const r = await tx.rosterRole.updateMany({
       where: { id, archivedAt: archive ? null : { not: null } },
       data: { archivedAt: archive ? new Date() : null },
@@ -163,6 +171,7 @@ async function setRoleArchived(id: number, archive: boolean): Promise<ActionResu
     if (r.count > 0) await logAuditTx(tx, actorId(g.session), archive ? "ROSTER_ROLE_ARCHIVED" : "ROSTER_ROLE_RESTORED", "RosterRole", id)
     return r.count
   })
+  if (count === -1) return { error: "Restore the role's group first" }
   if (count === 0) return { error: ROLE_GONE }
   revalidateRoster()
   return { success: archive ? "Roster role archived" : "Roster role restored" }
@@ -553,7 +562,8 @@ export async function unassignRosterAssignment(assignmentId: number): Promise<Ac
     select: { serviceId: true, slotId: true, personId: true, status: true, slot: { select: { role: { select: { groupId: true } } } } },
   })
   if (!row) return { error: ASSIGNMENT_GONE }
-  if (!(await mayEditGroupRole(g.session, row.slot.role.groupId))) return { error: UNAUTHORIZED }
+  // Same error as a missing row, so a caller cannot probe which assignment ids exist.
+  if (!(await mayEditGroupRole(g.session, row.slot.role.groupId))) return { error: ASSIGNMENT_GONE }
   // A decline keeps the person off this service until staff clear it: a group
   // leader must not remove it and then re-roster them over their refusal.
   if (row.status === "DECLINED" && !canManageRoster(g.session?.user?.role)) return { error: UNAUTHORIZED }
