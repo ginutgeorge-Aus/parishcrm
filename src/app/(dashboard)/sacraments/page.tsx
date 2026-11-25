@@ -8,6 +8,7 @@ import { SACRAMENT_LABEL, formatLongYmd } from "@/lib/sacraments"
 import { utcYmd } from "@/lib/dates"
 import { ScrollText } from "lucide-react"
 import { EmptyState } from "@/components/shared/EmptyState"
+import { SACRAMENT_SELECT_CLASS } from "@/components/sacraments/selectClass"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,8 +29,6 @@ function parsePage(raw: string | undefined): number {
   return Number.isSafeInteger(n) && n >= 1 ? n : 1
 }
 
-const SELECT_CLASS =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
 
 /**
  * Parse the `?year=` filter: a 4-digit year in range, else null (all years).
@@ -113,7 +112,7 @@ export default async function SacramentsPage(props: Readonly<Props>) {
       <form method="get" className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
           <Label htmlFor="type">Sacrament</Label>
-          <select id="type" name="type" defaultValue={type ?? ""} className={SELECT_CLASS}>
+          <select id="type" name="type" defaultValue={type ?? ""} className={SACRAMENT_SELECT_CLASS}>
             <option value="">All</option>
             {Object.values(SacramentType).map((t) => (
               <option key={t} value={t}>{SACRAMENT_LABEL[t]}</option>
