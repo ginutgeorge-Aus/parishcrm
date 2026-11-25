@@ -94,7 +94,7 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link href="/my-events" className="mb-1 inline-block text-xs text-muted-foreground hover:text-foreground">
             ← My Events
@@ -104,7 +104,7 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
             {event.date ? formatSydneyDate(event.date) : event.recursLabel || "Recurring"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" size="sm">
             <Link href={`/my-events/${eventId}/check-in`}>Check-in</Link>
           </Button>

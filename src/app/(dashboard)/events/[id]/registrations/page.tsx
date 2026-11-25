@@ -122,7 +122,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
 
   return (
     <div className="p-6">
-      <div className="flex justify-between items-start mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
         <div>
           <Link href="/events" className="text-xs text-muted-foreground hover:text-foreground mb-1 inline-block">
             ← Events
@@ -130,7 +130,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
           <h1 className="text-2xl font-bold text-foreground">{event.title}</h1>
           <p className="text-muted-foreground text-sm mt-1">{event.date ? formatSydneyDate(event.date) : (event.recursLabel || "Recurring")}</p>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
           {canEdit(session.user.role) ? (
             <>
               <Button asChild variant="outline" size="sm">
