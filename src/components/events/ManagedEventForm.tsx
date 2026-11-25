@@ -1,6 +1,5 @@
 "use client"
 
-import { useActionState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,11 +7,12 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { OrganizersEditor } from "./OrganizersEditor"
 import type { Organizer } from "@/lib/eventOrganizers"
 import type { ActionResult } from "@/lib/actions/types"
 import { CATEGORIES, RECURS_OPTIONS } from "@/lib/eventConstants"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Props = {
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
@@ -47,7 +47,7 @@ type Props = {
  * @returns The form element.
  */
 export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props>) {
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const recurring = kind === "recurring"
   const updatedAtIso =
     typeof defaultValues.updatedAt === "string" ? defaultValues.updatedAt : defaultValues.updatedAt.toISOString()
@@ -55,8 +55,8 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
   const cacheBust = `?v=${Date.parse(updatedAtIso)}`
 
   return (
-    <form action={formAction} className="flex max-w-2xl flex-col gap-8">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="flex max-w-2xl flex-col gap-8">
+      <FormError error={state?.error} errorKey={errorSeq} />
       <input type="hidden" name="updatedAt" value={updatedAtIso} />
 
       <section>
