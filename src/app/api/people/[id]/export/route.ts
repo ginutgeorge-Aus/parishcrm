@@ -57,6 +57,19 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
           updatedAt: true,
         },
       },
+      rosterAssignments: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          status: true,
+          respondedAt: true,
+          createdAt: true,
+          slot: { select: { role: { select: { name: true } }, service: { select: { title: true, date: true } } } },
+        },
+      },
+      unavailability: {
+        orderBy: { startDate: "desc" },
+        select: { startDate: true, endDate: true, createdAt: true },
+      },
       transactions: {
         orderBy: { date: "desc" },
         include: {
@@ -89,7 +102,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   // `clearances` and `transactions` are exported via their own decrypted
   // sections; keep the raw (encrypted) rows out of the spread person object.
-  const { clearances, transactions, ...personRest } = person
+  const { clearances, transactions, rosterAssignments, unavailability, ...personRest } = person
   const data = {
     person: {
       ...decryptPersonScalars(personRest),
@@ -99,6 +112,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     transactions: transactions.map(decryptTransactionForExport),
     registrations: registrations.map(decryptRegistrationForExport),
     clearances: clearances.map(decryptClearanceForExport),
+    rosterAssignments,
+    unavailability,
     exportedAt: new Date().toISOString(),
   }
 
@@ -108,7 +123,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     "PERSON_EXPORTED",
     "Person",
     id,
-    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "transactionNotes", "receiptSentTo", "registrationCustomAnswers", "clearances"] },
+    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "transactionNotes", "receiptSentTo", "registrationCustomAnswers", "clearances", "rosterAssignments", "unavailability"] },
     ip
   )
 
