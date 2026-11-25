@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createExam, updateExam, archiveExam } from "@/lib/actions/sundaySchoolExam"
@@ -37,7 +37,8 @@ function ExamEditForm({ exam, year, onDone }: Readonly<{ exam: ExamListItem; yea
     const r = await updateExam(exam.id, undefined, f)
     return r?.error ? r : { success: "Saved" }
   }
-  const [state, formAction, isPending] = useActionState(save, undefined)
+  // useRetainedForm supplies errorSeq so a repeated identical error still scrolls/focuses the alert.
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(save)
   const saved = state !== undefined && "success" in state
 
   useEffect(() => {
@@ -48,8 +49,8 @@ function ExamEditForm({ exam, year, onDone }: Readonly<{ exam: ExamListItem; yea
   }, [state, saved, router, onDone])
 
   return (
-    <form action={formAction} className="w-full max-w-md space-y-3 border-t border-border pt-3">
-      <FormError error={state && "error" in state ? state.error : undefined} />
+    <form onSubmit={onSubmit} className="w-full max-w-md space-y-3 border-t border-border pt-3">
+      <FormError error={state && "error" in state ? state.error : undefined} errorKey={errorSeq} />
       <div className="space-y-1">
         <Label htmlFor={`exam-name-${exam.id}`}>Name</Label>
         <Input id={`exam-name-${exam.id}`} name="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />
