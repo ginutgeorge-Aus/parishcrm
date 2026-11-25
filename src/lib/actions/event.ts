@@ -24,6 +24,7 @@ import {
 } from "./eventForm"
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
+import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
 import { stripeConfigured } from "@/lib/stripe"
 import { paidEventLacksPaymentMethod, paidEventPaymentError } from "@/lib/eventPaymentRule"
@@ -87,6 +88,21 @@ export async function createEvent(_prev: ActionResult, formData: FormData): Prom
   redirect(`/events/${newEventId}/edit`)
 }
 
+/**
+ * True when the submitted ticket rows differ in price from the stored ones,
+ * matched by ticket ID. A row with no stored match (new or foreign id), a
+ * different row count, or a changed price counts as changed; pure reordering
+ * does not. Prices compare as integer cents, never Number().
+ */
+function ticketPricesChanged(
+  existing: { id: number; price: { toString(): string } }[],
+  submitted: { id: number | null; price: string }[],
+): boolean {
+  if (existing.length !== submitted.length) return true
+  const oldCents = new Map(existing.map((t) => [t.id, toCents(t.price)]))
+  return submitted.some((t) => t.id === null || oldCents.get(t.id) !== toCents(t.price))
+}
+
 /** Update an event. Editors only. */
 export async function updateEvent(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
@@ -110,7 +126,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
     id: true, isPublished: true,
     bankBsb: true, bankAccount: true, onlinePaymentEnabled: true,
     tieredPricingEnabled: true, familyPricingTiers: true,
-    ticketTypes: { select: { price: true } },
+    ticketTypes: { select: { id: true, price: true } },
   } })
   if (!exists) return { error: "Event not found" }
   // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
@@ -143,12 +159,10 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
         bankBsb: exists.bankBsb,
         bankAccount: exists.bankAccount,
       })
-      const num = (v: { toString(): string }) => Number(v.toString())
-      const oldPrices = exists.ticketTypes.map((t) => num(t.price)).sort((x, y) => x - y)
-      const newPrices = ticketTypes.map((t) => num(t.price)).sort((x, y) => x - y)
+      // Compare per ticket ID (not sorted price lists): swapping two tickets'
+      // prices keeps the sorted lists equal but changes what each ticket costs.
       const paymentFieldsChanged =
-        oldPrices.length !== newPrices.length ||
-        oldPrices.some((p, i) => p !== newPrices[i]) ||
+        ticketPricesChanged(exists.ticketTypes, ticketTypes) ||
         exists.tieredPricingEnabled !== parsed.tieredPricingEnabled ||
         (parsed.tieredPricingEnabled && (oldTiers.length !== tiers.length || oldTiers.some((p, i) => p !== tiers[i]))) ||
         exists.onlinePaymentEnabled !== parsed.onlinePaymentEnabled ||
@@ -461,7 +475,7 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   const exists = await prisma.event.findUnique({
     where: { id },
     select: {
-      id: true, slug: true, isPublished: true,
+      id: true, slug: true, isPublished: true, updatedAt: true,
       bankBsb: true, bankAccount: true, onlinePaymentEnabled: true,
       tieredPricingEnabled: true, familyPricingTiers: true,
       ticketTypes: { select: { price: true } },
@@ -488,10 +502,13 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
 
   // Condition lives in the where clause so a concurrent slug-clear can't slip
   // between the read above and the write (DB CHECK is the final backstop).
+  // Publishing also pins updatedAt to the row we validated: any concurrent save
+  // (e.g. clearing bank details) bumps it, so the write matches 0 rows instead
+  // of publishing a paid event that no longer has a payment method.
   let count: number
   try {
     ;({ count } = await prisma.event.updateMany({
-      where: publish ? { id, slug: { not: null } } : { id },
+      where: publish ? { id, slug: { not: null }, updatedAt: exists.updatedAt } : { id },
       data: { isPublished: publish },
     }))
   } catch (e: unknown) {
@@ -499,7 +516,7 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
     if (msg.includes(PUBLISHED_SLUG_CONSTRAINT)) return { error: "Set a slug before publishing" }
     throw e
   }
-  if (count === 0) return { error: publish ? "Set a slug before publishing" : "Event not found" }
+  if (count === 0) return { error: publish ? "Event changed while publishing — reload and try again" : "Event not found" }
   // Log the direction actually taken; a no-op toggle (already in that state) is not an auditable change.
   if (exists.isPublished !== publish) {
     await logAudit(actorId(session), publish ? "EVENT_PUBLISHED" : "EVENT_UNPUBLISHED", "Event", id, { published: publish })

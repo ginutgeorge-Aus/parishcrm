@@ -33,6 +33,7 @@ const draft = (over: Record<string, unknown> = {}) => ({
   bankBsb: null, bankAccount: null, onlinePaymentEnabled: false,
   tieredPricingEnabled: false, familyPricingTiers: null,
   ticketTypes: [{ price: "25.00" }],
+  updatedAt: new Date(1000),
   ...over,
 })
 
@@ -53,7 +54,14 @@ describe("publishEvent paid-event rule", () => {
   it("allows publishing with bank details", async () => {
     findUnique.mockResolvedValue(draft({ bankBsb: "012-345", bankAccount: "123" }))
     expect(await publishEvent(1, true)).toBeUndefined()
-    expect(updateMany).toHaveBeenCalled()
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 1, slug: { not: null }, updatedAt: new Date(1000) },
+    }))
+  })
+  it("reports a changed event when the guarded write matches 0 rows", async () => {
+    findUnique.mockResolvedValue(draft({ bankBsb: "012-345", bankAccount: "123" }))
+    updateMany.mockResolvedValueOnce({ count: 0 })
+    expect(await publishEvent(1, true)).toEqual({ error: "Event changed while publishing — reload and try again" })
   })
   it("allows publishing with card on and Stripe configured", async () => {
     mStripe.mockReturnValue(true)
@@ -79,7 +87,7 @@ describe("publishEvent paid-event rule", () => {
 describe("updateEvent paid-event rule", () => {
   const fd = (extra: Record<string, string> = {}) => {
     const f = new FormData()
-    const fields = { title: "Feast", slug: "feast", kind: "one_off", date: "2026-08-01T10:00", category: "worship", "ticketType.0.name": "Adult", "ticketType.0.price": "25.00", "ticketType.0.capacity": "", ...extra }
+    const fields = { title: "Feast", slug: "feast", kind: "one_off", date: "2026-08-01T10:00", category: "worship", "ticketType.0.id": "5", "ticketType.0.name": "Adult", "ticketType.0.price": "25.00", "ticketType.0.capacity": "", ...extra }
     for (const [k, v] of Object.entries(fields)) f.set(k, v)
     return f
   }
@@ -87,7 +95,7 @@ describe("updateEvent paid-event rule", () => {
     id: 1, slug: "feast", isPublished: true,
     bankBsb: null, bankAccount: null, onlinePaymentEnabled: false,
     tieredPricingEnabled: false, familyPricingTiers: null,
-    ticketTypes: [{ price: "25.00" }],
+    ticketTypes: [{ id: 5, price: "25.00" }],
     ...over,
   })
   it("rejects a save that removes bank details from a compliant published paid event", async () => {
@@ -104,6 +112,24 @@ describe("updateEvent paid-event rule", () => {
     findUnique.mockResolvedValue(pub())
     expect(await updateEvent(1, undefined, fd({ "ticketType.0.price": "30.00" }))).toEqual({ error: PAID_EVENT_NEEDS_PAYMENT_ERROR })
     expect(transaction).not.toHaveBeenCalled()
+  })
+  it("rejects swapping prices between tickets (equal sorted lists) on a legacy event", async () => {
+    findUnique.mockResolvedValue(pub({ ticketTypes: [{ id: 5, price: "25.00" }, { id: 6, price: "10.00" }] }))
+    const swapped = fd({
+      "ticketType.0.price": "10.00",
+      "ticketType.1.id": "6", "ticketType.1.name": "Child", "ticketType.1.price": "25.00", "ticketType.1.capacity": "",
+    })
+    expect(await updateEvent(1, undefined, swapped)).toEqual({ error: PAID_EVENT_NEEDS_PAYMENT_ERROR })
+    expect(transaction).not.toHaveBeenCalled()
+  })
+  it("allows reordering tickets with unchanged prices on a legacy event", async () => {
+    findUnique.mockResolvedValue(pub({ ticketTypes: [{ id: 5, price: "25.00" }, { id: 6, price: "10.00" }] }))
+    const reordered = fd({
+      "ticketType.0.id": "6", "ticketType.0.name": "Child", "ticketType.0.price": "10.00",
+      "ticketType.1.id": "5", "ticketType.1.name": "Adult", "ticketType.1.price": "25.00", "ticketType.1.capacity": "",
+    })
+    await expect(updateEvent(1, undefined, reordered)).rejects.toThrow("NEXT_REDIRECT")
+    expect(transaction).toHaveBeenCalled()
   })
   it("rejects turning card off on a card-only published event", async () => {
     mStripe.mockReturnValue(true)
