@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import { paidEventLacksPaymentMethod, PAID_EVENT_NEEDS_PAYMENT_ERROR } from "@/lib/eventPaymentRule"
 import {
   Select,
   SelectContent,
@@ -78,6 +79,9 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   // mirror each other's on/off state so the UI can grey out the inactive one.
   const [waiverOn, setWaiverOn] = useState(!!defaultValues.familyWaiverEnabled)
   const [tieredOn, setTieredOn] = useState(!!defaultValues.tieredPricingEnabled)
+  const [tierPrices, setTierPrices] = useState<string[]>((defaultValues.familyPricingTiers ?? []).map(String))
+  const [bankBsb, setBankBsb] = useState(defaultValues.bankBsb ?? "")
+  const [bankAccount, setBankAccount] = useState(defaultValues.bankAccount ?? "")
   const recurring = kind === "recurring"
 
   const keySeq = useRef(0)
@@ -88,6 +92,18 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   const removeTicket = (i: number) => setTicketRows((r) => r.filter((_, idx) => idx !== i))
   const updateTicket = (i: number, field: keyof TicketTypeRow, value: string) =>
     setTicketRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
+
+  // Same rule the server enforces on publish. Stripe config is server-side, so
+  // the hint only asks for card payment to be ticked; the server has the final say.
+  const paidWithoutPayment = paidEventLacksPaymentMethod({
+    ticketPrices: ticketRows.map((r) => r.price),
+    tierPrices: tierPrices.map((p) => Number(p) || 0),
+    tieredPricingEnabled: tieredOn,
+    onlinePaymentEnabled: onlinePaymentOn,
+    stripeConfigured: true,
+    bankBsb,
+    bankAccount,
+  })
 
   const ticketNames = Array.from(
     new Set(ticketRows.map((r) => r.name.trim()).filter(Boolean))
@@ -325,13 +341,18 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="bankBsb">BSB</Label>
-            <Input id="bankBsb" name="bankBsb" defaultValue={defaultValues.bankBsb} maxLength={20} placeholder="012-345" />
+            <Input id="bankBsb" name="bankBsb" value={bankBsb} onChange={(e) => setBankBsb(e.target.value)} maxLength={20} placeholder="012-345" />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="bankAccount">Account number</Label>
-            <Input id="bankAccount" name="bankAccount" defaultValue={defaultValues.bankAccount} maxLength={20} />
+            <Input id="bankAccount" name="bankAccount" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} maxLength={20} />
           </div>
         </div>
+        {paidWithoutPayment && (
+          <p role="status" className="mt-2 text-sm text-warning">
+            This event has paid tickets but no way to pay. {PAID_EVENT_NEEDS_PAYMENT_ERROR}.
+          </p>
+        )}
         <label htmlFor="onlinePaymentEnabled" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="onlinePaymentEnabled"
@@ -399,7 +420,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             preserves in-progress tier rows instead of remounting to defaults
 . Server ignores tier fields unless tieredPricingEnabled. */}
         <div className={tieredOn ? "" : "hidden"}>
-          <TieredPricingEditor defaultTiers={defaultValues.familyPricingTiers ?? []} active={tieredOn} />
+          <TieredPricingEditor defaultTiers={defaultValues.familyPricingTiers ?? []} active={tieredOn} onPricesChange={setTierPrices} />
         </div>
       </section>
 

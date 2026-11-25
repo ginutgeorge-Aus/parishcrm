@@ -6,6 +6,7 @@ import { WaitlistForm } from "@/components/public-event/WaitlistForm"
 import { RegistrationClosedPanel } from "@/components/public-event/RegistrationClosedPanel"
 import { issueFormToken } from "@/lib/formToken"
 import { stripeConfigured } from "@/lib/stripe"
+import { hasBankDetails } from "@/lib/eventPaymentRule"
 import { getCardFeeConfig } from "@/lib/cardFeeSettings"
 import { isRegistrationClosed } from "@/lib/eventClose"
 import { getChurchSettings } from "@/lib/churchSettings"
@@ -122,6 +123,7 @@ export default async function PublicEventPage(props: Readonly<Props>) {
             formToken={formToken}
             onlinePaymentEnabled={event.onlinePaymentEnabled}
             stripeConfigured={stripeConfigured()}
+            hasBankDetails={hasBankDetails(event.bankBsb, event.bankAccount)}
             passCardFee={event.passCardFee}
             cardFeePct={cardFee?.pct ?? 0}
             cardFeeFixedCents={cardFee?.fixedCents ?? 0}

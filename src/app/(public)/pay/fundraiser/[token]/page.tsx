@@ -7,6 +7,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { rateKeyFromHeaders } from "@/lib/clientIp"
 import { stripeConfigured } from "@/lib/stripe"
 import { fmtAUD, centsToNumber, toCents } from "@/lib/formatting"
+import { hasBankDetails, OFFICE_WILL_SEND_PAYMENT_DETAILS } from "@/lib/eventPaymentRule"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { fundraiserSurchargeCents } from "@/lib/fundraiserCheckout"
 import { getChurchSettings } from "@/lib/churchSettings"
@@ -63,7 +64,7 @@ export default async function FundraiserPayPage(props: Readonly<Props>) {
       fundraiser: {
         select: {
           name: true, unitLabel: true, deliveryPrice: true,
-          event: { select: { title: true, onlinePaymentEnabled: true, passCardFee: true } },
+          event: { select: { title: true, onlinePaymentEnabled: true, passCardFee: true, bankBsb: true, bankAccount: true } },
         },
       },
     },
@@ -104,9 +105,21 @@ export default async function FundraiserPayPage(props: Readonly<Props>) {
         </dl>
 
         {t.remainingCents > 0 && (
-          <p className="mt-6 text-sm text-muted-foreground">
-            Paying by bank transfer? Use reference <span className="font-mono font-semibold text-foreground">{entry.bankRef}</span>.
-          </p>
+          <div className="mt-6 text-sm text-muted-foreground">
+            {hasBankDetails(event.bankBsb, event.bankAccount) ? (
+              <>
+                <p>Paying by bank transfer?</p>
+                <p>BSB <span className="font-mono font-semibold text-foreground">{event.bankBsb}</span></p>
+                <p>Account number <span className="font-mono font-semibold text-foreground">{event.bankAccount}</span></p>
+                <p>Use reference <span className="font-mono font-semibold text-foreground">{entry.bankRef}</span>.</p>
+              </>
+            ) : (
+              <p>
+                {/* Card is the only path when it works; the office sentence would contradict Pay Now. */}
+                {!canPayByCard && <>{OFFICE_WILL_SEND_PAYMENT_DETAILS} </>}Your reference is <span className="font-mono font-semibold text-foreground">{entry.bankRef}</span>.
+              </p>
+            )}
+          </div>
         )}
         {t.remainingCents === 0 && (
           <p className="mt-6 text-sm text-foreground">Nothing left to pay. Thank you!</p>

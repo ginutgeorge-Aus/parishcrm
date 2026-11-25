@@ -51,7 +51,7 @@ The form (`/events/new`, and `/events/[id]/edit` for editing) covers:
   JPEG/PNG/WebP. A pasted external image URL is also accepted as a banner fallback.
 - **Reminder email** — an optional "remind registrants N days before" setting (one-off events
   only) — see [Event Reminders](/parishcrm/docs/event-reminders/).
-- **Bank details** — BSB/account number shown to registrants who owe a bank transfer.
+- **Bank details** — BSB/account number shown to registrants who owe a bank transfer. A paid event cannot be published with card payment off and the BSB or account number blank; if one is already live in that state, registrants are told the office will send payment details.
 
 Saving is optimistic-concurrency guarded: if someone else changed the event since the form
 loaded, the save is rejected with a reload prompt rather than silently overwriting their change.
