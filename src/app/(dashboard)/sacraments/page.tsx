@@ -29,7 +29,6 @@ function parsePage(raw: string | undefined): number {
   return Number.isSafeInteger(n) && n >= 1 ? n : 1
 }
 
-
 /**
  * Parse the `?year=` filter: a 4-digit year in range, else null (all years).
  * @param raw query-string value
