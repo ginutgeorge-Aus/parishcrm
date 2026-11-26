@@ -61,5 +61,5 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
   if (result.duplicate) {
     return NextResponse.json({ duplicate: true })
   }
-  return NextResponse.json({ ref: result.ref, duplicate: false })
+  return NextResponse.json({ ref: result.ref, duplicate: false, mailSkipped: result.mailSkipped === true })
 }

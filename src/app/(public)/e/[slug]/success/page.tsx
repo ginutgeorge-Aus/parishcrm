@@ -21,7 +21,7 @@ import type { Metadata } from "next"
 // index/follow, so a leaked/linked URL can't be search-indexed.
 export const metadata: Metadata = { robots: { index: false, follow: false } }
 
-type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ ref?: string; token?: string; dup?: string }> }
+type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ ref?: string; token?: string; dup?: string; mail?: string }> }
 
 // The success page is an unauthenticated oracle keyed by an opaque token: a
 // valid ?ref= reveals the registrant's name + the church BSB/account.
@@ -490,6 +490,8 @@ export default async function SuccessPage(props: Readonly<Props>) {
   // this page is showing the EXISTING booking. Cosmetic banner only; ?dup is
   // user-controllable and carries no security surface.
   const isDuplicate = searchParams.dup === "1"
+  // Confirmation email was throttled/over budget (?mail=0, cosmetic like ?dup).
+  const mailSkipped = searchParams.mail === "0"
 
   // Free ($0) registrations stay PENDING (no card/bank payment ever occurs) —
   // mirror the confirmation email's guard (eventRegistration.ts: PENDING &&
@@ -510,6 +512,14 @@ export default async function SuccessPage(props: Readonly<Props>) {
             <p className="mt-1">
               This is your existing booking — a new one wasn&apos;t created. To add attendees or
               change it, contact us at {churchEmail}.
+            </p>
+          </div>
+        )}
+        {mailSkipped && !isDuplicate && (
+          <div role="status" className="mb-6 rounded-xl border border-warning/40 bg-warning/10 p-4 text-sm text-warning">
+            <p className="font-semibold">A confirmation email may not have been sent.</p>
+            <p className="mt-1">
+              Your registration is saved. Keep this page or its check-in code, or contact us at {churchEmail}.
             </p>
           </div>
         )}
