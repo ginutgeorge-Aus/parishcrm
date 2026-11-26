@@ -13,7 +13,7 @@
     "mysql2": "^3.22.0",
     "deepmerge-ts": "^8.0.2",
     "@hono/node-server": ">=1.19.13",
-    "postcss": "8.5.32",
+    "postcss": "8.5.33",
     "@opentelemetry/core": "^2.8.0",
     "@opentelemetry/propagator-jaeger": "^2.9.0",
     "sharp": "^0.35.5",
