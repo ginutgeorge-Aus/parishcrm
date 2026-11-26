@@ -1046,6 +1046,13 @@ describe("setVenueUsageStatus", () => {
     expect(r).toMatchObject({ warning: expect.stringMatching(/^The invoice request for .* was already sent .*Send again.* Could not email the venue/) })
     expect((r as { warning: string }).warning).not.toContain("Changes saved")
   })
+  it("checks demo mode before reading the session", async () => {
+    ;(assertNotDemo as jest.Mock).mockReturnValue({ error: "Not available in demo mode" })
+    ;(auth as jest.Mock).mockClear()
+    await setVenueUsageStatus([1], "CANCELLED", { emailVenue: true })
+    expect(auth).not.toHaveBeenCalled()
+  })
+
   it("blocks the cancellation email in demo mode without changing anything", async () => {
     asRole("PASTOR")
     ;(assertNotDemo as jest.Mock).mockReturnValue({ error: "Not available in demo mode" })

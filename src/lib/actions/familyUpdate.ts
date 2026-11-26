@@ -38,10 +38,11 @@ export async function sendFamilyUpdateInvite(
 ): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
-  const off = await featureGuard("familyUpdates")
-  if (off) return off
   if (!isValidPgId(familyId)) return { error: "Family not found" }
   if (typeof email !== "string") return { error: "A valid email address is required" }
+  // After cheap argument checks so malformed calls skip the feature-settings read.
+  const off = await featureGuard("familyUpdates")
+  if (off) return off
 
   const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true, archivedAt: true } })
   // An archived family's link would only show "expired": refuse instead of wasting an email.

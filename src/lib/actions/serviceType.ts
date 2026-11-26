@@ -10,7 +10,7 @@ import { isValidPgId, isP2002 } from "@/lib/validation"
 import type { ActionResult } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { actorId } from "@/lib/actor"
 
 // --- Service types ---
@@ -32,10 +32,11 @@ export async function createServiceType(
   if (off) return off
   const parsed = ServiceTypeSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const existing = await prisma.serviceType.findFirst({
-    // Case-insensitive on the trimmed name, so a legacy " Sunday" row still collides with "sunday".
-    where: { name: { equals: parsed.data.name, mode: "insensitive" } },
-  })
+  // Compare trimmed + case-folded on both sides in JS (Prisma `equals` cannot trim the stored value),
+  // so a legacy " Sunday" row still collides with "sunday". The table is tiny.
+  const wanted = parsed.data.name.toLowerCase()
+  const all = await prisma.serviceType.findMany({ select: { id: true, name: true } })
+  const existing = all.find((t) => t.name.trim().toLowerCase() === wanted)
   if (existing) return { error: "Service type already exists" }
   // name is @unique — a concurrent duplicate slips past the findFirst check and
   // throws a raw P2002. Map it to the same friendly error.
@@ -83,13 +84,16 @@ export async function deleteServiceType(id: number): Promise<ActionResult> {
   if (headcounts > 0) return { error: `Cannot delete — ${headcounts} headcount record(s) use this service type` }
   // A receipt referencing this type can be created between the count and the
   // delete — the FK then throws a raw P2003. Map it to the same message.
+  // The audit row commits with the delete (logAudit swallows errors, so a separate write could leave no trail).
   try {
-    await prisma.serviceType.delete({ where: { id } })
+    await prisma.$transaction(async (tx) => {
+      await tx.serviceType.delete({ where: { id } })
+      await logAuditTx(tx, actorId(session), "SERVICE_TYPE_DELETED", "ServiceType", id, {})
+    })
   } catch (e) {
     if (e && typeof e === "object" && "code" in e && e.code === "P2003")
       return { error: "Cannot delete — records use this service type" }
     throw e
   }
-  await logAudit(actorId(session), "SERVICE_TYPE_DELETED", "ServiceType", id, {})
   revalidatePath("/accounting/petty-cash/service-types")
 }

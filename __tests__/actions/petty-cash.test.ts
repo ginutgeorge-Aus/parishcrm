@@ -57,6 +57,7 @@ jest.mock("@/lib/prisma", () => ({
     serviceType: {
       create: jest.fn(),
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -140,6 +141,7 @@ const mockFindTransfer = prisma.pettyCashTransfer.findUnique as jest.Mock
 const mockDeleteTransfer = prisma.pettyCashTransfer.delete as jest.Mock
 const mockCreateServiceType = prisma.serviceType.create as jest.Mock
 const mockFindFirstServiceType = prisma.serviceType.findFirst as jest.Mock
+const mockFindManyServiceType = prisma.serviceType.findMany as jest.Mock
 const mockDeleteServiceType = prisma.serviceType.delete as jest.Mock
 const mockFindPerson = prisma.person.findUnique as jest.Mock
 const mockFindPersonFirst = prisma.person.findFirst as jest.Mock
@@ -1620,7 +1622,7 @@ describe("createTransfer", () => {
 describe("createServiceType", () => {
   it("creates service type for ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirstServiceType.mockResolvedValue(null)
+    mockFindManyServiceType.mockResolvedValue([])
     mockCreateServiceType.mockResolvedValue({ id: 1 })
     await createServiceType(undefined, fd({ name: "Sunday Service" }))
     expect(mockCreateServiceType).toHaveBeenCalledWith({ data: { name: "Sunday Service" } })
@@ -1628,9 +1630,17 @@ describe("createServiceType", () => {
 
   it("blocks duplicate name", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirstServiceType.mockResolvedValue({ id: 1, name: "Sunday Service" })
+    mockFindManyServiceType.mockResolvedValue([{ id: 1, name: "Sunday Service" }])
     const result = await createServiceType(undefined, fd({ name: "Sunday Service" }))
     expect(result).toEqual({ error: "Service type already exists" })
+  })
+
+  it("blocks a duplicate of a legacy row stored with padding and different case", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindManyServiceType.mockResolvedValue([{ id: 1, name: " Sunday " }])
+    const result = await createServiceType(undefined, fd({ name: "sunday" }))
+    expect(result).toEqual({ error: "Service type already exists" })
+    expect(mockCreateServiceType).not.toHaveBeenCalled()
   })
 
   it("blocks PASTOR", async () => {
@@ -1654,6 +1664,14 @@ describe("deleteServiceType", () => {
     mockCountReceipt.mockResolvedValue(0)
     await deleteServiceType(1)
     expect(mockDeleteServiceType).toHaveBeenCalledWith({ where: { id: 1 } })
+  })
+
+  it("writes the delete audit row inside the same transaction", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockCountReceipt.mockResolvedValue(0)
+    await deleteServiceType(1)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 999, "SERVICE_TYPE_DELETED", "ServiceType", 1, {})
+    expect(mockLogAudit).not.toHaveBeenCalledWith(expect.anything(), "SERVICE_TYPE_DELETED", expect.anything(), expect.anything(), expect.anything())
   })
 
   it("blocks delete when receipts exist", async () => {
