@@ -45,6 +45,8 @@ export type RegistrationFormProps = {
   formToken: string
   onlinePaymentEnabled?: boolean
   stripeConfigured?: boolean
+  /** False when the event has no BSB/account; default true keeps older callers unchanged. */
+  hasBankDetails?: boolean
   passCardFee?: boolean
   cardFeePct?: number
   cardFeeFixedCents?: number
@@ -295,7 +297,8 @@ export function useRegistrationForm({
         return
       }
       const dupParam = data.duplicate ? "&dup=1" : ""
-      router.push(`/e/${slug}/success?ref=${encodeURIComponent(data.ref)}${dupParam}`)
+      const mailParam = data.mailSkipped ? "&mail=0" : ""
+      router.push(`/e/${slug}/success?ref=${encodeURIComponent(data.ref)}${dupParam}${mailParam}`)
     } catch {
       setError("Network error. Please try again.")
     } finally {

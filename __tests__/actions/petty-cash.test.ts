@@ -18,6 +18,11 @@ jest.mock("@/lib/prisma", () => ({
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
+    // closeSession's roll-forward looks up the auto-opened successor by audit provenance
+    // (undefined result = no successor).
+    auditLog: {
+      findFirst: jest.fn(),
+    },
     appSetting: {
       findUnique: jest.fn(),
     },
@@ -52,10 +57,12 @@ jest.mock("@/lib/prisma", () => ({
     serviceType: {
       create: jest.fn(),
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
+    serviceHeadcount: { count: jest.fn().mockResolvedValue(0) },
     person: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -134,6 +141,7 @@ const mockFindTransfer = prisma.pettyCashTransfer.findUnique as jest.Mock
 const mockDeleteTransfer = prisma.pettyCashTransfer.delete as jest.Mock
 const mockCreateServiceType = prisma.serviceType.create as jest.Mock
 const mockFindFirstServiceType = prisma.serviceType.findFirst as jest.Mock
+const mockFindManyServiceType = prisma.serviceType.findMany as jest.Mock
 const mockDeleteServiceType = prisma.serviceType.delete as jest.Mock
 const mockFindPerson = prisma.person.findUnique as jest.Mock
 const mockFindPersonFirst = prisma.person.findFirst as jest.Mock
@@ -160,7 +168,15 @@ beforeEach(() => {
   mockPrismaTransaction.mockImplementation(async (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma))
   // Default the in-tx session re-check (assertSessionOpenTx,/) to OPEN;
   // tests exercising a closed/racing session override this.
-  mockFindSession.mockResolvedValue({ status: "OPEN" })
+  // Also serves as the ledger snapshot for updateExpense's negative-float read (AUD-3-04),
+  // which finds the edited expense (id 3) in the snapshot's expenses.
+  mockFindSession.mockResolvedValue({
+    status: "OPEN",
+    openingBalance: "0.00",
+    receipts: [],
+    expenses: [{ id: 3, amount: "30.00" }],
+    transfers: [],
+  })
   // Default the in-tx mirror-reconciled re-check to "no row" (not
   // reconciled); tests exercising a concurrent reconcile override this. Reset
   // here because clearAllMocks() clears calls but NOT mockResolvedValue impls.
@@ -311,7 +327,8 @@ describe("closeSession", () => {
     await closeSession(1, undefined, fd({ notes: "Handed to Mary" }))
     expect(mockUpdateManySession).toHaveBeenCalledWith({
       where: { id: 1, status: "OPEN" },
-      data: expect.objectContaining({ status: "CLOSED", notes: "Handed to Mary" }),
+      // Close notes are encrypted at rest (AUD-3-04).
+      data: expect.objectContaining({ status: "CLOSED", notes: "enc:Handed to Mary" }),
     })
     expect(mockRedirect).toHaveBeenCalledWith("/accounting/petty-cash")
   })
@@ -1605,16 +1622,25 @@ describe("createTransfer", () => {
 describe("createServiceType", () => {
   it("creates service type for ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirstServiceType.mockResolvedValue(null)
+    mockFindManyServiceType.mockResolvedValue([])
+    mockCreateServiceType.mockResolvedValue({ id: 1 })
     await createServiceType(undefined, fd({ name: "Sunday Service" }))
     expect(mockCreateServiceType).toHaveBeenCalledWith({ data: { name: "Sunday Service" } })
   })
 
   it("blocks duplicate name", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirstServiceType.mockResolvedValue({ id: 1, name: "Sunday Service" })
+    mockFindManyServiceType.mockResolvedValue([{ id: 1, name: "Sunday Service" }])
     const result = await createServiceType(undefined, fd({ name: "Sunday Service" }))
     expect(result).toEqual({ error: "Service type already exists" })
+  })
+
+  it("blocks a duplicate of a legacy row stored with padding and different case", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindManyServiceType.mockResolvedValue([{ id: 1, name: " Sunday " }])
+    const result = await createServiceType(undefined, fd({ name: "sunday" }))
+    expect(result).toEqual({ error: "Service type already exists" })
+    expect(mockCreateServiceType).not.toHaveBeenCalled()
   })
 
   it("blocks PASTOR", async () => {
@@ -1638,6 +1664,14 @@ describe("deleteServiceType", () => {
     mockCountReceipt.mockResolvedValue(0)
     await deleteServiceType(1)
     expect(mockDeleteServiceType).toHaveBeenCalledWith({ where: { id: 1 } })
+  })
+
+  it("writes the delete audit row inside the same transaction", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockCountReceipt.mockResolvedValue(0)
+    await deleteServiceType(1)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 999, "SERVICE_TYPE_DELETED", "ServiceType", 1, {})
+    expect(mockLogAudit).not.toHaveBeenCalledWith(expect.anything(), "SERVICE_TYPE_DELETED", expect.anything(), expect.anything(), expect.anything())
   })
 
   it("blocks delete when receipts exist", async () => {
@@ -1748,9 +1782,14 @@ describe("ensureWeeklySession", () => {
     ;(prisma.pettyCashSession.findFirst as jest.Mock).mockResolvedValue(null)
     mockFindManySession.mockResolvedValue([])
     ;(prisma.pettyCashSession.create as jest.Mock).mockResolvedValue({ id: 99 })
-    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    // serializableWrite retries P2034 (3 attempts); only exhausting them degrades to "exists".
+    mockLogAuditTx
+      .mockRejectedValueOnce({ code: "P2034" })
+      .mockRejectedValueOnce({ code: "P2034" })
+      .mockRejectedValueOnce({ code: "P2034" })
     const res = await ensureWeeklySession()
     expect(res).toEqual({ status: "exists" })
+    expect(mockLogAuditTx).toHaveBeenCalledTimes(3)
   })
 
   it("carries forward the prior session's closing balance as the opening balance", async () => {
@@ -1840,7 +1879,8 @@ describe("ensureWeeklySession", () => {
     ;(prisma.pettyCashSession.findFirst as jest.Mock).mockResolvedValue(null)
     mockFindManySession.mockResolvedValue([])
     ;(prisma.pettyCashSession.create as jest.Mock).mockRejectedValue(
-      Object.assign(new Error("boom"), { code: "P2003" })
+      // P2003/P2034 are retried by serializableWrite; any other code must still surface.
+      Object.assign(new Error("boom"), { code: "P2010" })
     )
     await expect(ensureWeeklySession()).rejects.toThrow("boom")
   })

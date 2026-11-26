@@ -4,3 +4,9 @@
  * so an open tab doesn't log a remembered user out at the short window.
  */
 export const REMEMBERED_IDLE_MINUTES = 7 * 24 * 60
+
+/**
+ * Absolute cap on a "remembered" session, measured from sign-in. The 7-day idle window slides, so
+ * without this a stolen cookie used weekly would never expire (AUD-1-08).
+ */
+export const REMEMBERED_MAX_DAYS = 30

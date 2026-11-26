@@ -6,6 +6,9 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { getReminderPlan, sendFundraiserReminders } from "@/lib/actions/fundraiser"
 
+/** Above this many sendable reminders the send time budget may stop a run early, so the dialog warns. */
+const SLOW_RUN_HEDGE_THRESHOLD = 100
+
 type Plan = { sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; dedupeMinutes: number; lastSentAt: string | null }
 
 /**
@@ -151,6 +154,11 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
       {deferred > 0 && (
         <p className="text-muted-foreground">
           Reminders go out in batches: {deferred} more {deferred === 1 ? "person" : "people"} will be left for later runs.
+        </p>
+      )}
+      {(sendable > SLOW_RUN_HEDGE_THRESHOLD || deferred > 0) && (
+        <p className="text-muted-foreground">
+          Each run has a time limit. If some people are left, run it again to continue.
         </p>
       )}
       <p className="text-muted-foreground">

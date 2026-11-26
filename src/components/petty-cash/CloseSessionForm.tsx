@@ -1,13 +1,15 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useActionState, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import type { ActionResult } from "@/lib/actions/types"
 import { fmtAUD } from "@/lib/formatting"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 export function CloseSessionForm({
   action,
@@ -17,7 +19,7 @@ export function CloseSessionForm({
   balance: number
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const [counted, setCounted] = useState("")
 
   const countedNum = counted.trim() === "" ? null : Number(counted)
@@ -28,8 +30,8 @@ export function CloseSessionForm({
   const hasVariance = varianceCents !== null && varianceCents !== 0
 
   return (
-    <form action={formAction} className="max-w-lg space-y-4">
-      {state?.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
+    <form onSubmit={onSubmit} className="max-w-lg space-y-4">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       <div className="rounded-lg border border-warning/40 bg-warning/10 p-4">
         <p className="text-sm font-medium">Closing balance: {fmtAUD(balance)}</p>

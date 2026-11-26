@@ -5,7 +5,7 @@ import { fmtAUD } from "@/lib/formatting"
 import { APP_TIMEZONE, APP_LOCALE } from "@/lib/appConfig"
 import { encrypt } from "@/lib/crypto"
 import { rateLimit } from "@/lib/rateLimit"
-import { dbRateLimit } from "@/lib/dbRateLimit"
+import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 import { sendRegistrationConfirmationEmail } from "@/lib/email"
 import { buildIcs, googleCalendarUrl } from "@/lib/ics"
 import type { Organizer } from "@/lib/eventOrganizers"
@@ -19,7 +19,7 @@ import type { EventWithTickets, PricedRegistration } from "@/lib/eventRegistrati
 // module owns the full validation → transaction → confirmation-email pipeline so
 // it is unit-testable without a Next request and reusable by an admin flow.
 export type RegisterResult =
-  | { ok: true; ref: string; duplicate?: boolean }
+  | { ok: true; ref: string; duplicate?: boolean; mailSkipped?: boolean }
   | { ok: false; status: number; error: string }
 
 // Thrown inside the registration transaction when a capacity re-check fails.
@@ -221,12 +221,20 @@ async function persistRegistrationRow(
 // Confirmation email — fire-and-forget. A send failure is logged and never
 // blocks or fails the registration that already committed. Split out of
 // persistRegistration to keep that function's cognitive complexity down.
+/**
+ * Builds and sends the registration confirmation email; never throws.
+ * @param event event with tickets
+ * @param priced validated, priced registration
+ * @param payment payment fields
+ * @param publicToken the registration's public token (calendar uid / payment reference)
+ * @returns true when the email was handed to the mailer, false when it failed
+ */
 async function sendRegistrationConfirmation(
   event: EventWithTickets,
   priced: PricedRegistration,
   payment: PaymentFields,
   publicToken: string,
-): Promise<void> {
+): Promise<boolean> {
   const { firstName, lastName, email, items, totalAmount } = priced
   try {
     // Calendar artifacts only for one-off events with a concrete date.
@@ -281,11 +289,13 @@ async function sendRegistrationConfirmation(
         : undefined,
       ics,
     })
+    return true
   } catch (e) {
     // Log the error message only — a raw nodemailer/SMTP error object can
     // serialize the recipient address and message content into
     // log-reader-visible container logs (same rule as logger.ts).
     console.error("Registration confirmation email failed:", e instanceof Error ? e.message : String(e))
+    return false
   }
 }
 
@@ -307,7 +317,12 @@ async function withinMailBudgets(eventId: number, payment: PaymentFields): Promi
       return false
     }
     const globalOk = await dbRateLimit("regmail:global", MAIL_BUDGET_GLOBAL.limit, MAIL_BUDGET_GLOBAL.windowMs)
-    if (!globalOk) warnMailBudgetOnce("global")
+    if (!globalOk) {
+      warnMailBudgetOnce("global")
+      // Global denied: give the event slot back so a church-wide cap does not
+      // also drain this event's own budget.
+      await dbRateLimitRefund(`regmail:event:${eventId}`)
+    }
     return globalOk
   } catch (e) {
     console.error("Registration mail budget check failed:", e instanceof Error ? e.message : String(e))
@@ -331,6 +346,13 @@ function warnMailBudgetOnce(scope: string): void {
 // Runs the Serializable txn (idempotency dedupe + authoritative capacity
 // re-check + create) then fires the confirmation email. Email's bank-details
 // block is shown only when paymentStatus === PENDING && totalAmount > 0.
+/**
+ * Persists a priced registration and sends the confirmation email when throttles allow.
+ * @param event event with tickets
+ * @param priced validated, priced registration
+ * @param payment payment fields
+ * @returns the new ref (`mailSkipped` when no email was sent), a duplicate marker, or a failure
+ */
 export async function persistRegistration(
   event: EventWithTickets,
   priced: PricedRegistration,
@@ -350,8 +372,11 @@ export async function persistRegistration(
   // as a spam relay / mail bomb against a chosen victim. Over the cap → skip the
   // send; the registration still succeeds. (The per-IP cap in the route bounds the POST.)
   if (rateLimit(`regmail:${priced.emailHash}`, 5, 3_600_000) && (await withinMailBudgets(event.id, payment))) {
-    await sendRegistrationConfirmation(event, priced, payment, publicToken)
+    const sent = await sendRegistrationConfirmation(event, priced, payment, publicToken)
+    return sent ? { ok: true, ref: publicToken } : { ok: true, ref: publicToken, mailSkipped: true }
   }
 
-  return { ok: true, ref: publicToken }
+  // Throttled or over budget: the registration stands but no email went out.
+  // Flag it so the success page can tell the registrant to keep the page/QR.
+  return { ok: true, ref: publicToken, mailSkipped: true }
 }

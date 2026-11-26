@@ -24,7 +24,10 @@ import {
 } from "./eventForm"
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
+import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
+import { stripeConfigured } from "@/lib/stripe"
+import { paidEventLacksPaymentMethod, paidEventPaymentError } from "@/lib/eventPaymentRule"
 
 /** Error shown when a save would leave a published event without a slug. */
 const SLUG_REQUIRED_WHILE_PUBLISHED = "Slug can't be removed while the event is published. Unpublish first."
@@ -85,6 +88,21 @@ export async function createEvent(_prev: ActionResult, formData: FormData): Prom
   redirect(`/events/${newEventId}/edit`)
 }
 
+/**
+ * True when the submitted ticket rows differ in price from the stored ones,
+ * matched by ticket ID. A row with no stored match (new or foreign id), a
+ * different row count, or a changed price counts as changed; pure reordering
+ * does not. Prices compare as integer cents, never Number().
+ */
+function ticketPricesChanged(
+  existing: { id: number; price: { toString(): string } }[],
+  submitted: { id: number | null; price: string }[],
+): boolean {
+  if (existing.length !== submitted.length) return true
+  const oldCents = new Map(existing.map((t) => [t.id, toCents(t.price)]))
+  return submitted.some((t) => t.id === null || oldCents.get(t.id) !== toCents(t.price))
+}
+
 /** Update an event. Editors only. */
 export async function updateEvent(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
@@ -104,10 +122,55 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
 
   // Existence check: a non-existent id would otherwise surface a raw
   // Prisma P2025 as an unhandled 500.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true } })
+  const exists = await prisma.event.findUnique({ where: { id }, select: {
+    id: true, isPublished: true,
+    bankBsb: true, bankAccount: true, onlinePaymentEnabled: true,
+    tieredPricingEnabled: true, familyPricingTiers: true,
+    ticketTypes: { select: { id: true, price: true } },
+  } })
   if (!exists) return { error: "Event not found" }
   // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
   if (exists.isPublished && !parsed.slug) return { error: SLUG_REQUIRED_WHILE_PUBLISHED }
+  // A published paid event must keep a way to pay; drafts may stay incomplete.
+  // Only enforced when this save touches payment fields or would break a
+  // compliant event, so an unrelated edit (title typo) on a legacy
+  // non-compliant event still saves.
+  if (exists.isPublished) {
+    const stripeOk = stripeConfigured()
+    const oldTiers = Array.isArray(exists.familyPricingTiers)
+      ? exists.familyPricingTiers.filter((t): t is number => typeof t === "number")
+      : []
+    const lacksNow = paidEventLacksPaymentMethod({
+      ticketPrices: ticketTypes.map((t) => t.price),
+      tierPrices: tiers,
+      tieredPricingEnabled: parsed.tieredPricingEnabled,
+      onlinePaymentEnabled: parsed.onlinePaymentEnabled,
+      stripeConfigured: stripeOk,
+      bankBsb: parsed.bankBsb,
+      bankAccount: parsed.bankAccount,
+    })
+    if (lacksNow) {
+      const lackedBefore = paidEventLacksPaymentMethod({
+        ticketPrices: exists.ticketTypes.map((t) => t.price),
+        tierPrices: oldTiers,
+        tieredPricingEnabled: exists.tieredPricingEnabled,
+        onlinePaymentEnabled: exists.onlinePaymentEnabled,
+        stripeConfigured: stripeOk,
+        bankBsb: exists.bankBsb,
+        bankAccount: exists.bankAccount,
+      })
+      // Compare per ticket ID (not sorted price lists): swapping two tickets'
+      // prices keeps the sorted lists equal but changes what each ticket costs.
+      const paymentFieldsChanged =
+        ticketPricesChanged(exists.ticketTypes, ticketTypes) ||
+        exists.tieredPricingEnabled !== parsed.tieredPricingEnabled ||
+        (parsed.tieredPricingEnabled && (oldTiers.length !== tiers.length || oldTiers.some((p, i) => p !== tiers[i]))) ||
+        exists.onlinePaymentEnabled !== parsed.onlinePaymentEnabled ||
+        (exists.bankBsb ?? "") !== (parsed.bankBsb ?? "") ||
+        (exists.bankAccount ?? "") !== (parsed.bankAccount ?? "")
+      if (!lackedBefore || paymentFieldsChanged) return { error: paidEventPaymentError(parsed.onlinePaymentEnabled, stripeOk) }
+    }
+  }
 
   // Optimistic concurrency: the edit form submits the row's last-seen
   // updatedAt. Guard the write on it so two editors saving the same event
@@ -409,18 +472,46 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   // Select the slug so the public event page can be revalidated too — publish
   // flips the page between full render and notFound(), so a stale cached
   // render of the previous state must not survive the toggle.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, slug: true } })
+  const exists = await prisma.event.findUnique({
+    where: { id },
+    select: {
+      id: true, slug: true, isPublished: true, updatedAt: true,
+      bankBsb: true, bankAccount: true, onlinePaymentEnabled: true,
+      tieredPricingEnabled: true, familyPricingTiers: true,
+      ticketTypes: { select: { price: true } },
+    },
+  })
   if (!exists) return { error: "Event not found" }
 
   // Publishing exposes /e/<slug>; a staff-only event (no slug) has no such page.
   if (publish && !exists.slug) return { error: "Set a slug before publishing" }
+  // A paid event with no card payment and no bank details would tell
+  // registrants to pay by transfer with no account shown.
+  const stripeOk = stripeConfigured()
+  if (publish && paidEventLacksPaymentMethod({
+    ticketPrices: exists.ticketTypes.map((t) => t.price),
+    tierPrices: Array.isArray(exists.familyPricingTiers)
+      ? exists.familyPricingTiers.filter((t): t is number => typeof t === "number")
+      : [],
+    tieredPricingEnabled: exists.tieredPricingEnabled,
+    onlinePaymentEnabled: exists.onlinePaymentEnabled,
+    stripeConfigured: stripeOk,
+    bankBsb: exists.bankBsb,
+    bankAccount: exists.bankAccount,
+  })) return { error: paidEventPaymentError(exists.onlinePaymentEnabled, stripeOk) }
 
-  // Condition lives in the where clause so a concurrent slug-clear can't slip
-  // between the read above and the write (DB CHECK is the final backstop).
+  // Conditions live in the where clause so a concurrent slug-clear can't slip
+  // between the read above and the write (DB CHECK is the final backstop), and
+  // `isPublished: !publish` makes the write itself prove a real state change:
+  // only the request that actually flipped the flag audits it, so a stale
+  // pre-write read can't skip or double an audit row (logAudit itself swallows errors).
+  // Publishing also pins updatedAt to the row we validated: any concurrent save
+  // (e.g. clearing bank details) bumps it, so the write matches 0 rows instead
+  // of publishing a paid event that no longer has a payment method.
   let count: number
   try {
     ;({ count } = await prisma.event.updateMany({
-      where: publish ? { id, slug: { not: null } } : { id },
+      where: publish ? { id, isPublished: false, slug: { not: null }, updatedAt: exists.updatedAt } : { id, isPublished: true },
       data: { isPublished: publish },
     }))
   } catch (e: unknown) {
@@ -428,8 +519,16 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
     if (msg.includes(PUBLISHED_SLUG_CONSTRAINT)) return { error: "Set a slug before publishing" }
     throw e
   }
-  if (count === 0) return { error: publish ? "Set a slug before publishing" : "Event not found" }
-  await logAudit(actorId(session), "EVENT_PUBLISHED", "Event", id, { published: publish })
+  if (count === 0) {
+    // Nothing flipped: already in the requested state (no-op, not auditable), or the event vanished / lost its slug.
+    const now = await prisma.event.findUnique({ where: { id }, select: { isPublished: true, slug: true } })
+    if (!now) return { error: "Event not found" }
+    // Derive the error from the real cause, not from the state a racing toggle may have just changed.
+    if (publish && !now.slug) return { error: "Set a slug before publishing" }
+    if (now.isPublished !== publish) return { error: "Event changed concurrently, please try again" }
+  } else {
+    await logAudit(actorId(session), publish ? "EVENT_PUBLISHED" : "EVENT_UNPUBLISHED", "Event", id, { published: publish })
+  }
   await syncEventToWebsite(id)
   revalidatePath(`/events/${id}/edit`)
   if (exists.slug) revalidatePath(`/e/${exists.slug}`)
@@ -473,7 +572,7 @@ export async function resyncEventsToWebsite(): Promise<ActionResultWithSuccess> 
   // ADMIN-only bulk push of up to 500 events' public data — leave a trail of who
   // triggered a full resync and when, like every sibling event action.
   await logAudit(actorId(session), "EVENTS_RESYNCED", "Event", undefined, { synced, failed, truncated })
-  return { success: `Synced ${synced} event${synced === 1 ? "" : "s"} to website${failed ? `, ${failed} failed` : ""}${truncated ? " (capped at 500 — some events not synced)" : ""}` }
+  return { success: `Synced ${synced} event${synced === 1 ? "" : "s"} to website${failed ? `, ${failed} failed` : ""}${truncated ? " (capped at 500 — some events or deletions not synced)" : ""}` }
 }
 
 // Event access-delegation actions (volunteer view token, organiser assignment)

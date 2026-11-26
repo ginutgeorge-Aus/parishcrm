@@ -305,7 +305,7 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
       await bestEffort("claim release", id, () => releaseClaim(claimKey, claim))
       return { status: "skipped", reason: "in_progress" }
     }
-    await sendGivingStatementEmail(to, pdf, {
+    const outcome = await sendGivingStatementEmail(to, pdf, {
       churchName: model.churchName,
       churchAbn: model.churchAbn,
       churchAddress: model.churchAddress,
@@ -314,7 +314,12 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
       fyLabel: model.fyLabel,
       periodLabel: model.periodLabel,
       totalLabel: model.totalLabel,
-    })
+    }, a.isExpired)
+    // The deadline passed while the email rendered: nothing was sent, so free the claim.
+    if (outcome === "expired") {
+      await bestEffort("claim release", id, () => releaseClaim(claimKey, claim))
+      return { status: "skipped", reason: "in_progress" }
+    }
   } catch (e) {
     // Never log the raw error — SMTP messages embed the recipient address.
     logger.error("sendGivingStatements delivery failed", { familyId: id })

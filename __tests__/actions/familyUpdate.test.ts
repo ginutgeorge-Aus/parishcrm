@@ -416,3 +416,26 @@ describe("rejectFamilyUpdate", () => {
     expect(prisma.familyUpdateInvite.update).not.toHaveBeenCalled()
   })
 })
+
+describe("sendFamilyUpdateInvite archived family (AUD-5-15)", () => {
+  it("refuses an archived family and sends nothing", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 1, name: "Smith", archivedAt: new Date("2020-01-01") })
+    expect(await sendFamilyUpdateInvite(1, "f@x.com")).toEqual({ error: "Family not found" })
+    expect(prisma.familyUpdateInvite.create).not.toHaveBeenCalled()
+    expect(sendFamilyUpdateInviteEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe("sendFamilyUpdateInvite malformed args (AUD-5-58)", () => {
+  it("rejects a bad id or non-string email with the normal errors, no DB read", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockClear()
+    ;(featureGuard as jest.Mock).mockClear()
+    expect(await sendFamilyUpdateInvite("x" as unknown as number, "f@x.com")).toEqual({ error: "Family not found" })
+    expect(await sendFamilyUpdateInvite(1, undefined as unknown as string)).toEqual({ error: "A valid email address is required" })
+    expect(await sendFamilyUpdateInvite(1, { a: 1 } as unknown as string)).toEqual({ error: "A valid email address is required" })
+    expect(prisma.family.findUnique).not.toHaveBeenCalled()
+    expect(featureGuard).not.toHaveBeenCalled()
+  })
+})

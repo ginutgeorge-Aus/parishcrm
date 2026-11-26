@@ -24,6 +24,30 @@ function isLoopbackAuthUrl(url: string | undefined): boolean {
   }
 }
 
+const MIN_SECRET_LENGTH = 32
+// The sample value in .env.example — public, so never an acceptable secret.
+const SECRET_PLACEHOLDER = "generate-with-openssl-rand-base64-32"
+
+/**
+ * In production, rejects signing/auth secrets that are the public `.env.example` placeholder or
+ * shorter than 32 chars (AUD-1-05). Covers AUTH_SECRET/NEXTAUTH_SECRET always, and CRON_SECRET and
+ * SETUP_TOKEN only when set (both are optional). Skipped outside production and for the loopback
+ * e2e suite (E2E_ALLOW_TEST_OVERRIDES, itself fail-closed by checkE2EOverridesAllowed).
+ * @returns one error per weak secret; names the variable, never its value
+ */
+function checkWeakSecrets(): string[] {
+  if (process.env.NODE_ENV !== "production" || process.env.E2E_ALLOW_TEST_OVERRIDES === "true") return []
+  const errors: string[] = []
+  for (const name of ["AUTH_SECRET", "NEXTAUTH_SECRET", "CRON_SECRET", "SETUP_TOKEN"] as const) {
+    const v = process.env[name]
+    if (!v) continue
+    if (v === SECRET_PLACEHOLDER || v.length < MIN_SECRET_LENGTH) {
+      errors.push(`${name} is the example placeholder or shorter than ${MIN_SECRET_LENGTH} characters — generate one with: openssl rand -base64 32`)
+    }
+  }
+  return errors
+}
+
 // Either name works at runtime (otp.ts and website-sync.ts carry the same
 // fallback), so a half-renamed env boots; finish the rename via.
 //
@@ -32,7 +56,7 @@ function isLoopbackAuthUrl(url: string | undefined): boolean {
 // NextAuth JWT signing the other — so OTPs/sessions break unpredictably during
 // a half-finished rename. Fail boot rather than diverge (AUDIT-010).
 function checkAuthSecret(): string[] {
-  const errors: string[] = []
+  const errors: string[] = [...checkWeakSecrets()]
   if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET) {
     errors.push("AUTH_SECRET is not set")
   }

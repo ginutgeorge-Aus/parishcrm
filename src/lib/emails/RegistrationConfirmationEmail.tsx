@@ -2,6 +2,7 @@ import * as React from "react"
 import { Heading, Text, Section, Button, Hr } from "@react-email/components"
 import { EmailLayout, emailButton } from "@/lib/emails/EmailLayout"
 import type { Organizer } from "@/lib/eventOrganizers"
+import { hasBankDetails, OFFICE_WILL_SEND_PAYMENT_DETAILS } from "@/lib/eventPaymentRule"
 
 export type RegistrationConfirmationData = {
   churchName: string
@@ -27,6 +28,18 @@ function PaymentDetails({
   churchName: string
   payment: NonNullable<RegistrationConfirmationData["payment"]>
 }>) {
+  if (!hasBankDetails(payment.bankBsb, payment.bankAccount)) {
+    // No account to show: do not render a bank block or promise a 7-day hold.
+    return (
+      <Section style={{ background: "#f8fafc", borderRadius: "8px", padding: "16px", marginTop: "12px" }}>
+        <Text style={{ fontSize: "14px", color: "#334155", margin: "0 0 8px" }}>
+          {OFFICE_WILL_SEND_PAYMENT_DETAILS}
+        </Text>
+        <Text style={label}>Reference</Text>
+        <Text style={{ ...value, color: "#16a34a" }}>{payment.reference}</Text>
+      </Section>
+    )
+  }
   return (
     <Section style={{ background: "#f8fafc", borderRadius: "8px", padding: "16px", marginTop: "12px" }}>
       <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>

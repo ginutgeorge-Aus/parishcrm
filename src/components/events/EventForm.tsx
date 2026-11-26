@@ -1,11 +1,12 @@
 "use client"
 
-import { useActionState, useState, useRef } from "react"
+import { useState, useRef } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import { paidEventLacksPaymentMethod, PAID_EVENT_NEEDS_PAYMENT_ERROR } from "@/lib/eventPaymentRule"
 import {
   Select,
   SelectContent,
@@ -14,7 +15,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { OrganizersEditor } from "./OrganizersEditor"
 import type { Organizer } from "@/lib/eventOrganizers"
 import { TicketTypesEditor } from "./TicketTypesEditor"
@@ -24,6 +24,8 @@ import { TieredPricingEditor } from "./TieredPricingEditor"
 import type { ActionResult } from "@/lib/actions/types"
 import { CATEGORIES, RECURS_OPTIONS } from "@/lib/eventConstants"
 import type { CustomQuestionType } from "@/lib/eventQuestions"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type QuestionRow = { id?: string; label: string; type: CustomQuestionType; required: boolean; options: string; body: string; ticketTypeNames: string; scope: "order" | "attendee"; allowOther: boolean }
 
@@ -64,7 +66,7 @@ type Props = {
 }
 
 export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const [kind, setKind] = useState(defaultValues.kind === "recurring" ? "recurring" : "one_off")
   // Mirror the online-payment checkbox so the "pass card fee" toggle can disable
   // itself when card payment is off (surcharge is meaningless without it).
@@ -77,6 +79,9 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   // mirror each other's on/off state so the UI can grey out the inactive one.
   const [waiverOn, setWaiverOn] = useState(!!defaultValues.familyWaiverEnabled)
   const [tieredOn, setTieredOn] = useState(!!defaultValues.tieredPricingEnabled)
+  const [tierPrices, setTierPrices] = useState<string[]>((defaultValues.familyPricingTiers ?? []).map(String))
+  const [bankBsb, setBankBsb] = useState(defaultValues.bankBsb ?? "")
+  const [bankAccount, setBankAccount] = useState(defaultValues.bankAccount ?? "")
   const recurring = kind === "recurring"
 
   const keySeq = useRef(0)
@@ -87,6 +92,18 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   const removeTicket = (i: number) => setTicketRows((r) => r.filter((_, idx) => idx !== i))
   const updateTicket = (i: number, field: keyof TicketTypeRow, value: string) =>
     setTicketRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
+
+  // Same rule the server enforces on publish. Stripe config is server-side, so
+  // the hint only asks for card payment to be ticked; the server has the final say.
+  const paidWithoutPayment = paidEventLacksPaymentMethod({
+    ticketPrices: ticketRows.map((r) => r.price),
+    tierPrices: tierPrices.map((p) => Number(p) || 0),
+    tieredPricingEnabled: tieredOn,
+    onlinePaymentEnabled: onlinePaymentOn,
+    stripeConfigured: true,
+    bankBsb,
+    bankAccount,
+  })
 
   const ticketNames = Array.from(
     new Set(ticketRows.map((r) => r.name.trim()).filter(Boolean))
@@ -100,8 +117,8 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
       : ""
 
   return (
-    <form action={formAction} className="flex flex-col gap-8 max-w-2xl">
-      <FormFeedback state={state} />
+    <form onSubmit={onSubmit} className="flex flex-col gap-8 max-w-2xl">
+      <FormError error={state?.error} errorKey={errorSeq} />
 
       {/* Optimistic-concurrency token — the row's last-seen version, so
           the server can reject a save that would clobber a concurrent edit. */}
@@ -121,7 +138,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         <div className="flex flex-col gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="title">Title *</Label>
-            <Input id="title" name="title" defaultValue={defaultValues.title} required />
+            <Input id="title" name="title" defaultValue={defaultValues.title} maxLength={200} required />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="slug">
@@ -132,6 +149,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
               name="slug"
               defaultValue={defaultValues.slug ?? ""}
               pattern="[a-z0-9\-]+"
+              maxLength={200}
               className="font-mono"
             />
             <p className="text-xs text-muted-foreground">
@@ -140,7 +158,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="description">Description</Label>
-            <Textarea id="description" name="description" defaultValue={defaultValues.description} rows={4} />
+            <Textarea id="description" name="description" defaultValue={defaultValues.description} maxLength={2000} rows={4} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="grid gap-1.5">
@@ -183,11 +201,11 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
                 <Label htmlFor="recursLabel">
                   Short label <span className="text-xs text-muted-foreground font-normal">(calendar)</span>
                 </Label>
-                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} placeholder="2nd Sun" />
+                <Input id="recursLabel" name="recursLabel" defaultValue={defaultValues.recursLabel} maxLength={40} placeholder="2nd Sun" />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="startTime">Time</Label>
-                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} placeholder="9:30 AM" />
+                <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} maxLength={40} placeholder="9:30 AM" />
               </div>
             </div>
           ) : (
@@ -239,7 +257,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
           )}
           <div className="grid gap-1.5">
             <Label htmlFor="location">Location</Label>
-            <Input id="location" name="location" defaultValue={defaultValues.location} />
+            <Input id="location" name="location" defaultValue={defaultValues.location} maxLength={200} />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="imageUrl">
@@ -323,14 +341,19 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="bankBsb">BSB</Label>
-            <Input id="bankBsb" name="bankBsb" defaultValue={defaultValues.bankBsb} placeholder="012-345" />
+            <Input id="bankBsb" name="bankBsb" value={bankBsb} onChange={(e) => setBankBsb(e.target.value)} maxLength={20} placeholder="012-345" />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="bankAccount">Account number</Label>
-            <Input id="bankAccount" name="bankAccount" defaultValue={defaultValues.bankAccount} />
+            <Input id="bankAccount" name="bankAccount" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} maxLength={20} />
           </div>
         </div>
-        <label htmlFor="onlinePaymentEnabled" className="mt-4 flex items-center gap-2 text-sm">
+        {paidWithoutPayment && (
+          <p role="status" className="mt-2 text-sm text-warning">
+            This event has paid tickets but no way to pay. {PAID_EVENT_NEEDS_PAYMENT_ERROR}.
+          </p>
+        )}
+        <label htmlFor="onlinePaymentEnabled" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="onlinePaymentEnabled"
             name="onlinePaymentEnabled"
@@ -338,9 +361,9 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             onCheckedChange={(c: boolean | "indeterminate") => setOnlinePaymentOn(c === true)}
           />
           Enable online card payment (Stripe)
-          <span className="text-xs text-muted-foreground">— requires ticket prices &gt; 0 and Stripe configured</span>
+          <span className="basis-full text-xs text-muted-foreground sm:basis-auto">— requires ticket prices &gt; 0 and Stripe configured</span>
         </label>
-        <label htmlFor="passCardFee" className="mt-4 flex items-center gap-2 text-sm">
+        <label htmlFor="passCardFee" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="passCardFee"
             name="passCardFee"
@@ -349,9 +372,9 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             disabled={!onlinePaymentOn}
           />
           Pass card processing fee to registrant
-          <span className="text-xs text-muted-foreground">— adds the Stripe fee to the card total so the church nets the ticket price</span>
+          <span className="basis-full text-xs text-muted-foreground sm:basis-auto">— adds the Stripe fee to the card total so the church nets the ticket price</span>
         </label>
-        <label htmlFor="familyWaiverEnabled" className="mt-4 flex items-center gap-2 text-sm">
+        <label htmlFor="familyWaiverEnabled" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="familyWaiverEnabled"
             name="familyWaiverEnabled"
@@ -364,7 +387,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             disabled={tieredOn && !waiverOn}
           />
           Enable family fee waiver
-          <span className="text-xs text-muted-foreground">— extra attendees free once a family exceeds the threshold</span>
+          <span className="basis-full text-xs text-muted-foreground sm:basis-auto">— extra attendees free once a family exceeds the threshold</span>
         </label>
         <div className="mt-2 grid gap-1.5 max-w-xs">
           <Label htmlFor="familyWaiverThreshold">
@@ -381,7 +404,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             disabled={!waiverOn || tieredOn}
           />
         </div>
-        <label htmlFor="tieredPricingEnabled" className="mt-4 flex items-center gap-2 text-sm">
+        <label htmlFor="tieredPricingEnabled" className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <Checkbox
             id="tieredPricingEnabled"
             name="tieredPricingEnabled"
@@ -397,7 +420,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             preserves in-progress tier rows instead of remounting to defaults
 . Server ignores tier fields unless tieredPricingEnabled. */}
         <div className={tieredOn ? "" : "hidden"}>
-          <TieredPricingEditor defaultTiers={defaultValues.familyPricingTiers ?? []} active={tieredOn} />
+          <TieredPricingEditor defaultTiers={defaultValues.familyPricingTiers ?? []} active={tieredOn} onPricesChange={setTierPrices} />
         </div>
       </section>
 

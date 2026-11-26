@@ -13,6 +13,17 @@ const baseProps = {
   formToken: "tok",
 }
 
+describe("RegistrationForm phone layout", () => {
+  it("spans Email and Phone across both columns only from md: up", () => {
+    render(<RegistrationForm {...baseProps} />)
+    for (const id of ["reg-email", "reg-phone"]) {
+      const wrapper = document.getElementById(id)!.parentElement!
+      expect(wrapper).toHaveClass("md:col-span-2")
+      expect(wrapper).not.toHaveClass("col-span-2")
+    }
+  })
+})
+
 describe("RegistrationForm submit blockers", () => {
   it("shows no blocker checklist before any ticket is selected", () => {
     render(<RegistrationForm {...baseProps} />)

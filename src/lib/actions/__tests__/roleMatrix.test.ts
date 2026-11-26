@@ -17,6 +17,8 @@ import path from "node:path"
 import ts from "typescript"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import * as roleGuard from "@/lib/roleGuard"
+import { DEFAULT_BIRTHDAY_TEMPLATE } from "@/lib/birthdayTemplate"
+import { DEFAULT_ANNIVERSARY_TEMPLATE } from "@/lib/anniversaryTemplate"
 
 type Role = (typeof UserRole)[keyof typeof UserRole]
 
@@ -33,9 +35,13 @@ const WRITE_METHODS = new Set([
   "$executeRaw",
   "$executeRawUnsafe",
 ])
-/** Raw SQL that mutates state (INSERT/UPDATE/DELETE, advisory locks); a plain SELECT is a read. */
+/**
+ * Raw SQL that mutates state (INSERT/UPDATE/DELETE, advisory locks); a plain SELECT is a read.
+ * `FOR UPDATE` / `FOR NO KEY UPDATE` are already caught by the `update` word; only the share locks
+ * need their own alternative.
+ */
 const RAW_WRITE_SQL =
-  /\b(insert|update|delete|truncate|alter|drop|create|merge|copy|lock|set_config|nextval|setval)\b|\bfor\s+(key\s+share|share|no\s+key\s+update|update)\b|\binto\b|pg_(try_)?advisory/i
+  /\b(insert|update|delete|truncate|alter|drop|create|merge|copy|lock|set_config|nextval|setval)\b|\bfor\s+(key\s+share|share)\b|\binto\b|pg_(try_)?advisory/i
 
 /** Words that may precede `(` in a read-only SELECT: keywords and pure aggregate/scalar functions. */
 const SAFE_SQL_WORDS = new Set([
@@ -91,12 +97,17 @@ jest.mock("@/lib/prisma", () => {
     new Proxy(
       {},
       {
-        get: (_t, method: string | symbol) =>
-          typeof method === "symbol" ? undefined : jest.fn(async () => {
+        get: (_t, method: string | symbol) => {
+          // Symbol keys (iterator, toPrimitive, inspect...) are not Prisma methods: no call, no record.
+          if (typeof method === "symbol" || method === "then") return undefined
+          return jest.fn(async () => {
             dbCalls.push(`${name}.${method}`)
             if (WRITE_METHODS.has(method)) writes.push(`${name}.${method}`)
-            return method.startsWith("find") ? (method === "findMany" ? findManyRows : null) : method === "count" ? 0 : undefined
-          }),
+            if (method === "findMany") return findManyRows
+            if (method.startsWith("find")) return null
+            return method === "count" ? 0 : undefined
+          })
+        },
       },
     )
   /**
@@ -212,9 +223,7 @@ function stripCommentsAndStrings(src: string): string {
  * @param body source of one exported function
  */
 function leadingGuards(body: string): string[] {
-  const code = stripCommentsAndStrings(body)
-  const firstDb = code.search(/\bprisma\b|\btx\./)
-  const head = firstDb === -1 ? code : code.slice(0, firstDb)
+  const head = headBeforeDb(body)
   return HELPERS.filter((h) => hasRefusal(head, h)).sort()
 }
 
@@ -308,11 +317,12 @@ function hasRefusal(head: string, helper: string): boolean {
 }
 
 /**
- * Matches `export const f = async (...) =>`, `= async x =>` and `= async function`, with or without a
- * type annotation (including function types such as `: () => Promise<unknown>`, whose `=>` the lazy
- * annotation match skips past).
+ * Matches `export const f = async (...) =>`, `= async x =>`, `= async function` and generic arrows
+ * (`= async <T>(x: T) =>`), with or without a type annotation (including function types such as
+ * `: () => Promise<unknown>`, whose `=>` the lazy annotation match skips past) and with any number of
+ * wrapper calls around the function (`= withAudit(async (x) =>`, `= wrap(wrap2(async function`).
  */
-const CONST_FN_EXPORT = /^export const (\w+)\s*(?::[^\n]*?)?=\s*(?:async\b\s*)?(?:function\b|\(|\w+\s*=>)/gm
+const CONST_FN_EXPORT = /^export const (\w+)\s*(?::[^\n]*?)?=\s*(?:\w+\s*\(\s*)*(?:async\b\s*)?(?:function\b|<|\(|\w+\s*=>)/gm
 
 /**
  * Scan every `src/lib/actions/*.ts` that mentions roleGuard and return each exported async function
@@ -346,10 +356,29 @@ function discover(): { entries: Entry[]; undiscovered: string[] } {
  * @param body source of one exported function
  */
 function callsHelperBeforeDb(body: string): boolean {
+  const head = headBeforeDb(body)
+  return HELPERS.some((h) => new RegExp(`\\b${h}\\(`).test(head)) || ASYNC_ACCESS_CHECK.test(head)
+}
+
+/** First DB access: a literal `prisma` / `tx.` use or an explicit `$transaction`. */
+const FIRST_DB = /\bprisma\b|\btx\.|\$transaction\b/
+
+/**
+ * An awaited non-roleGuard access check (`await canManageEvent(`, `await assertX(`, `await requireX(`).
+ * These are async and live outside roleGuard, so HELPERS never sees them. `ensure*` is left out on
+ * purpose: those are get-or-create DB helpers (`ensureSession`), not checks.
+ */
+const ASYNC_ACCESS_CHECK = /\bawait\s+(?:can|is|assert|require)[A-Z]\w*\(/
+
+/**
+ * Comment/string-stripped source of the body up to its first DB access. When no DB access appears
+ * literally, the whole body counts as pre-DB (a delegating action is still reported, never ignored).
+ * @param body source of one exported function
+ */
+function headBeforeDb(body: string): string {
   const code = stripCommentsAndStrings(body)
-  const firstDb = code.search(/\bprisma\b|\btx\./)
-  const head = firstDb === -1 ? code : code.slice(0, firstDb)
-  return HELPERS.some((h) => new RegExp(`\\b${h}\\(`).test(head))
+  const firstDb = code.search(FIRST_DB)
+  return firstDb === -1 ? code : code.slice(0, firstDb)
 }
 
 /** A value that survives any property access, call, string or number coercion. */
@@ -408,6 +437,17 @@ const READ_FIXTURES: Record<string, { args: unknown[]; rows: unknown[] }> = {
     args: ["smith"],
     rows: [{ id: 1, firstName: "Sam", lastName: "Smith", family: { name: "Smith" } }],
   },
+}
+
+/**
+ * Gated readers whose refusal is a fixed, non-empty default rather than an error/empty shape (AUD-1-11).
+ * A refusal result must deep-equal the pinned default; the no-DB-call assertion still proves the guard
+ * ran first, so a removed guard (which would query and hand back real settings) cannot hide here.
+ */
+const REFUSAL_DEFAULTS: Record<string, unknown> = {
+  "settings.getBirthdayTemplate": DEFAULT_BIRTHDAY_TEMPLATE,
+  "settings.getAnniversaryTemplate": DEFAULT_ANNIVERSARY_TEMPLATE,
+  "settings.getAutoEmailFlags": { birthday: false, anniversary: false },
 }
 
 /** An empty FormData, passed as the second argument of every action. */
@@ -591,6 +631,10 @@ serviceType.toggleServiceTypeActive:isAdmin
 serviceType.deleteServiceType:isAdmin
 settings.upsertSetting:isAdmin
 settings.updateChurchInfo:isAdmin
+settings.getBirthdayTemplate:canEdit
+settings.getAnniversaryTemplate:canEdit
+settings.getAutoEmailFlags:canEdit
+settings.getPettyCashDefaultCustodianId:canViewAccounting
 settings.updateBirthdayTemplate:isAdmin
 settings.sendTestBirthdayEmail:isAdmin
 settings.updateAnniversaryTemplate:isAdmin
@@ -790,6 +834,45 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(hit("export const a: () => Promise<unknown> = async () => {")).toBe(true)
     expect(hit("export const a = async function (x) {")).toBe(true)
     expect(hit("export const A = 5")).toBe(false)
+    // Generics, wrapper calls and typed consts.
+    expect(hit("export const a = async <T,>(x: T) => {")).toBe(true)
+    expect(hit("export const a = withAudit(async (x) => {")).toBe(true)
+    expect(hit("export const a = wrap(inner(async function (x) {")).toBe(true)
+    expect(hit("export const a: Handler<string> = wrap(async (x) => {")).toBe(true)
+    expect(hit("export const a = compute(5)")).toBe(false)
+  })
+
+  it("callsHelperBeforeDb flags awaited non-roleGuard checks and ignores ones after the first DB access", () => {
+    expect(callsHelperBeforeDb("const ok = await canManageEvent(u, 1, r)\nawait prisma.x.update()")).toBe(true)
+    expect(callsHelperBeforeDb("await assertOwner(u)\nreturn 1")).toBe(true)
+    expect(callsHelperBeforeDb("await prisma.x.findMany()\nconst ok = await canManageEvent(u, 1, r)")).toBe(false)
+    expect(callsHelperBeforeDb("await prisma.$transaction(async () => {})\nawait canX(r)")).toBe(false)
+    expect(callsHelperBeforeDb("const x = await computeTotals()")).toBe(false)
+  })
+
+  it("the Prisma model mock ignores symbol keys and records string-keyed calls", async () => {
+    const { prisma } = await import("@/lib/prisma")
+    const model = (prisma as unknown as Record<string, Record<string | symbol, unknown>>).person
+    expect(model[Symbol.iterator]).toBeUndefined()
+    expect(model[Symbol.toPrimitive]).toBeUndefined()
+    expect(dbCalls).toEqual([])
+    await (model.findMany as () => Promise<unknown>)()
+    expect(dbCalls).toEqual(["person.findMany"])
+  })
+
+  it("getRegistrationDetail: partially allowed roles reach the second stage, make no write and get a refusal", async () => {
+    const mod = (await import("@/lib/actions/registration")) as Record<string, (...a: unknown[]) => Promise<unknown>>
+    for (const role of ["VIEWER", "EVENT_ORGANISER"] as Role[]) {
+      currentRole = role
+      writes.length = 0
+      dbCalls.length = 0
+      // Allowed through the first gate by one guard, so a Prisma read happens; the probe finds no row.
+      const result = await mod.getRegistrationDetail(1)
+      expect(dbCalls).toContain("registration.findUnique")
+      expect(writes).toEqual([])
+      expect(isRefusalShape(result)).toBe(true)
+      expect(result).toEqual({ error: "Registration not found" })
+    }
   })
 
   it("isRefusalThrow accepts only login/unauthorized/forbidden redirects and not-found", () => {
@@ -802,11 +885,23 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(isRefusalThrow(new Error("NOT_FOUND_EXTRA"))).toBe(false)
   })
 
+  /**
+   * True when the export refuses `role`. ANY_OF: every guard must refuse; ALL_OF and single-guard
+   * exports: one refusing guard is enough.
+   * @param e the guarded export
+   * @param role the role under test
+   */
+  const refusesRole = (e: Entry, role: Role): boolean => {
+    const key = `${e.file}.${e.fn}`
+    const refuses = (g: string) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role)
+    if (ANY_OF.has(key)) return e.guards.every(refuses)
+    // An unclassified multi-guard export is reported by the dedicated classification test; treat it
+    // as ALL-of here so collection does not fail with an opaque suite-level error.
+    return e.guards.some(refuses)
+  }
+
   const cases = ENTRIES.flatMap((e) =>
-    ALL_ROLES.filter((role) => {
-      const refuses = (g: string) => !(roleGuard as unknown as Record<string, (r: Role) => boolean>)[g](role)
-      return ANY_OF.has(`${e.file}.${e.fn}`) ? e.guards.every(refuses) : e.guards.some(refuses)
-    }).map(
+    ALL_ROLES.filter((role) => refusesRole(e, role)).map(
       (role) => [`${e.file}.${e.fn} [${e.guards.join(",")}]`, e, role] as const,
     ),
   )
@@ -841,7 +936,11 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(dbCalls).toEqual([])
     // A refusal is a returned error/empty shape or a thrown redirect/not-found error. Any other
     // throw is a crash, not a refusal, and any other result is a success payload.
-    if (thrown === undefined) expect(isRefusalShape(result)).toBe(true)
+    if (thrown === undefined) {
+      const key = `${entry.file}.${entry.fn}`
+      if (key in REFUSAL_DEFAULTS) expect(result).toEqual(REFUSAL_DEFAULTS[key])
+      else expect(isRefusalShape(result)).toBe(true)
+    }
     else expect(isRefusalThrow(thrown)).toBe(true)
   })
 })

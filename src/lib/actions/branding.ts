@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
-import { IMAGE_SLOT_BY_PARAM } from "@/lib/branding"
+import { lookupImageSlot } from "@/lib/branding"
 import type { ActionResultWithSuccess } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
 
@@ -31,7 +31,7 @@ export async function uploadBranding(param: string, formData: FormData): Promise
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised." }
 
-  const slot = IMAGE_SLOT_BY_PARAM[param]
+  const slot = lookupImageSlot(param)
   if (!slot) return { error: "Unknown branding slot." }
 
   const file = formData.get("file")
@@ -85,7 +85,7 @@ export async function resetBranding(param: string): Promise<ActionResultWithSucc
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised." }
 
-  const slot = IMAGE_SLOT_BY_PARAM[param]
+  const slot = lookupImageSlot(param)
   if (!slot) return { error: "Unknown branding slot." }
 
   try {

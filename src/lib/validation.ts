@@ -35,6 +35,7 @@ export function normaliseMoneyInput(raw: string): string {
 // silently normalises into the next month. Anchored at UTC midnight to
 // match the app's date-only storage convention.
 export function isRealCalendarDate(ymd: string): boolean {
+  if (typeof ymd !== "string") return false
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
   if (!m) return false
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
@@ -91,6 +92,7 @@ const EMAIL_REGEX =
 
 /** EMAIL_REGEX plus the SMTP limits: 254 characters total, 64 before the @. */
 export function isValidEmail(email: string): boolean {
+  if (typeof email !== "string") return false
   return email.length <= 254 && email.indexOf("@") <= 64 && EMAIL_REGEX.test(email)
 }
 

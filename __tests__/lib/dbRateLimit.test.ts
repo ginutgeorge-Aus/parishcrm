@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { prisma } from "@/lib/prisma"
-import { dbRateLimit } from "@/lib/dbRateLimit"
+import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 
 jest.mock("@/lib/prisma", () => ({
   prisma: {
@@ -19,6 +19,23 @@ const mockCreate = prisma.rateLimit.create as jest.Mock
 beforeEach(() => {
   jest.clearAllMocks()
   mockDelete.mockResolvedValue({ count: 0 })
+})
+
+describe("dbRateLimitRefund", () => {
+  it("decrements only an active, non-zero row for the key", async () => {
+    mockUpdate.mockResolvedValue({ count: 1 })
+    await dbRateLimitRefund("k", 10_000)
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { key: "k", resetAt: { gt: new Date(10_000) }, count: { gt: 0 } },
+      data: { count: { decrement: 1 } },
+    })
+  })
+
+  it("defaults now to Date.now()", async () => {
+    mockUpdate.mockResolvedValue({ count: 0 })
+    await dbRateLimitRefund("k")
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("dbRateLimit", () => {

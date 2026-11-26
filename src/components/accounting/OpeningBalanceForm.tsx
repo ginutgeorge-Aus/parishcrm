@@ -1,10 +1,11 @@
 "use client"
 
-import { useActionState } from "react"
 import { upsertOpeningBalance } from "@/lib/actions/accountingSettings"
-import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { FormFeedback } from "@/components/ui/FormFeedback"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Balance = {
   amount: string
@@ -18,10 +19,10 @@ type BalanceRowProps = {
 }
 
 function BalanceRow({ paymentAccountId, label, current }: Readonly<BalanceRowProps>) {
-  const [state, formAction, isPending] = useActionState(upsertOpeningBalance, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(upsertOpeningBalance)
 
   return (
-    <form action={formAction} className="flex flex-wrap items-center gap-3 py-3 border-b border-border last:border-0">
+    <form onSubmit={onSubmit} className="flex flex-wrap items-center gap-3 py-3 border-b border-border last:border-0">
       <input type="hidden" name="paymentAccountId" value={paymentAccountId} />
       <span className="w-24 text-sm font-medium text-muted-foreground shrink-0">{label}</span>
       <div className="flex items-center gap-1">
@@ -49,7 +50,8 @@ function BalanceRow({ paymentAccountId, label, current }: Readonly<BalanceRowPro
       <Button type="submit" disabled={isPending}>
         {isPending ? "Saving…" : "Save"}
       </Button>
-      <FormFeedback state={state} />
+      <FormError error={state && "error" in state ? state.error : undefined} errorKey={errorSeq} />
+      <FormFeedback state={state && "success" in state ? state : undefined} />
     </form>
   )
 }

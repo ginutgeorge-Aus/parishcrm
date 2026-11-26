@@ -282,7 +282,8 @@ export async function syncEventDeletion(crmId: number): Promise<void> {
   }
 }
 
-// Backstop: re-push every event (e.g. after a missed webhook or a website restore).
+// Backstop: re-push every event (e.g. after a missed webhook or a website restore)
+// and replay audited deletions (a failed delete webhook is otherwise never retried).
 // take: 500 is a safety cap — the parish has dozens of events.
 const RESYNC_CONCURRENCY = 15
 const RESYNC_LIMIT = 500
@@ -321,5 +322,62 @@ export async function resyncAllEvents(): Promise<{ synced: number; failed: numbe
       }
     })
   }
-  return { synced, failed, truncated, disabled: false }
+  const deletes = await replayDeletedEvents(new Set(events.map((e) => e.id)))
+  synced += deletes.synced
+  failed += deletes.failed
+  // Truncation of either the live events or the audited-delete replays means some were not resynced.
+  return { synced, failed, truncated: truncated || deletes.truncated, disabled: false }
+}
+
+/**
+ * Re-send delete webhooks for events deleted in the CRM, so a delete whose
+ * original webhook failed (timeout / non-2xx, only logged by `syncEventDeletion`)
+ * is reconciled by Resync. Sources the IDs from the `EVENT_DELETED` audit rows
+ * (no new table) and uses each row's DB-assigned `createdAt` as the revision (stable
+ * across replicas; upserts still use the app clock via `updatedAt`, so keep clocks in
+ * sync). The replay revision is earlier than the original send-time revision, so
+ * receivers must keep the highest tombstone revision. Deletes are idempotent by crmId.
+ * @param liveIds - ids of events that still exist; never sent a delete.
+ * @returns counts of delete replays that succeeded / failed, and whether the audit
+ * query hit the replay cap (older deletions beyond it were not replayed).
+ */
+async function replayDeletedEvents(liveIds: Set<number>): Promise<{ synced: number; failed: number; truncated: boolean }> {
+  const rows = await prisma.auditLog.findMany({
+    where: { action: "EVENT_DELETED", resourceType: "Event", resourceId: { not: null } },
+    select: { resourceId: true, createdAt: true },
+    distinct: ["resourceId"],
+    orderBy: { id: "desc" },
+    take: RESYNC_LIMIT,
+  })
+  const truncated = rows.length === RESYNC_LIMIT
+  if (truncated) {
+    logger.warn("[website-sync] resync hit the delete-replay cap — older deletions were not replayed", { cap: RESYNC_LIMIT })
+  }
+  const byId = new Map<number, Date>()
+  for (const r of rows) {
+    if (r.resourceId !== null && !liveIds.has(r.resourceId) && !byId.has(r.resourceId)) {
+      byId.set(r.resourceId, r.createdAt)
+    }
+  }
+  const entries = [...byId]
+  let synced = 0
+  let failed = 0
+  for (let i = 0; i < entries.length; i += RESYNC_CONCURRENCY) {
+    const batch = entries.slice(i, i + RESYNC_CONCURRENCY)
+    const results = await Promise.allSettled(
+      batch.map(([crmId, at]) => {
+        const payload: WebsiteDeletePayload = { action: "delete", crmId, revision: toRevision(at) }
+        return postToWebsite(payload)
+      })
+    )
+    results.forEach((r, j) => {
+      if (r.status === "fulfilled") {
+        synced++
+      } else {
+        logger.error("[website-sync] resync delete failed for event", { eventId: batch[j][0], error: r.reason instanceof Error ? r.reason.message : String(r.reason) })
+        failed++
+      }
+    })
+  }
+  return { synced, failed, truncated }
 }

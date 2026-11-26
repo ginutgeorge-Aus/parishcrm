@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { RetentionGate } from "@/components/shared/RetentionGate"
 import { Button } from "@/components/ui/button"
 import { fmtAUD as fmt } from "@/lib/formatting"
 import { isDateLocked } from "@/lib/accountingLock"
@@ -22,7 +23,7 @@ interface Props {
 export function SessionTransfersTable({ sessionId, transfers, totalTransfers, userCanEdit, userIsAdmin, isOpen, lockDate }: Readonly<Props>) {
   const showActions = (userCanEdit || userIsAdmin) && isOpen
   /** Edit beside Delete; disabled inside a locked period (the action refuses it too). */
-  const actions = (id: number, locked: boolean) => (
+  const actions = (id: number, date: Date, locked: boolean) => (
     <>
       {userCanEdit &&
         (locked ? (
@@ -32,7 +33,7 @@ export function SessionTransfersTable({ sessionId, transfers, totalTransfers, us
             <Link href={`/accounting/petty-cash/sessions/${sessionId}/transfer/${id}/edit`}>Edit</Link>
           </Button>
         ))}
-      {userIsAdmin && <DeleteTransferButton id={id} locked={locked} />}
+      {userIsAdmin && <RetentionGate date={date}><DeleteTransferButton id={id} locked={locked} /></RetentionGate>}
     </>
   )
   return (
@@ -65,7 +66,7 @@ export function SessionTransfersTable({ sessionId, transfers, totalTransfers, us
               </div>
               {showActions && (
                 <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">
-                  {actions(t.id, locked)}
+                  {actions(t.id, t.date, locked)}
                 </div>
               )}
             </li>
@@ -124,7 +125,7 @@ export function SessionTransfersTable({ sessionId, transfers, totalTransfers, us
               </td>
               {showActions && (
                 <td className="py-2 whitespace-nowrap">
-                  {actions(t.id, locked)}
+                  {actions(t.id, t.date, locked)}
                 </td>
               )}
             </tr>
