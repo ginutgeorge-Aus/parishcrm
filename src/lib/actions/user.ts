@@ -246,8 +246,8 @@ export async function createUser(
   const parsed = CreateUserSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  // Only ADMIN may mint an elevated (ADMIN or PASTOR) account — block
-  // OFFICE_ADMIN self-escalation past the accounting/pastoral boundary.
+  // Only ADMIN may mint an elevated (ADMIN, PASTOR) or OFFICE_ADMIN account — block
+  // OFFICE_ADMIN self-escalation or peer creation (canAssignRole).
   if (!canAssignRole(session?.user?.role, parsed.data.role)) {
     return { error: "Unauthorized" }
   }
@@ -261,19 +261,25 @@ export async function createUser(
   const userId = actorId(session)
   const ip = await requestAuditIp()
   let newUser
+  let createdRow = false
   try {
     // Create + audit commit together: a failed audit write rolls the account back.
     newUser = await prisma.$transaction(async (tx) => {
+      createdRow = false
       const created = await tx.user.create({
         data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
       })
+      createdRow = true
       await auditUserTx(tx, userId, "USER_CREATED", created.id, { targetUserId: created.id, toRole: parsed.data.role }, ip)
       return created
     })
   } catch (e) {
     // The isEmailTaken check above is check-then-act — a concurrent create can
     // slip in between it and this create() call.
-    if (isP2002(e)) return { error: "Email already in use" }
+    // Only a clash raised by create() is a duplicate email; one from the audit
+    // write (createdRow true) is not, and falls through to the rethrow.
+    if (isP2002(e) && !createdRow) return { error: "Email already in use" }
+    if (isP2034(e)) return { error: "Could not complete the change because of a concurrent update — please try again." }
     if (e instanceof AuditWriteError) return { error: e.message }
     throw e
   }
@@ -336,18 +342,15 @@ async function buildUserUpdateData(parsedData: {
   return data
 }
 
-// Demotion's last-admin recount and the write itself run in one Serializable
-// transaction — closes the check-then-act race described above the
-// assertNotLastAdmin definition. The target role is reloaded INSIDE the
-// transaction — otherwise a concurrent promotion between the outer pre-tx
-// read and this transaction starting could demote a newly-promoted sole
-// admin with no recount ever running (the stale pre-tx role said "not
-// ADMIN", so the guard was skipped entirely).
 /**
  * Reloads the target inside the Serializable transaction, re-checks that the
  * actor may manage its CURRENT role (AUD-1-02b), runs the last-admin guard, and
- * writes the update. An email change voids any outstanding reset link and OTP
- * code and ends live sessions; a role change ends live sessions (AUD-1-02d).
+ * writes the update. Demotion's last-admin recount and the write run in one
+ * transaction, closing the check-then-act race described above
+ * assertNotLastAdmin; the role is reloaded in-transaction so a concurrent
+ * promotion cannot slip past the guard on a stale pre-tx read. An email change
+ * voids any outstanding reset link and OTP code and ends live sessions; a role
+ * change ends live sessions (AUD-1-02d).
  * @param tx interactive-transaction client
  * @param id the target user
  * @param data the write built by buildUserUpdateData (name only on a self-edit)
@@ -385,9 +388,12 @@ async function applyUserUpdate(
   return { fromRole: current.role, toRole, emailChanged }
 }
 
-// Maps the errors applyUserUpdate's transaction can throw to a clean
-// ActionResult message. Returns undefined for anything else, which the
-// caller rethrows.
+/**
+ * Maps the errors applyUserUpdate's transaction can throw to a clean
+ * ActionResult message.
+ * @param e the caught error
+ * @returns the message, or undefined (the caller rethrows)
+ */
 function updateUserErrorMessage(e: unknown): string | undefined {
   if (e instanceof TargetGoneError) return e.message
   if (e instanceof TargetUnauthorizedError) return e.message
@@ -627,7 +633,7 @@ export async function deleteUser(id: number): Promise<ActionResult> {
   if (!target) return { error: "User not found" }
   if (target.archivedAt) return { error: "User not found" }
 
-  // Non-ADMIN actors may not delete an elevated (ADMIN/PASTOR) account — same
+  // Non-ADMIN actors may not delete an ADMIN, PASTOR or OFFICE_ADMIN account (canAssignRole) — same
   // target-role gate updateUser uses. Deleting a PASTOR is just as much
   // a privilege breach as deleting an ADMIN (archives the account, tombstones
   // its email, and kills its sessions).
@@ -706,7 +712,7 @@ export async function resendWelcome(id: number): Promise<{ success: true } | { e
   })
   if (!target || target.archivedAt) return { error: "User not found" }
 
-  // Non-ADMIN actors may not re-issue an invite for an ADMIN or PASTOR account
+  // Non-ADMIN actors may not re-issue an invite for an ADMIN, PASTOR or OFFICE_ADMIN account
   // (consistency with the create/update/delete escalation guards).
   if (!canAssignRole(session?.user?.role, target.role)) {
     return { error: "Unauthorized" }

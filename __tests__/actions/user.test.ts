@@ -143,6 +143,22 @@ describe("createUser", () => {
     expect(result).toEqual({ error: "Email already in use" })
   })
 
+  it("does not report a P2002 from the audit write as a duplicate email", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockQueryRaw.mockResolvedValue([])
+    mockCreate.mockResolvedValue({ id: 5, name: "Jane", email: "jane@example.com", role: "VIEWER" })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2002" })
+    await expect(createUser(undefined, fd(validNewUser))).rejects.toMatchObject({ code: "P2002" })
+  })
+
+  it("maps a P2034 from create to a retry prompt", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockQueryRaw.mockResolvedValue([])
+    mockCreate.mockRejectedValue({ code: "P2034" })
+    const result = await createUser(undefined, fd(validNewUser))
+    expect(result?.error).toMatch(/try again/i)
+  })
+
   it("stores an unusable random passwordHash (invite flow)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue(null)
