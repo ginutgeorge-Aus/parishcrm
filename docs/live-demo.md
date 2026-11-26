@@ -29,4 +29,9 @@ The demo runs on Render (free web service, image `ghcr.io/ginutgeorge-aus/parish
 4. Set repo variable `DEMO_DB_HOST` to the hostname of the direct connection string (no scheme, no port). `demo-reset` refuses to wipe any database whose host differs, and any non-empty database without the `demoSentinel` row in `AppSetting` (written by `demo:seed` and re-written by `demo-reset` after each reset). An existing demo database predating the sentinel needs it once: `INSERT INTO public."AppSetting" (key, value) VALUES ('demoSentinel', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true';`
 5. Run `demo-reset` from the Actions tab, then open the demo URL.
 
+`DEMO_DATABASE_URL` must be a plain libpq URI (`postgresql://user:pass@host/db?sslmode=require`). The guard runs it through `psql`, which exits 2 with an opaque error on Prisma-only parameters such as `?schema=` or `connection_limit=`; remove them from this secret.
+
+### Recovery: guard refuses after a half-finished reset
+If a reset dies midway (after the wipe, before the sentinel is rewritten), the next run fails closed: the database is non-empty but has no `demoSentinel` row (or no `AppSetting` table). After confirming the database really is the demo one (host matches `DEMO_DB_HOST`), either empty it (Neon console: drop and recreate the schema `public`) or restore the sentinel by hand with the `INSERT` from step 4, then rerun `demo-reset`. If the schema is missing `AppSetting`, empty the database instead.
+
 Each reset requests deployment of the image of the release it seeded (`:<tag>` via the hook's `imgURL`). The hook does not wait for the deploy to finish, so a slow or failed deploy can briefly leave the previous app running against the reset schema (deploy-status polling: #100). If that release's image is missing from GHCR, the reset fails and the demo keeps the previous night's data.

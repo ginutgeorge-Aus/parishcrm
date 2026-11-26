@@ -134,6 +134,8 @@ blocks duplicate live exams there.
 Release tags are mutable in a registry, so pin the image by digest and verify its signed
 build provenance **before** running it with your secrets:
 
+A released version is immutable: the publish workflow refuses to build a tag that already exists in GHCR. If a publish fails **after** the push (for example the attestation step), a re-run is blocked by that check. Recovery (maintainer): delete that version of the `parishcrm` package in GHCR (Package settings → Manage versions), then re-run the Release workflow. Verify the result with `gh attestation verify` as below.
+
 Replace `<owner>/<repo>` in image references with the **lowercase** GitHub owner/repo (the publish workflow lowercases it; `--repo` keeps the original casing).
 
 ```bash
