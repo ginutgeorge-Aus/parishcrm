@@ -1,5 +1,5 @@
 # Base pinned by digest for reproducible builds. Tag documents intent;
-# digest is authoritative. node:24-alpine as of 2026-07-02 — bump when updating.
+# digest is authoritative. node:26-alpine as of 2026-07-02 — bump when updating.
 FROM node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
@@ -18,17 +18,16 @@ RUN npx prisma generate
 RUN npm run build
 
 # Standalone output omits the Prisma CLI, so `migrate deploy` can't run from the
-# runner image. Install the CLI (pinned to the lockfile's exact version, incl. its
+# runner image. Install the CLI from the committed docker/prisma-cli lockfile
+# (`npm ci`: every transitive dependency pinned and integrity-checked, incl. the
 # schema-engine binary for musl) into an isolated dir with the schema, migrations
 # and config beside it. Copied into the runner for the platform pre-deploy step.
-# Root `overrides` are carried over so the bundle gets the same security pins.
+# Versions and `overrides` must equal the root lockfile; the jest test
+# src/__tests__/prismaCliLock.test.ts enforces that in CI.
 FROM builder AS prisma-cli
 WORKDIR /opt/prisma-cli
-RUN PRISMA_VERSION=$(node -p "require('/app/node_modules/prisma/package.json').version") && \
-    DOTENV_VERSION=$(node -p "require('/app/node_modules/dotenv/package.json').version") && \
-    npm init -y >/dev/null && \
-    node -e "const p=require('./package.json');p.overrides=require('/app/package.json').overrides;require('fs').writeFileSync('package.json',JSON.stringify(p))" && \
-    npm install --omit=dev --no-audit --no-fund "prisma@${PRISMA_VERSION}" "dotenv@${DOTENV_VERSION}" && \
+COPY docker/prisma-cli/package.json docker/prisma-cli/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && \
     cp -r /app/prisma ./prisma && cp /app/prisma.config.ts ./prisma.config.ts
 
 FROM node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS runner

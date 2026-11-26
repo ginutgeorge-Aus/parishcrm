@@ -82,6 +82,8 @@ it("signature failure logs one line with no header value, body or secret", async
   await handleStripeWebhook('{"secret_body":1}', "t=1,v1=sentinelsig")
   expect(logger.warn).toHaveBeenCalledTimes(1)
   const logged = JSON.stringify(logger.warn.mock.calls[0])
+  expect(logger.warn.mock.calls[0][0]).toBe("[stripe-webhook] signature verification failed")
+  expect(logger.warn.mock.calls[0][1]).toEqual({ reason: "bad_signature" })
   expect(logged).not.toContain("sentinelsig")
   expect(logged).not.toContain("secret_body")
   expect(logged).not.toContain("whsec_x")
@@ -254,6 +256,127 @@ it("alerts ops when a COMPLETED row has no publicToken AND no registration match
   expect(prisma.checkoutSession.update).not.toHaveBeenCalled()
   expect(notifyStripeAlert).toHaveBeenCalled()
   errSpy.mockRestore()
+})
+
+describe("AUD-4-17 stranded claim recovery", () => {
+  const payload = "enc:" + JSON.stringify({ firstName: "A", totalAmount: 20, items: [], capacityChecks: [] })
+  const old = new Date(Date.now() - 10 * 60 * 1000)
+
+  it("reopens an old COMPLETED row with payload and no matching registration, then completes it", async () => {
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    const stranded = { id: 5, eventId: 7, status: "COMPLETED", publicToken: null, registrationId: null, surchargeCents: 0, completedAt: old, payload }
+    prisma.checkoutSession.findUnique
+      .mockResolvedValueOnce(stranded)
+      .mockResolvedValueOnce({ ...stranded, status: "OPEN", completedAt: null })
+    prisma.registration.findFirst.mockResolvedValue(null)
+    prisma.event.findUnique.mockResolvedValue({ id: 7, ticketTypes: [] })
+    persistRegistration.mockResolvedValue({ ok: true, ref: "REG-NEW" })
+
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+
+    expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 5, status: "COMPLETED", publicToken: null }),
+      data: expect.objectContaining({ status: "OPEN", completedAt: null }),
+    }))
+    expect(persistRegistration).toHaveBeenCalledTimes(1)
+    expect(notifyStripeAlert).not.toHaveBeenCalled()
+  })
+
+  it("500s without alert or reopen for a young COMPLETED claim (may be mid-persist elsewhere)", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique.mockResolvedValue({
+      id: 5, eventId: 7, status: "COMPLETED", publicToken: null, registrationId: null, surchargeCents: 0, completedAt: new Date(), payload,
+    })
+    prisma.registration.findFirst.mockResolvedValue(null)
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 500 })
+    expect(persistRegistration).not.toHaveBeenCalled()
+    expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+    expect(notifyStripeAlert).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it("alerts (200) for an old COMPLETED row whose payload is empty — unrecoverable", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique.mockResolvedValue({
+      id: 5, eventId: 7, status: "COMPLETED", publicToken: null, registrationId: null, surchargeCents: 0, completedAt: old, payload: "",
+    })
+    prisma.registration.findFirst.mockResolvedValue(null)
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(notifyStripeAlert).toHaveBeenCalled()
+    expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it("leaves the reopened row retryable when persist fails again", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    const stranded = { id: 5, eventId: 7, status: "COMPLETED", publicToken: null, registrationId: null, surchargeCents: 0, completedAt: old, payload }
+    prisma.checkoutSession.findUnique
+      .mockResolvedValueOnce(stranded)
+      .mockResolvedValueOnce({ ...stranded, status: "OPEN", completedAt: null })
+    prisma.registration.findFirst.mockResolvedValue(null)
+    prisma.event.findUnique.mockResolvedValue({ id: 7, ticketTypes: [] })
+    persistRegistration.mockRejectedValue(new Error("db down"))
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 500 })
+    expect(prisma.checkoutSession.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { id: 5, status: "COMPLETED" }, data: expect.objectContaining({ status: "OPEN", completedAt: null }),
+    }))
+    errSpy.mockRestore()
+  })
+
+  it("returns 500 when another delivery wins the reopen", async () => {
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique.mockResolvedValue({
+      id: 5, eventId: 7, status: "COMPLETED", publicToken: null, registrationId: null, surchargeCents: 0, completedAt: old, payload,
+    })
+    prisma.registration.findFirst.mockResolvedValue(null)
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 500 })
+    expect(persistRegistration).not.toHaveBeenCalled()
+  })
+})
+
+describe("AUD-4-23 pay-now checkout whose registration was deleted", () => {
+  it("marks the row UNFULFILLED, alerts specifically, returns 200 and never throws", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique.mockResolvedValue({
+      id: 5, eventId: 7, status: "OPEN", publicToken: null, registrationId: null, surchargeCents: 0, payload: "",
+    })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 5, status: "OPEN" }, data: expect.objectContaining({ status: "UNFULFILLED" }),
+    }))
+    expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringContaining("registration deleted"), expect.any(String))
+    expect(persistRegistration).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it("still alerts when the OPEN-only update loses to the sweep (row EXPIRED)", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique
+      .mockResolvedValueOnce({ id: 5, eventId: 7, status: "OPEN", publicToken: null, registrationId: null, surchargeCents: 0, payload: "" })
+      .mockResolvedValueOnce({ status: "EXPIRED" })
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringContaining("registration deleted"), expect.any(String))
+    errSpy.mockRestore()
+  })
+
+  it("stays quiet when another delivery already settled it (UNFULFILLED)", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    constructEvent.mockReturnValue(completedEvent("cs_1", "pi_1"))
+    prisma.checkoutSession.findUnique
+      .mockResolvedValueOnce({ id: 5, eventId: 7, status: "OPEN", publicToken: null, registrationId: null, surchargeCents: 0, payload: "" })
+      .mockResolvedValueOnce({ status: "UNFULFILLED" })
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(notifyStripeAlert).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
 })
 
 it("does NOT alert on a SAME-session redelivery after the publicToken update previously threw — quiet, expected, only one charge ever happened", async () => {

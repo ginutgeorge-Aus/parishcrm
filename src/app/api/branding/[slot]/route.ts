@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
-import { getBrandingAsset, IMAGE_SLOT_BY_PARAM } from "@/lib/branding"
+import { getBrandingAsset, lookupImageSlot } from "@/lib/branding"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request, { params }: { params: Promise<{ slot: string }> }) {
   const { slot: param } = await params
-  const slot = IMAGE_SLOT_BY_PARAM[param]
+  const slot = lookupImageSlot(param)
   if (!slot) return new NextResponse("Not found", { status: 404 })
 
   const { bytes, mimeType, etag, fromDb } = await getBrandingAsset(slot)

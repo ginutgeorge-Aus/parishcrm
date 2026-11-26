@@ -938,7 +938,7 @@ describe("jwtCallback — role refresh", () => {
 
   it("re-fetches the current role from the DB on subsequent requests", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ role: "VIEWER" })
-    const token = await jwtCallback({ token: { id: "7", role: "ADMIN" } })
+    const token = await jwtCallback({ token: { id: "7", role: "ADMIN", loginAt: Date.now() } })
     expect(token?.role).toBe("VIEWER")
     expect(prisma.user.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 7 } })
@@ -971,7 +971,7 @@ describe("jwtCallback — role refresh", () => {
       otpLockedUntil: null,
       sessionsValidFrom: null,
     })
-    const token = await jwtCallback({ token: { id: "7", role: "ADMIN" } })
+    const token = await jwtCallback({ token: { id: "7", role: "ADMIN", loginAt: Date.now() } })
     expect(token).not.toBeNull()
     expect(token?.role).toBe("ADMIN")
   })
@@ -982,7 +982,7 @@ describe("jwtCallback — role refresh", () => {
       lockedUntil: null,
       sessionsValidFrom: null,
     })
-    const token = await jwtCallback({ token: { id: "7", role: "ADMIN" } })
+    const token = await jwtCallback({ token: { id: "7", role: "ADMIN", loginAt: Date.now() } })
     expect(token).not.toBeNull()
     expect(token?.role).toBe("ADMIN")
   })
@@ -993,7 +993,7 @@ describe("jwtCallback — role refresh", () => {
       lockedUntil: new Date(Date.now() - 60 * 1000),
       otpLockedUntil: null,
     })
-    const token = await jwtCallback({ token: { id: "7", role: "ADMIN" } })
+    const token = await jwtCallback({ token: { id: "7", role: "ADMIN", loginAt: Date.now() } })
     expect(token?.role).toBe("VIEWER")
   })
 
@@ -1045,6 +1045,32 @@ describe("jwtCallback — role refresh", () => {
     const token = await jwtCallback({ token: { id: "7", role: "ADMIN", loginAt: recent, lastActivity: recent } })
     expect(token?.role).toBe("ADMIN")
     expect(token?.lastActivity).toBeGreaterThan(recent)
+  })
+
+  it("invalidates a remembered token with no loginAt — fails closed on the 30-day cap (AUD-1-08)", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      role: "ADMIN", lockedUntil: null, otpLockedUntil: null, sessionsValidFrom: null,
+    })
+    const token = await jwtCallback({ token: { id: "7", role: "ADMIN", remember: true, lastActivity: Date.now() } })
+    expect(token).toBeNull()
+  })
+
+  it("invalidates a remembered token logged in more than 30 days ago", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      role: "ADMIN", lockedUntil: null, otpLockedUntil: null, sessionsValidFrom: null,
+    })
+    const old = Date.now() - 31 * 24 * 60 * 60 * 1000
+    const token = await jwtCallback({ token: { id: "7", role: "ADMIN", remember: true, loginAt: old, lastActivity: Date.now() } })
+    expect(token).toBeNull()
+  })
+
+  it("keeps a remembered token logged in within 30 days", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      role: "ADMIN", lockedUntil: null, otpLockedUntil: null, sessionsValidFrom: null,
+    })
+    const recent = Date.now() - 10 * 24 * 60 * 60 * 1000
+    const token = await jwtCallback({ token: { id: "7", role: "ADMIN", remember: true, loginAt: recent, lastActivity: Date.now() } })
+    expect(token?.role).toBe("ADMIN")
   })
 })
 
@@ -1208,6 +1234,24 @@ describe("jwtCallback — remember windows", () => {
     const sixHoursAgo = Date.now() - 6 * 60 * 60_000
     const token = await jwtCallback({
       token: { id: "1", role: "ADMIN", remember: true, loginAt: sixHoursAgo, lastActivity: Date.now() - 60_000 },
+    })
+    expect(token).not.toBeNull()
+  })
+
+  it("kills a remembered session past the 30-day absolute cap even when active (AUD-1-08)", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ role: "ADMIN", lockedUntil: null, sessionsValidFrom: null })
+    const thirtyOneDaysAgo = Date.now() - 31 * 24 * 60 * 60_000
+    const token = await jwtCallback({
+      token: { id: "1", role: "ADMIN", remember: true, loginAt: thirtyOneDaysAgo, lastActivity: Date.now() - 60_000 },
+    })
+    expect(token).toBeNull()
+  })
+
+  it("keeps an active remembered session 29 days after login", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ role: "ADMIN", lockedUntil: null, sessionsValidFrom: null })
+    const twentyNineDaysAgo = Date.now() - 29 * 24 * 60 * 60_000
+    const token = await jwtCallback({
+      token: { id: "1", role: "ADMIN", remember: true, loginAt: twentyNineDaysAgo, lastActivity: Date.now() - 60_000 },
     })
     expect(token).not.toBeNull()
   })

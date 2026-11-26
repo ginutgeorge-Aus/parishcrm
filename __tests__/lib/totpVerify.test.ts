@@ -11,7 +11,7 @@ jest.mock("@/lib/prisma", () => ({
 }))
 // Identity "encryption" so the test controls the plaintext secret directly.
 jest.mock("@/lib/crypto", () => ({
-  decrypt: jest.fn((v: string) => {
+  decryptStrict: jest.fn((v: string) => {
     if (v === "corrupt") throw new Error("bad tag")
     return v.replace(/^enc:/, "")
   }),

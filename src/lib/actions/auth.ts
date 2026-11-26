@@ -5,7 +5,11 @@ import bcrypt from "bcryptjs"
 import { headers } from "next/headers"
 import { prisma } from "@/lib/prisma"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
-import { sendPasswordResetEmail } from "@/lib/email"
+import { sendPasswordResetEmail, sendEmail } from "@/lib/email"
+import { logAudit } from "@/lib/audit"
+import { getChurchName } from "@/lib/emailTemplateStore"
+import { escapeHtml } from "@/lib/escapeHtml"
+import { logger } from "@/lib/logger"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { resolveClientIp } from "@/lib/clientIp"
@@ -36,6 +40,23 @@ function randomDelay(): Promise<void> {
 }
 
 /**
+ * Best-effort "your password was changed" notice after a completed reset (AUD-1-07). Never throws:
+ * a mail failure must not fail the already-committed reset; the log carries the user id only.
+ * @param userId the account owner's id (for the log line)
+ * @param to the owner's email address
+ */
+async function notifyPasswordReset(userId: number, to: string): Promise<void> {
+  try {
+    const churchName = await getChurchName()
+    const text = `Your password was reset using a recovery link. If this wasn't you, contact your administrator.\n${churchName}`
+    const html = `<p>Your password on ${escapeHtml(churchName)} was reset using a recovery link.</p><p>If this wasn't you, contact your administrator.</p>`
+    await sendEmail(to, `Your password was changed — ${churchName}`, html, text)
+  } catch (err: unknown) {
+    logger.error("password reset notice failed", { userId, err: err instanceof Error ? err.name : "unknown" })
+  }
+}
+
+/**
  * Starts a password reset: emails a single-use reset link when the address belongs to an active user.
  * Always returns the same silent success for unknown emails, throttled senders and bad config, so it
  * cannot be used to probe which emails exist.
@@ -51,18 +72,13 @@ export async function requestPasswordReset(
   // (no user-existence reveal) rather than an error that would leak the cap.
   if (typeof email !== "string" || email.length > 254) return { success: true }
 
-  // Primary: per-target-email limit (always present).
-  const emailKey = `pwreset:email:${createHash("sha256")
-    .update(normalizeEmail(email))
-    .digest("hex")}`
-  if (!(await dbRateLimit(emailKey, RESET_LIMIT, RESET_WINDOW_MS))) {
-    return { error: "Too many requests. Please try again later." }
-  }
-  // Secondary: per-IP DoS guard; requests with no valid IP share the "unknown" bucket.
+  // Per-IP DoS guard; requests with no valid IP share the "unknown" bucket.
   const ip = await resetRateLimitKey()
   if (!(await dbRateLimit(`pwreset:ip:${ip}`, RESET_LIMIT, RESET_WINDOW_MS))) {
     return { error: "Too many requests. Please try again later." }
   }
+  // The per-target-email bucket is consumed later, only for a request that is about to send mail
+  // (AUD-1-09): otherwise a stranger could burn a victim's allowance with requests that send nothing.
 
   // Case-insensitive (legacy mixed-case rows can still reset).
   const user = await findUserByEmailInsensitive(email, {
@@ -131,6 +147,28 @@ export async function requestPasswordReset(
     return { success: true }
   }
 
+  // Per-target-email cap on mail actually sent (see the note above). Exhausted: release the claim
+  // and return the same silent success, so the cap is never visible to a prober.
+  const emailKey = `pwreset:email:${createHash("sha256").update(normalizeEmail(email)).digest("hex")}`
+  // A limiter failure is treated like exhaustion: release the claim (only our tokenHash) and return
+  // the same silent success, so no stranded claim blocks retries for the 1h TTL.
+  let emailAllowed = false
+  try {
+    emailAllowed = await dbRateLimit(emailKey, RESET_LIMIT, RESET_WINDOW_MS)
+  } catch {
+    console.error("requestPasswordReset: email rate limiter failed")
+  }
+  if (!emailAllowed) {
+    await prisma.user
+      .updateMany({
+        where: { id: user.id, passwordResetToken: tokenHash },
+        data: { passwordResetToken: null, passwordResetExpires: null },
+      })
+      .catch(() => {})
+    await randomDelay()
+    return { success: true }
+  }
+
   // (accepted, LOW): unlike the fast-return "don't reveal" branches
   // above, this real-send path isn't wrapped in randomDelay() — its latency is
   // the real SMTP round-trip, a weak, noisy user-enumeration timing signal.
@@ -158,6 +196,13 @@ export async function requestPasswordReset(
   return { success: true }
 }
 
+/**
+ * Completes a password reset from an emailed single-use link: sets the new password, ends every
+ * session, drops trusted devices and passkeys, then audits it and notifies the owner.
+ * @param token the raw 64-hex reset token from the link
+ * @param password the new password (must satisfy PASSWORD_REGEX)
+ * @returns `{ success: true }`, or `{ error }` for a weak password or an invalid/expired/used link
+ */
 export async function resetPassword(
   token: string,
   password: string
@@ -174,7 +219,7 @@ export async function resetPassword(
 
   const user = await prisma.user.findUnique({
     where: { passwordResetToken: tokenHash },
-    select: { id: true, passwordResetExpires: true },
+    select: { id: true, email: true, passwordResetExpires: true },
   })
 
   if (!user?.passwordResetExpires || user.passwordResetExpires < new Date()) {
@@ -216,6 +261,10 @@ export async function resetPassword(
     return true
   })
   if (!ok) return { error: "Invalid or expired reset link." }
+
+  // Audit + notify the owner (AUD-1-07). logAudit swallows its own DB errors.
+  await logAudit(user.id, "PASSWORD_RESET_COMPLETED", "User", user.id, undefined, resolveClientIp(await headers()).ip)
+  await notifyPasswordReset(user.id, user.email)
 
   return { success: true }
 }

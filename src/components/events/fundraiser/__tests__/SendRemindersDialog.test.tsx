@@ -37,9 +37,14 @@ describe("SendRemindersDialog", () => {
     expect(screen.getByText("This will email up to 200 people who still owe money.")).toBeInTheDocument()
   })
 
-  it("tells the user a run can stop early and to run again, even under the cap", async () => {
-    await open({ sendable: 3, deferred: 0 })
+  it("tells the user a run can stop early and to run again when sendable is large", async () => {
+    await open({ sendable: 150, deferred: 0 })
     expect(screen.getByText("Each run has a time limit. If some people are left, run it again to continue.")).toBeInTheDocument()
+  })
+
+  it("hides the time-limit notice for a small run with nothing deferred", async () => {
+    await open({ sendable: 3, deferred: 0 })
+    expect(screen.queryByText(/Each run has a time limit/)).not.toBeInTheDocument()
   })
 
   it("shows the time-limit notice alongside the batch note when some are deferred", async () => {

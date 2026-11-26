@@ -1,4 +1,4 @@
-import { getBrandingAsset, getLetterheadAsset, IMAGE_SLOT_BY_PARAM } from "@/lib/branding"
+import { getBrandingAsset, getLetterheadAsset, IMAGE_SLOT_BY_PARAM, lookupImageSlot } from "@/lib/branding"
 
 jest.mock("@/lib/prisma", () => ({ prisma: { brandingAsset: { findUnique: jest.fn() } } }))
 import { prisma } from "@/lib/prisma"
@@ -10,6 +10,13 @@ test("maps url params to slots", () => {
   expect(IMAGE_SLOT_BY_PARAM["crest-header"]).toBe("CREST_HEADER")
   expect(IMAGE_SLOT_BY_PARAM["logo"]).toBe("LOGO")
   expect(IMAGE_SLOT_BY_PARAM["nope"]).toBeUndefined()
+})
+
+test("inherited object keys are not slots (AUD-5-39)", () => {
+  for (const k of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    expect(lookupImageSlot(k)).toBeUndefined()
+  }
+  expect(lookupImageSlot("logo")).toBe("LOGO")
 })
 
 test("returns DB bytes with mime + etag when row exists", async () => {

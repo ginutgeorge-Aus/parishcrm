@@ -1,7 +1,7 @@
 import "server-only"
 import { compare } from "bcryptjs"
 import { prisma } from "@/lib/prisma"
-import { decrypt } from "@/lib/crypto"
+import { decryptStrict } from "@/lib/crypto"
 import { logger } from "@/lib/logger"
 import { BACKUP_CODE_RE, TOTP_CODE_RE, matchTotpStep, normaliseBackupCode } from "@/lib/totp"
 
@@ -33,7 +33,7 @@ export async function verifySecondFactor(
     if (!user.totpSecret) return { ok: false, reason: "totp_invalid" }
     let step: number | null
     try {
-      step = matchTotpStep(decrypt(user.totpSecret), trimmed, now)
+      step = matchTotpStep(decryptStrict(user.totpSecret), trimmed, now)
     } catch (err: unknown) {
       logger.error("totp secret unreadable", { userId: user.id, err: err instanceof Error ? err.message : String(err) })
       return { ok: false, reason: "totp_secret_unreadable" }

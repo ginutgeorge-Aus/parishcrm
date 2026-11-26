@@ -10,6 +10,15 @@ export const IMAGE_SLOT_BY_PARAM: Record<string, BrandingSlot> = {
   letterhead: "LETTERHEAD",
 }
 
+/**
+ * Resolve a public URL param to a branding slot. Own keys only, so inherited
+ * names such as "constructor" or "__proto__" are not slots (AUD-5-39).
+ * @param param the `[slot]` route segment
+ */
+export function lookupImageSlot(param: string): BrandingSlot | undefined {
+  return Object.hasOwn(IMAGE_SLOT_BY_PARAM, param) ? IMAGE_SLOT_BY_PARAM[param] : undefined
+}
+
 const DEFAULT_LETTERHEAD_ASPECT = 5.8333
 
 export async function getBrandingAsset(

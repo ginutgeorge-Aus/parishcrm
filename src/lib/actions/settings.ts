@@ -3,7 +3,7 @@
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { testSendRecipient } from "@/lib/actorEmail"
-import { isAdmin } from "@/lib/roleGuard"
+import { isAdmin, canEdit, canViewAccounting } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { revalidatePath, updateTag } from "next/cache"
@@ -274,10 +274,10 @@ export async function updateChurchInfo(_prev: ActionResultWithSuccess, formData:
 
 export async function getBirthdayTemplate(): Promise<BirthdayTemplate> {
   // Every "use server" export is client-callable; gate it. Called from
-  // the settings page and birthday sends (both authenticated); a no-session
-  // caller just gets the default template, never the configured one.
+  // the settings page and birthday sends (both canEdit roles); a no-session or
+  // read-only/teaching-role caller just gets the default template (AUD-1-11).
   const session = await auth()
-  if (!session?.user) return DEFAULT_BIRTHDAY_TEMPLATE
+  if (!session?.user || !canEdit(session.user.role)) return DEFAULT_BIRTHDAY_TEMPLATE
   try {
     const rows = await prisma.appSetting.findMany({
       where: { key: { in: ["birthdayEmailSubject", "birthdayEmailBody"] } },
@@ -366,10 +366,10 @@ export async function sendTestBirthdayEmail(draft: BirthdayTemplate): Promise<Ac
 
 export async function getAnniversaryTemplate(): Promise<AnniversaryTemplate> {
   // Every "use server" export is client-callable; gate it. Called from
-  // the settings page and anniversary sends (both authenticated); a no-session
-  // caller just gets the default template, never the configured one.
+  // the settings page and anniversary sends (both canEdit roles); a no-session
+  // or read-only/teaching-role caller just gets the default template (AUD-1-11).
   const session = await auth()
-  if (!session?.user) return DEFAULT_ANNIVERSARY_TEMPLATE
+  if (!session?.user || !canEdit(session.user.role)) return DEFAULT_ANNIVERSARY_TEMPLATE
   try {
     const rows = await prisma.appSetting.findMany({
       where: { key: { in: ["anniversaryEmailSubject", "anniversaryEmailBody"] } },
@@ -460,7 +460,7 @@ export async function getAutoEmailFlags(): Promise<AutoEmailFlags> {
   // reads the flags via the auth-free readAutoEmailFlags directly — this gated
   // wrapper is for the settings page. A no-session caller reads both as off.
   const session = await auth()
-  if (!session?.user) return { birthday: false, anniversary: false }
+  if (!session?.user || !canEdit(session.user.role)) return { birthday: false, anniversary: false }
   try {
     return await readAutoEmailFlags()
   } catch {
@@ -577,10 +577,11 @@ export async function updatePettyCashCustodian(_prev: ActionResultWithSuccess, f
 }
 
 // Reader for the petty-cash page + ensureWeeklySession. Returns the configured
-// Person id, or null when unset/blank/invalid. Gated like the other readers.
+// Person id, or null when unset/blank/invalid or the caller cannot view accounting
+// (AUD-1-11). Gated like the other readers.
 export async function getPettyCashDefaultCustodianId(): Promise<number | null> {
   const session = await auth()
-  if (!session?.user) return null
+  if (!session?.user || !canViewAccounting(session.user.role)) return null
   try {
     const row = await prisma.appSetting.findUnique({ where: { key: "pettyCashDefaultCustodianId" } })
     if (!row || !/^\d+$/.test(row.value)) return null

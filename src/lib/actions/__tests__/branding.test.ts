@@ -72,3 +72,13 @@ test("reset deletes the row (admin)", async () => {
   expect(r).toEqual({ success: expect.any(String) })
   expect(prisma.brandingAsset.delete).toHaveBeenCalledWith({ where: { slot: "CREST" } })
 })
+
+test("inherited keys are unknown slots for upload and reset (AUD-5-39)", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  for (const k of ["constructor", "__proto__", "toString"]) {
+    expect(await uploadBranding(k, fd(fileOf(PNG_2x2)))).toEqual({ error: "Unknown branding slot." })
+    expect(await resetBranding(k)).toEqual({ error: "Unknown branding slot." })
+  }
+  expect(prisma.brandingAsset.upsert).not.toHaveBeenCalled()
+  expect(prisma.brandingAsset.delete).not.toHaveBeenCalled()
+})

@@ -17,6 +17,8 @@ import path from "node:path"
 import ts from "typescript"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import * as roleGuard from "@/lib/roleGuard"
+import { DEFAULT_BIRTHDAY_TEMPLATE } from "@/lib/birthdayTemplate"
+import { DEFAULT_ANNIVERSARY_TEMPLATE } from "@/lib/anniversaryTemplate"
 
 type Role = (typeof UserRole)[keyof typeof UserRole]
 
@@ -437,6 +439,17 @@ const READ_FIXTURES: Record<string, { args: unknown[]; rows: unknown[] }> = {
   },
 }
 
+/**
+ * Gated readers whose refusal is a fixed, non-empty default rather than an error/empty shape (AUD-1-11).
+ * A refusal result must deep-equal the pinned default; the no-DB-call assertion still proves the guard
+ * ran first, so a removed guard (which would query and hand back real settings) cannot hide here.
+ */
+const REFUSAL_DEFAULTS: Record<string, unknown> = {
+  "settings.getBirthdayTemplate": DEFAULT_BIRTHDAY_TEMPLATE,
+  "settings.getAnniversaryTemplate": DEFAULT_ANNIVERSARY_TEMPLATE,
+  "settings.getAutoEmailFlags": { birthday: false, anniversary: false },
+}
+
 /** An empty FormData, passed as the second argument of every action. */
 function formData(): FormData {
   return new FormData()
@@ -618,6 +631,10 @@ serviceType.toggleServiceTypeActive:isAdmin
 serviceType.deleteServiceType:isAdmin
 settings.upsertSetting:isAdmin
 settings.updateChurchInfo:isAdmin
+settings.getBirthdayTemplate:canEdit
+settings.getAnniversaryTemplate:canEdit
+settings.getAutoEmailFlags:canEdit
+settings.getPettyCashDefaultCustodianId:canViewAccounting
 settings.updateBirthdayTemplate:isAdmin
 settings.sendTestBirthdayEmail:isAdmin
 settings.updateAnniversaryTemplate:isAdmin
@@ -919,7 +936,11 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(dbCalls).toEqual([])
     // A refusal is a returned error/empty shape or a thrown redirect/not-found error. Any other
     // throw is a crash, not a refusal, and any other result is a success payload.
-    if (thrown === undefined) expect(isRefusalShape(result)).toBe(true)
+    if (thrown === undefined) {
+      const key = `${entry.file}.${entry.fn}`
+      if (key in REFUSAL_DEFAULTS) expect(result).toEqual(REFUSAL_DEFAULTS[key])
+      else expect(isRefusalShape(result)).toBe(true)
+    }
     else expect(isRefusalThrow(thrown)).toBe(true)
   })
 })
