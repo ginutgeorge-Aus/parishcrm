@@ -313,8 +313,10 @@ export async function deleteRosterService(id: number): Promise<ActionResultWithS
   const result = await prisma.$transaction(async (tx): Promise<{ error: string } | { count: number }> => {
     // Lock the service row first: a concurrent addRosterSlot's FK check then waits for this
     // transaction and fails with P2003 (mapped to SERVICE_GONE) instead of adding an uncounted slot.
-    await tx.$queryRaw`SELECT id FROM "RosterService" WHERE id = ${id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
-    await tx.$queryRaw`SELECT id FROM "RosterSlot" WHERE "serviceId" = ${id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    await tx.$queryRaw`SELECT id FROM "RosterService" WHERE id = ${id} FOR UPDATE`
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    await tx.$queryRaw`SELECT id FROM "RosterSlot" WHERE "serviceId" = ${id} FOR UPDATE`
     const [assignments, confirmed] = await Promise.all([
       tx.rosterAssignment.count({ where: { serviceId: id } }),
       tx.rosterAssignment.count({ where: { serviceId: id, status: "CONFIRMED" } }),
