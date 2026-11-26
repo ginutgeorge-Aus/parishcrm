@@ -9,7 +9,7 @@ Scheduled jobs (reminders, checkout sweeps, celebrations) run inside the app.
 
 > **Without the template** (e.g. a custom setup), deploy the release
 > image: **New Project → Docker Image** → `ghcr.io/ginutgeorge-aus/parishcrm:vX.Y.Z`
-> (latest tag on the Releases page; the container applies migrations on start),
+> (latest tag on the Releases page; the container applies migrations on start).
 > Release tags are mutable in a registry, so first verify the image's signed build
 > provenance and note its digest (steps in [self-hosting §4](../self-hosting.md#4-run)),
 > then enter `ghcr.io/<owner>/parishcrm@sha256:<digest>` as the image instead of the

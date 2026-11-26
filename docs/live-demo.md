@@ -32,6 +32,7 @@ The demo runs on Render (free web service, image `ghcr.io/ginutgeorge-aus/parish
 `DEMO_DATABASE_URL` must be a plain libpq URI (`postgresql://user:pass@host/db?sslmode=require`). The guard runs it through `psql`, which exits 2 with an opaque error on Prisma-only parameters such as `?schema=` or `connection_limit=`; remove them from this secret.
 
 ### Recovery: guard refuses after a half-finished reset
+
 If a reset dies midway (after the wipe, before the sentinel is rewritten), the next run fails closed: the database is non-empty but has no `demoSentinel` row (or no `AppSetting` table). A matching host is not enough (one host can hold several databases): first confirm in the Neon console that the project, branch and database name in `DEMO_DATABASE_URL` are the intended demo ones. Only then either empty it (drop and recreate the schema `public`) or restore the sentinel by hand with the `INSERT` from step 4, then rerun `demo-reset`. If the schema is missing `AppSetting`, empty the database instead. Note the guard accepts a completely empty `public` schema and resets it again; it rejects only a partly populated schema without the sentinel.
 
 Each reset requests deployment of the image of the release it seeded (`:<tag>` via the hook's `imgURL`). The hook does not wait for the deploy to finish, so a slow or failed deploy can briefly leave the previous app running against the reset schema (deploy-status polling: #100). If that release's image is missing from GHCR, the reset fails and the demo keeps the previous night's data.
