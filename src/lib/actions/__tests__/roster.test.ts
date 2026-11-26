@@ -262,11 +262,14 @@ describe("deleteRosterService", () => {
   it("records how many assignments went with it", async () => {
     p.rosterAssignment.count.mockResolvedValueOnce(4).mockResolvedValueOnce(0)
     await deleteRosterService(2)
+    expect(p.rosterAssignment.count).toHaveBeenNthCalledWith(1, { where: { serviceId: 2 } })
+    expect(p.rosterAssignment.count).toHaveBeenNthCalledWith(2, { where: { serviceId: 2, status: "CONFIRMED" } })
     expect(audit).toHaveBeenCalledWith(prisma, 9, "ROSTER_SERVICE_DELETED", "RosterService", 2, { assignments: 4 })
   })
   it("refuses while someone has confirmed, and deletes nothing", async () => {
     p.rosterAssignment.count.mockResolvedValueOnce(3).mockResolvedValueOnce(1)
     await expect(deleteRosterService(2)).resolves.toEqual({ error: expect.stringContaining("confirmed") })
+    expect(p.rosterAssignment.count).toHaveBeenNthCalledWith(2, { where: { serviceId: 2, status: "CONFIRMED" } })
     expect(p.rosterService.deleteMany).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
   })
