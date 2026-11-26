@@ -31,6 +31,15 @@ async function main() {
   const extra = await prisma.family.count({ where: { name: { not: "Sample" } } })
   if (extra > 0) throw new Error(`${extra} families already present — run after a reset (prisma migrate reset + db:seed).`)
 
+  // Marks this database as the demo. .github/workflows/demo-reset.yml refuses to
+  // `migrate reset` any non-empty database that lacks it (the workflow also
+  // re-writes it right after each reset). Written only AFTER the guard above, so
+  // a rejected run never marks the database. The guard is weak though (an empty
+  // install passes it), so never run this against a real DB; the workflow's
+  // host check is the second barrier. Written before the seed work so a failed
+  // seed still leaves a valid demo marked.
+  await prisma.appSetting.upsert({ where: { key: "demoSentinel" }, update: { value: "true" }, create: { key: "demoSentinel", value: "true" } })
+
   // Church calendar day (APP_TIMEZONE, default Sydney) — the dashboard's
   // celebration window uses it, and the nightly reset runs while the UTC date
   // is still "yesterday".

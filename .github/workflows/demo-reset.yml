@@ -43,6 +43,46 @@ jobs:
           cache: 'npm'
       # No secrets in this step: install scripts must not see the demo DB.
       - run: npm ci --no-audit --no-fund
+      # `migrate reset` erases whatever database DEMO_DATABASE_URL points at.
+      # Refuse unless (1) its host equals repo variable DEMO_DB_HOST and (2) the
+      # DB is empty or carries the sentinel that seed-demo.ts writes. The URL
+      # is never echoed. Needs psql (preinstalled on ubuntu-latest).
+      - name: Guard - target must be the demo database
+        env:
+          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          EXPECTED_HOST: ${{ vars.DEMO_DB_HOST }}
+        run: |
+          if [ -z "$EXPECTED_HOST" ]; then
+            echo "::error::Repo variable DEMO_DB_HOST is not set; refusing to wipe a database"
+            exit 1
+          fi
+          # libpq (psql) and Prisma disagree on ?host= / ?dbname= precedence, so the
+          # host checked here could differ from the one that gets reset. Reject them.
+          host=$(node -e 'try { const u = new URL(process.env.DATABASE_URL); for (const k of ["host", "hostaddr", "dbname", "service"]) if (u.searchParams.has(k)) process.exit(2); process.stdout.write(u.hostname) } catch { process.exit(1) }') || {
+            echo "::error::DEMO_DATABASE_URL is not a valid URL or carries a host/hostaddr/dbname/service override; refusing to wipe"
+            exit 1
+          }
+          if [ "$host" != "$EXPECTED_HOST" ]; then
+            echo "::error::DEMO_DATABASE_URL host does not match DEMO_DB_HOST; refusing to wipe"
+            exit 1
+          fi
+          has_table=$(psql "$DATABASE_URL" -tAX -c "SELECT to_regclass('public.\"AppSetting\"') IS NOT NULL")
+          if [ "$has_table" = "t" ]; then
+            has_sentinel=$(psql "$DATABASE_URL" -tAX -c "SELECT EXISTS (SELECT 1 FROM public.\"AppSetting\" WHERE key = 'demoSentinel' AND value = 'true')")
+            if [ "$has_sentinel" != "t" ]; then
+              echo "::error::Database has no demoSentinel in AppSetting; not the demo DB, refusing to wipe"
+              exit 1
+            fi
+          else
+            # No AppSetting: only a completely empty public schema may be wiped
+            # (migrate reset drops the whole schema, other tables included).
+            tables=$(psql "$DATABASE_URL" -tAX -c "SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','f','S')")
+            if [ "$tables" != "0" ]; then
+              echo "::error::Database has no AppSetting table but is not empty; not the demo DB, refusing to wipe"
+              exit 1
+            fi
+          fi
+          echo "Guard passed: host matches and database is the demo DB (or empty)"
       - name: Reset and seed
         env:
           # Neon DIRECT (unpooled) URL: `migrate reset` needs a session-level
@@ -53,6 +93,9 @@ jobs:
           ALLOW_DEMO_SEED: 'true'
         run: |
           npx prisma migrate reset --force
+          # reset erased the sentinel; restore it now so a failed seed below
+          # cannot leave a non-empty DB that tomorrow's guard rejects.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAX -c "INSERT INTO public.\"AppSetting\" (key, value) VALUES ('demoSentinel', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'"
           npm run db:seed
           npm run demo:seed
       # imgURL pins Render to the image of the release just seeded.

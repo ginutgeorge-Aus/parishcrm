@@ -4,13 +4,13 @@ name: Publish image
 # provenance. The image is config-agnostic — every church sets its own env at
 # runtime (see .env.example and docs/self-hosting.md).
 #
-# Triggers: called by release-please.yml when a release is cut (tags created by
-# GITHUB_TOKEN don't fire `push: tags` workflows), or a manually pushed v* tag.
+# Trigger: called by release-please.yml when a release is cut. There is
+# deliberately no `push: tags` trigger: a pushed v* tag would publish a signed
+# image and move :latest with no tests and no check that it is on main.
+# A released version is immutable: the build fails if the tag already exists in GHCR.
 #
 # Verify an image:  gh attestation verify oci://ghcr.io/<owner>/parishcrm:<tag> --repo <owner>/parishcrm
 on:
-  push:
-    tags: ['v*']
   workflow_call:
     inputs:
       tag:
@@ -31,12 +31,26 @@ jobs:
       attestations: write
       security-events: write
     env:
-      TAG: ${{ inputs.tag || github.ref_name }}
+      TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TAG }}
+          fetch-depth: 0
           persist-credentials: false
+
+      # Only commits that are on main may be published. Checks the tag's commit
+      # (HEAD after checkout), not github.sha, which is the caller's ref.
+      - name: Require tag commit to be on main
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          git merge-base --is-ancestor HEAD "origin/${DEFAULT_BRANCH}" || {
+            echo "::error::$(git rev-parse HEAD) is not an ancestor of ${DEFAULT_BRANCH}; refusing to publish"
+            exit 1
+          }
+          echo "GIT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Set lowercase image name
         env:
@@ -49,6 +63,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Released versions are immutable: never overwrite an existing :TAG with a
+      # non-identical rebuild. Only "no such manifest" means free to publish; any
+      # other error (auth, network) fails closed.
+      - name: Fail if the tag is already published
+        run: |
+          if out=$(docker manifest inspect "${IMAGE}:${TAG}" 2>&1); then
+            echo "::error::${IMAGE}:${TAG} already exists; released versions are immutable"
+            exit 1
+          fi
+          grep -qiE 'no such manifest|manifest unknown|not found' <<<"$out" || {
+            echo "::error::Could not check ${IMAGE}:${TAG}: $out"
+            exit 1
+          }
+
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Build + load locally so the image is scanned BEFORE it reaches the registry.
@@ -60,7 +88,7 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ env.TAG }}
           build-args: |
             APP_VERSION=${{ env.TAG }}
-            GIT_SHA=${{ github.sha }}
+            GIT_SHA=${{ env.GIT_SHA }}
 
       - name: Scan image with Trivy (gate)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -101,7 +129,7 @@ jobs:
             ${{ env.IMAGE }}:latest
           build-args: |
             APP_VERSION=${{ env.TAG }}
-            GIT_SHA=${{ github.sha }}
+            GIT_SHA=${{ env.GIT_SHA }}
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

@@ -1,7 +1,12 @@
 version: 2
 updates:
+  # Root + the image's migration CLI (docker/prisma-cli) share one entry so the
+  # coupled prisma/dotenv bump lands as ONE group PR across both directories
+  # (src/__tests__/prismaCliLock.test.ts fails on drift).
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/docker/prisma-cli"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -38,6 +43,7 @@ updates:
         patterns:
           - "prisma"
           - "@prisma/*"
+          - "dotenv"
       # Everything else: one PR for all minor/patch bumps (one CI run, no
       # rebase chain). Majors stay individual PRs.
       minor-and-patch:

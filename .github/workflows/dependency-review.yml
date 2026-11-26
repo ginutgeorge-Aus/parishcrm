@@ -37,7 +37,10 @@ jobs:
           # .github/requirements — CI-only tooling, never shipped in the image.
           # leac (via @react-email/render > selderee) is MIT on npm and in the
           # lockfile; GitHub's metadata reports "JSON AND MIT" (false positive).
+          # elkjs (EPL-2.0) and robust-predicates (Unlicense AND public domain) are
+          # transitive deps of the prisma CLI, listed in docker/prisma-cli/package-lock.json
+          # (and already in the root lockfile); PO-approved 2026-11-23.
           allow-dependencies-licenses: >-
-            pkg:npm/argparse, pkg:npm/leac, pkg:pypi/mcp, pkg:pypi/protobuf,
-            pkg:pypi/typing-extensions
+            pkg:npm/argparse, pkg:npm/leac, pkg:npm/elkjs, pkg:npm/robust-predicates,
+            pkg:pypi/mcp, pkg:pypi/protobuf, pkg:pypi/typing-extensions
           comment-summary-in-pr: on-failure
