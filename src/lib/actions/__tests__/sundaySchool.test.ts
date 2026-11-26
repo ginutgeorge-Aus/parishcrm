@@ -425,16 +425,20 @@ describe("enrolChildren", () => {
     liveClass()
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }])
     ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+    // A distinct tx client: the lock must go through it (and the read too), not the root client.
+    const txRaw = jest.fn((sql: TemplateStringsArray, ...vals: unknown[]) =>
+      (prisma.$queryRaw as jest.Mock).getMockImplementation()!(sql, ...vals))
+    const txFindMany = jest.fn().mockResolvedValue([])
+    const tx = { ...prisma, $queryRaw: txRaw, sundaySchoolEnrolment: { ...prisma.sundaySchoolEnrolment, findMany: txFindMany } }
+    ;(prisma.$transaction as jest.Mock).mockImplementationOnce((fn: (t: typeof tx) => unknown) => fn(tx))
     await enrolChildren(1, [2])
-    const raw$ = prisma.$queryRaw as jest.Mock
-    const idx = raw$.mock.calls.findIndex(
+    expect(prisma.$queryRaw).not.toHaveBeenCalled()
+    const idx = txRaw.mock.calls.findIndex(
       (c) => (c[0] as TemplateStringsArray).join("?").includes('FROM "SundaySchoolEnrolment"'),
     )
     expect(idx).toBeGreaterThanOrEqual(0)
-    expect((raw$.mock.calls[idx][0] as TemplateStringsArray).join("?")).toContain("FOR UPDATE")
-    expect(raw$.mock.invocationCallOrder[idx]).toBeLessThan(
-      (prisma.sundaySchoolEnrolment.findMany as jest.Mock).mock.invocationCallOrder[0],
-    )
+    expect((txRaw.mock.calls[idx][0] as TemplateStringsArray).join("?")).toContain("FOR UPDATE")
+    expect(txRaw.mock.invocationCallOrder[idx]).toBeLessThan(txFindMany.mock.invocationCallOrder[0])
   })
   it("refuses when the class is archived before the enrolment transaction", async () => {
     as(UserRole.ADMIN)
