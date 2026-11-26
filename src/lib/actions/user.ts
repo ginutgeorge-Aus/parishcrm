@@ -350,7 +350,8 @@ async function buildUserUpdateData(parsedData: {
  * assertNotLastAdmin; the role is reloaded in-transaction so a concurrent
  * promotion cannot slip past the guard on a stale pre-tx read. An email change
  * voids any outstanding reset link and OTP code and ends live sessions; a role
- * change ends live sessions (AUD-1-02d).
+ * change ends live sessions (AUD-1-02d). An email change also drops the
+ * target's trusted devices and passkeys.
  * @param tx interactive-transaction client
  * @param id the target user
  * @param data the write built by buildUserUpdateData (name only on a self-edit)
@@ -385,6 +386,12 @@ async function applyUserUpdate(
   }
   if (emailChanged || roleChanged) write.sessionsValidFrom = new Date()
   await tx.user.update({ where: { id }, data: write })
+  if (emailChanged) {
+    // Trusted devices skip OTP and passkeys bypass the password, so neither may
+    // outlive the address they were enrolled under.
+    await tx.trustedDevice.deleteMany({ where: { userId: id } })
+    await tx.passkey.deleteMany({ where: { userId: id } })
+  }
   return { fromRole: current.role, toRole, emailChanged }
 }
 

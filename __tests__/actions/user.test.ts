@@ -343,11 +343,20 @@ describe("updateUser", () => {
     expect(order).toEqual(["tx:start", "passkeys", "tx:end"])
   })
 
-  it("keeps passkeys when the admin edit has no new password", async () => {
+  it("keeps passkeys when the admin edit has no new password and no email change", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockQueryRaw.mockResolvedValue([])
+    await updateUser(1, undefined, fd({ name: "X", email: "old@x.com", role: "VIEWER" }))
+    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.trustedDevice.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("drops trusted devices and passkeys when the email changes", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
-    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
+    expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
   })
 
   it("clears all four lockout fields on admin-forced password change", async () => {
