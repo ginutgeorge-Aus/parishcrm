@@ -42,11 +42,11 @@ From the transaction list or detail page (or the bulk **Send receipts** screen a
 ### Data model
 
 - **`ReceiptSend`** (`prisma/schema.prisma`): one row per per-transaction receipt attempt — `transactionId`, encrypted `sentTo`, `sentAt`, `sentById`, `status` (`SUCCESS`/`FAILED`), `errorMessage`. Written on every attempt, success or failure, so the audit trail is complete either way.
-- **`DgrReceipt`**: `receiptNo` (a sequential, FY-scoped formatted number), `fyEndYear`, `seq`, `personId`, `donorName`, encrypted `donorEmail`, `lines` (JSON array of date/amount/method), `totalAmount`, `status` (`DRAFT`/`SENDING`/`SENT`/`FAILED`), `sentAt`/`sentById`.
+- **`DgrReceipt`**: `receiptNo` (a sequential, FY-scoped formatted number), `fyEndYear`, `seq`, `personId`, `donorName`, encrypted `donorEmail`, `lines` (JSON array of date/amount/method), `totalAmount`, `status` (`DRAFT`/`SENDING`/`SENT`/`FAILED`/`UNKNOWN`), `sentAt`/`sentById`.
 
 ### Sending is claimed, not just checked
 
-A DGR send first atomically flips the row from `DRAFT`/`FAILED` to `SENDING` (a conditional update that only succeeds if it's still in one of those states) *before* doing the slow work of rendering the PDF and emailing it. This means a double-click or a retry racing the original send can't both succeed — only whichever request wins the claim proceeds, so a donor is never emailed the same annual receipt twice and a slow failure can't overwrite a fast success. A row stuck in `SENDING` because of a mid-send crash is recovered simply by editing it, which resets it back to `DRAFT`.
+A DGR send first atomically flips the row from `DRAFT`/`FAILED` to `SENDING` (a conditional update that only succeeds if it's still in one of those states) *before* doing the slow work of rendering the PDF and emailing it. This means a double-click or a retry racing the original send can't both succeed — only whichever request wins the claim proceeds, so a donor is never emailed the same annual receipt twice and a slow failure can't overwrite a fast success. A row stuck in `SENDING` because of a mid-send crash is recovered simply by editing it once the claim is more than 15 minutes old, which resets it back to `DRAFT`. If the mail provider may have accepted the email before the connection dropped, the receipt is marked `UNKNOWN`: it is frozen (no edit, no delete) and can only be resent unchanged after staff check whether the donor received it. The list shows the sent date only for `SENT` receipts.
 
 ### Never logging the raw delivery error
 
