@@ -56,8 +56,10 @@ jobs:
             echo "::error::Repo variable DEMO_DB_HOST is not set; refusing to wipe a database"
             exit 1
           fi
-          host=$(node -e 'try { process.stdout.write(new URL(process.env.DATABASE_URL).hostname) } catch { process.exit(1) }') || {
-            echo "::error::DEMO_DATABASE_URL is not a valid URL"
+          # libpq (psql) and Prisma disagree on ?host= / ?dbname= precedence, so the
+          # host checked here could differ from the one that gets reset. Reject them.
+          host=$(node -e 'try { const u = new URL(process.env.DATABASE_URL); for (const k of ["host", "hostaddr", "dbname", "service"]) if (u.searchParams.has(k)) process.exit(2); process.stdout.write(u.hostname) } catch { process.exit(1) }') || {
+            echo "::error::DEMO_DATABASE_URL is not a valid URL or carries a host/hostaddr/dbname/service override; refusing to wipe"
             exit 1
           }
           if [ "$host" != "$EXPECTED_HOST" ]; then

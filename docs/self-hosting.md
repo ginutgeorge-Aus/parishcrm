@@ -132,6 +132,8 @@ blocks duplicate live exams there.
 Release tags are mutable in a registry, so pin the image by digest and verify its signed
 build provenance **before** running it with your secrets:
 
+Replace `<owner>/<repo>` in image references with the **lowercase** GitHub owner/repo (the publish workflow lowercases it; `--repo` keeps the original casing).
+
 ```bash
 docker buildx imagetools inspect ghcr.io/<owner>/<repo>:vX.Y.Z   # note the Digest: sha256:<digest>
 gh attestation verify oci://ghcr.io/<owner>/<repo>@sha256:<digest> --repo <owner>/<repo>
