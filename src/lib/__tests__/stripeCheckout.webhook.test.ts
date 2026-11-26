@@ -82,6 +82,8 @@ it("signature failure logs one line with no header value, body or secret", async
   await handleStripeWebhook('{"secret_body":1}', "t=1,v1=sentinelsig")
   expect(logger.warn).toHaveBeenCalledTimes(1)
   const logged = JSON.stringify(logger.warn.mock.calls[0])
+  expect(logger.warn.mock.calls[0][0]).toBe("[stripe-webhook] signature verification failed")
+  expect(logger.warn.mock.calls[0][1]).toEqual({ reason: "bad_signature" })
   expect(logged).not.toContain("sentinelsig")
   expect(logged).not.toContain("secret_body")
   expect(logged).not.toContain("whsec_x")
