@@ -169,12 +169,15 @@ survives a fresh, correct password resubmission (the code lockout isn't reset ju
 the password step was retried). A successful app or backup code sign-in clears both counters.
 The management actions on **My Account** have their own limit of 5 code checks per 15 minutes.
 
-**Password reset.** Reset requests are rate-limited per target email and per requesting IP,
-using the same database-backed limiter as login. The response is identical whether or not
+**Password reset.** Reset requests are rate-limited per requesting IP, and per target email
+counting only requests that actually send a mail (so a stranger's requests cannot use up your
+allowance), using the same database-backed limiter as login. The response is identical whether or not
 the email belongs to an account, and a deliberate small random delay is added to the "no such
 account" and "already have an active reset link" paths so they can't be distinguished from
 each other by response timing. The reset token itself is single-use and time-boxed, consumed
-atomically so two submissions of the same link can't both succeed.
+atomically so two submissions of the same link can't both succeed. A completed reset is written
+to the audit log (with the requester's IP) and the app attempts to email the account owner a "your password was
+changed" notice (best effort: a failed send does not block the reset).
 
 **Session lifetime.** A sign-in issues a JWT-based session. Every request re-validates the
 token server-side against the database: a deleted, archived, or now-locked account, or one
@@ -182,7 +185,7 @@ whose sessions were force-invalidated (by a password change, forced reset, or ex
 sign-out), has its session killed immediately even though the JWT itself hasn't expired.
 Non-"remembered" sessions get a 4-hour hard cap plus an idle timeout (default 60 minutes,
 configurable by an admin in Settings); "remembered" sessions instead get a 7-day sliding idle
-window with no separate hard cap. A minute before the idle timeout, a "Session expiring" notice
+window plus a 30-day absolute cap from sign-in, after which you sign in again. A minute before the idle timeout, a "Session expiring" notice
 appears; only its **Stay logged in** button keeps the session (moving the mouse or scrolling while
 it shows does not), so walking away from a screen still signs you out. If the server can't renew the
 session (for example you're offline), the notice stays up and the original deadline still applies. This in-browser timer follows

@@ -1,5 +1,5 @@
 # Base pinned by digest for reproducible builds. Tag documents intent;
-# digest is authoritative. node:24-alpine as of 2026-07-02 — bump when updating.
+# digest is authoritative. node:26-alpine as of 2026-07-02 — bump when updating.
 FROM node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./

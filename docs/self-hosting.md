@@ -82,6 +82,8 @@ openssl rand -base64 32   # → AUTH_SECRET
 openssl rand -base64 32   # → ENCRYPTION_KEY
 ```
 
+In production the app refuses to start if `AUTH_SECRET` (or `CRON_SECRET` / `SETUP_TOKEN`, when set) is shorter than 32 characters or is still the placeholder from `.env.example`.
+
 Fill in the **Required** block of `.env`; uncomment optional features as
 needed (never `DISABLE_OTP` — the app refuses to boot in production with it
 set). Back up `ENCRYPTION_KEY` somewhere safe and separate from the database —
