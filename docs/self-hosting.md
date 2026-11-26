@@ -134,7 +134,7 @@ blocks duplicate live exams there.
 Release tags are mutable in a registry, so pin the image by digest and verify its signed
 build provenance **before** running it with your secrets:
 
-A released version is immutable: the publish workflow refuses to build a tag that already exists in GHCR. If a publish fails **after** the push (for example the attestation step), a re-run is blocked by that check. Recovery (maintainer): delete that version of the `parishcrm` package in GHCR (Package settings → Manage versions), then re-run the Release workflow. Verify the result with `gh attestation verify` as below.
+A released version is immutable: the publish workflow refuses to build a tag that already exists in GHCR. If a publish fails **after** the push (for example the attestation step), a re-run is blocked by that check. Recovery (maintainer): first confirm no newer release exists (a retry re-points `:latest` at the retried tag; if a newer one exists, do not retry, or re-point `:latest` at the newest release's digest afterwards). Then delete that version of the `parishcrm` package in GHCR (Package settings → Manage versions) and, on the **original** Release workflow run, choose **Re-run failed jobs** (not "Re-run all jobs": that re-runs release-please, which reports `release_created: false` for the existing release and skips publish). Deployments already pinned to the deleted digest must be updated to the verified replacement digest. Verify the result with `gh attestation verify` as below.
 
 Replace `<owner>/<repo>` in image references with the **lowercase** GitHub owner/repo (the publish workflow lowercases it; `--repo` keeps the original casing).
 

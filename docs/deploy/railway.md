@@ -102,8 +102,8 @@ Major versions (`v2.0.0`) may contain breaking changes, so they are never
 applied automatically — read the release notes, then change the tag yourself.
 
 **Manual:** verify the new release's digest (self-hosting §4), then app service →
-**Settings → Source**, change the image to `@sha256:<digest>` (or the tag if you
-use Auto Updates), then **Deploy**.
+**Settings → Source**, change the image to `ghcr.io/<owner>/parishcrm@sha256:<digest>` (or the tag if you
+use Auto Updates; a tag does not pin the verified digest, so a moved tag or a later Auto Update can deploy an image you have not verified), then **Deploy**.
 
 Every upgrade can run migrations, including unattended minor ones, so keep
 backups current: turn on a backup schedule on the Postgres service
