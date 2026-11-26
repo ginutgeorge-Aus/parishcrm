@@ -5,7 +5,7 @@ import { fmtAUD } from "@/lib/formatting"
 import { APP_TIMEZONE, APP_LOCALE } from "@/lib/appConfig"
 import { encrypt } from "@/lib/crypto"
 import { rateLimit } from "@/lib/rateLimit"
-import { dbRateLimit } from "@/lib/dbRateLimit"
+import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 import { sendRegistrationConfirmationEmail } from "@/lib/email"
 import { buildIcs, googleCalendarUrl } from "@/lib/ics"
 import type { Organizer } from "@/lib/eventOrganizers"
@@ -307,7 +307,12 @@ async function withinMailBudgets(eventId: number, payment: PaymentFields): Promi
       return false
     }
     const globalOk = await dbRateLimit("regmail:global", MAIL_BUDGET_GLOBAL.limit, MAIL_BUDGET_GLOBAL.windowMs)
-    if (!globalOk) warnMailBudgetOnce("global")
+    if (!globalOk) {
+      warnMailBudgetOnce("global")
+      // Global denied: give the event slot back so a church-wide cap does not
+      // also drain this event's own budget.
+      await dbRateLimitRefund(`regmail:event:${eventId}`)
+    }
     return globalOk
   } catch (e) {
     console.error("Registration mail budget check failed:", e instanceof Error ? e.message : String(e))
