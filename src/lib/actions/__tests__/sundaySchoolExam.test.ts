@@ -78,6 +78,13 @@ describe("setExamScore", () => {
     await setExamScore(9, 3, "")
     expect(logAudit).toHaveBeenLastCalledWith(1, "SS_EXAM_SCORE_SET", "SundaySchoolExam", 9, { personId: 3, previousScore: "40.00", newScore: null, cleared: true })
   })
+  it("refuses a non-string score instead of clearing the mark (AUD-5-28)", async () => {
+    for (const bad of [null, undefined, 5, {}, ["1"]]) {
+      expect(await setExamScore(9, 3, bad as unknown as string)).toMatchObject({ error: expect.any(String) })
+    }
+    expect(p.sundaySchoolExamResult.deleteMany).not.toHaveBeenCalled()
+    expect(p.sundaySchoolExamResult.upsert).not.toHaveBeenCalled()
+  })
   it("rejects negative, over total, >2dp, non-numeric", async () => {
     for (const bad of ["-1", "101", "7.555", "abc"]) {
       expect(await setExamScore(9, 3, bad)).toMatchObject({ error: expect.any(String) })
