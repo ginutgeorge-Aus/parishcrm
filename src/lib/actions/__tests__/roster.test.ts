@@ -229,6 +229,10 @@ describe("slots", () => {
     p.rosterSlot.create.mockRejectedValueOnce({ code: "P2002" })
     await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "This service already has that role" })
   })
+  it("addRosterSlot reports a service deleted after the pre-check (FK error)", async () => {
+    p.rosterSlot.create.mockRejectedValueOnce({ code: "P2003" })
+    await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "Service not found" })
+  })
   it("addRosterSlot refuses a role or group archived after the pre-check", async () => {
     p.$queryRaw.mockResolvedValueOnce([])
     await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "Roster role not found" })

@@ -353,6 +353,8 @@ export async function addRosterSlot(serviceId: number, roleId: number, needed: n
     if (res) return res
   } catch (e) {
     if (isP2002(e)) return { error: "This service already has that role" }
+    // The service was deleted between the existence check and the insert.
+    if (isP2003(e)) return { error: SERVICE_GONE }
     throw e
   }
   revalidateRoster(serviceId)
