@@ -29,10 +29,10 @@ const registration = {
   firstName: "A", lastName: "B", items: [],
 }
 
-const renderPage = async () => {
+const renderPage = async (extra: { dup?: string; mail?: string } = {}) => {
   const ui = await SuccessPage({
     params: Promise.resolve({ slug: "feast" }),
-    searchParams: Promise.resolve({ ref: "tok1" }),
+    searchParams: Promise.resolve({ ref: "tok1", ...extra }),
   })
   return render(ui).container.textContent ?? ""
 }
@@ -65,4 +65,11 @@ it("blank bank but card works: Pay Now shown, no office-will-send sentence", asy
   expect(text).toContain("PAY_NOW_MARKER")
   expect(text).not.toContain("The church office will send you payment details.")
   ;(stripeConfigured as jest.Mock).mockReturnValue(false)
+})
+
+it("?mail=0 shows the confirmation-not-sent notice; absent or duplicate does not", async () => {
+  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(event({ bankBsb: "012-345", bankAccount: "99887766" }))
+  expect(await renderPage({ mail: "0" })).toContain("A confirmation email may not have been sent.")
+  expect(await renderPage()).not.toContain("A confirmation email may not have been sent.")
+  expect(await renderPage({ mail: "0", dup: "1" })).not.toContain("A confirmation email may not have been sent.")
 })
