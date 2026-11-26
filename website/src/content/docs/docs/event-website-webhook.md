@@ -10,7 +10,7 @@ Optional one-way sync that pushes every event change from ParishCRM to your pari
 1. Set `WEBSITE_SYNC_URL` and `WEBSITE_SYNC_SECRET` (see [Environment Variables](/parishcrm/docs/environment-variables/)) and restart.
 2. Build a receiver on your website that follows the contract below.
 3. From then on, creating, editing, publishing, unpublishing or deleting an event (see [Events Overview](/parishcrm/docs/events-overview/)) sends a signed webhook automatically.
-4. If the website missed changes, an ADMIN can click **Resync website** on `/events` to re-send every event.
+4. If the website missed changes, an ADMIN can click **Resync website** on `/events` to re-send every event and replay deletions.
 
 ## How it works
 
@@ -28,10 +28,11 @@ Secret without URL boots, sends nothing, and logs a misconfiguration warning on
 each sync attempt.
 When configured, ADMINs also get a **Resync website** button on `/events` that
 re-sends an `upsert` for every existing event (lowest id first, capped at 500;
-the button reports when the cap was hit). It recovers missed creates/updates
-only — it never sends `delete`, so an event deleted in the CRM while the
-receiver missed the webhook (or restored from an older backup) stays on the
-website until removed there by hand.
+the button reports when the cap was hit). It also replays a `delete` for each
+event deleted in the CRM (read from the `EVENT_DELETED` audit log, most recent
+500, `revision` = the audit row's timestamp), so a delete whose webhook failed
+is recovered. A delete the audit log never recorded (e.g. a database restored
+from an older backup) is not replayed and must be removed on the website by hand.
 
 Sender: `src/lib/websiteSync.ts`. Delivery is synchronous best-effort: the
 event action awaits the POST, so a slow or unreachable receiver can delay a
@@ -107,6 +108,8 @@ Deletes carry a `revision` too (the CRM's send time after the delete committed).
 On delete, remove the event and keep a tombstone (`crmId` + delete `revision`);
 skip any later upsert whose `revision` is not strictly newer. Do the tombstone
 check and the event write atomically (a transaction or lock per `crmId`).
+Keep the highest delete `revision` per `crmId`: **Resync website** replays deletes
+with an earlier revision than the original, which must not lower the tombstone.
 Purge tombstones when the CRM database is restored or reset, since `crmId`s
 restart, and expire them after about 30 days. A delete whose webhook failed is
-only logged; running **Resync website** does not remove it from the website.
+logged; running **Resync website** replays it (deletes are idempotent by `crmId`).

@@ -14,10 +14,11 @@ Secret without URL boots, sends nothing, and logs a misconfiguration warning on
 each sync attempt.
 When configured, ADMINs also get a **Resync website** button on `/events` that
 re-sends an `upsert` for every existing event (lowest id first, capped at 500;
-the button reports when the cap was hit). It recovers missed creates/updates
-only — it never sends `delete`, so an event deleted in the CRM while the
-receiver missed the webhook (or restored from an older backup) stays on the
-website until removed there by hand.
+the button reports when the cap was hit). It also replays a `delete` for each
+event deleted in the CRM (read from the `EVENT_DELETED` audit log, most recent
+500, `revision` = the audit row's timestamp), so a delete whose webhook failed
+is recovered. A delete the audit log never recorded (e.g. a database restored
+from an older backup) is not replayed and must be removed on the website by hand.
 
 Sender: `src/lib/websiteSync.ts`. Delivery is synchronous best-effort: the
 event action awaits the POST, so a slow or unreachable receiver can delay a
@@ -100,6 +101,9 @@ Make the tombstone check and the event write one atomic step (a transaction or
 a lock serialised per `crmId`), so a concurrent upsert and delete cannot
 interleave and resurrect the event. A receiver without tombstones still works but stays exposed to this race. A
 delete from an older CRM has no `revision`: treat it as "now".
+
+Keep the highest delete revision per `crmId` as the tombstone: **Resync website**
+replays deletes with an earlier revision than the original, which must not lower it.
 
 Caveats: revisions come from the CRM's clock, so keep replica clocks in sync.
 `crmId`s restart after a database restore or demo reseed, so purge tombstones

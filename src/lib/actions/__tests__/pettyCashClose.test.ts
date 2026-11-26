@@ -20,9 +20,16 @@ jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn:
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    pettyCashSession: { findUnique: jest.fn(), updateMany: jest.fn() },
-    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
-      fn({ pettyCashSession: { updateMany: jest.requireMock("@/lib/prisma").prisma.pettyCashSession.updateMany }, __isTx: true })),
+    pettyCashSession: { findUnique: jest.fn(), updateMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    // No auto-opened successor: backs the AUD-3-04 roll-forward lookup.
+    auditLog: { findFirst: jest.fn().mockResolvedValue(null) },
+    // The close re-reads the session inside the tx (AUD-3-04), so the tx client
+    // exposes the same findUnique/findMany mocks.
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => {
+      const s = jest.requireMock("@/lib/prisma").prisma.pettyCashSession
+      const a = jest.requireMock("@/lib/prisma").prisma.auditLog
+      return fn({ pettyCashSession: { updateMany: s.updateMany, findUnique: s.findUnique, findMany: s.findMany }, auditLog: a, __isTx: true })
+    }),
   },
 }))
 
@@ -35,6 +42,7 @@ const mockAudit = logAuditTx as jest.Mock
 function openSession(overrides = {}) {
   return {
     id: 1,
+    title: "05-JAN-2020",
     status: "OPEN",
     openingBalance: "100.00",
     receipts: [],
@@ -155,6 +163,29 @@ test("already-closed session rejected", async () => {
   expect(res).toEqual({ error: "Session already closed" })
 })
 
+/** AUD-3-04: closing an auto-opened session while its source session is still OPEN must be refused. */
+test("close refused while the AUTO_OPENED source session is still OPEN", async () => {
+  const auditFind = prisma.auditLog.findFirst as jest.Mock
+  auditFind.mockResolvedValueOnce({ metadata: { carriedFromSessionId: 7 } })
+  mockFind.mockImplementation(async ({ where }: { where: { id: number } }) =>
+    where.id === 7 ? { title: "29-DEC-2019", status: "OPEN" } : openSession({ id: 1 })
+  )
+  const res = await closeSession(1, undefined, fd({}))
+  expect(res).toEqual({ error: expect.stringContaining("Close the earlier session (29-DEC-2019) first") })
+  expect(mockUpdate).not.toHaveBeenCalled()
+  expect(mockAudit).not.toHaveBeenCalled()
+})
+
+test("close allowed once the AUTO_OPENED source session is CLOSED", async () => {
+  const auditFind = prisma.auditLog.findFirst as jest.Mock
+  auditFind.mockResolvedValueOnce({ metadata: { carriedFromSessionId: 7 } })
+  mockFind.mockImplementation(async ({ where }: { where: { id: number } }) =>
+    where.id === 7 ? { title: "29-DEC-2019", status: "CLOSED" } : openSession({ id: 1 })
+  )
+  await closeSession(1, undefined, fd({}))
+  expect(mockUpdate).toHaveBeenCalled()
+})
+
 test("closes via a conditional OPEN-only update", async () => {
   mockFind.mockResolvedValue(openSession())
   await closeSession(1, undefined, fd({ notes: "handover" }))
@@ -182,7 +213,9 @@ test("a failed audit write rolls back and returns the audit-failed error, not a 
 
 test("a serialization conflict (P2034) returns a retry error, not a 500", async () => {
   mockFind.mockResolvedValue(openSession())
-  ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+  // serializableWrite retries P2034, so every attempt must conflict to surface the error.
+  const tx = prisma.$transaction as jest.Mock
+  for (let i = 0; i < 3; i++) tx.mockRejectedValueOnce({ code: "P2034" })
   const res = await closeSession(1, undefined, fd({ notes: "handover" }))
   expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
 })

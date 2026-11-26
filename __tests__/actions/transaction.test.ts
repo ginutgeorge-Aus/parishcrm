@@ -25,6 +25,9 @@ jest.mock("@/lib/prisma", () => {
     person: {
       findUnique: jest.fn(),
     },
+    auditLog: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
   }
   // Interactive transaction: run the callback against the same mocked client.
   prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) =>
@@ -887,6 +890,21 @@ describe("toggleReconciled", () => {
     const result = await toggleReconciled(5, 1)
     expect(result).toBeUndefined()
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 5 }, data: { reconciled: false } })
+  })
+
+  it("refuses to un-reconcile either half of an invoice-unmark reversal pair", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindUnique.mockResolvedValue({ id: 5, reconciled: true, paymentAccountId: 1 })
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValueOnce({ id: 99 })
+    const result = await toggleReconciled(5, 1)
+    expect(result).toEqual({ error: "This transaction is part of an invoice reversal and must stay reconciled." })
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(prisma.auditLog.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: [
+        { resourceId: 5, metadata: { path: ["source"], equals: "invoice-unmark" } },
+        { metadata: { path: ["reversesTransactionId"], equals: 5 } },
+      ] }),
+    }))
   })
 
   it("maps a failed audit write to AUDIT_FAILED_ERROR (the tx callback threw, so Prisma would roll back)", async () => {

@@ -7,6 +7,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
+import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked } from "@/lib/accountingLock"
@@ -55,6 +56,9 @@ const ReceiptSchema = z.object({
   // session. Never persisted — receiptCreateData only reads named fields off
   // parsed.data, so this can't leak into the Prisma payload.
   confirmDuplicate: z.string().optional().transform((v) => v === "true"),
+  // Negative-float confirmation on edit (AUD-3-04): set by the "Record anyway"
+  // resubmit when reducing this receipt would drive the session balance below zero.
+  confirmNegative: z.string().optional().transform((v) => v === "true"),
 })
 
 // fundId === null means the field was left unset — nothing to validate.
@@ -314,9 +318,35 @@ export async function updateReceipt(
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const refError = await validateEditRefs(parsed.data)
   if (refError) return { error: refError }
-  // confirmDuplicate is a form-only flag (duplicate-confirmation), not a column —
-  // strip it before spreading, or Prisma rejects the whole update.
-  const { confirmDuplicate: _confirmDuplicate, ...receiptData } = parsed.data
+  // Negative-float warning on edit (AUD-3-04), the same soft confirm as an expense:
+  // only a reduction can newly overdraw, so a same-or-higher edit skips the read.
+  if (!parsed.data.confirmNegative && toCents(parsed.data.amount) < toCents(receipt.amount)) {
+    const ledger = await prisma.pettyCashSession.findUnique({
+      where: { id: receipt.sessionId },
+      select: {
+        openingBalance: true,
+        receipts: { select: { id: true, amount: true } },
+        expenses: { select: { amount: true } },
+        transfers: { select: { amount: true } },
+      },
+    })
+    // Subtract this receipt's amount from the SAME snapshot as the balance (see updateExpense).
+    const ledgerReceipt = ledger?.receipts.find((r) => r.id === id)
+    if (ledger && ledgerReceipt) {
+      const afterCents =
+        toCents(calcRunningBalance(ledger.openingBalance, ledger.receipts, ledger.expenses, ledger.transfers)) -
+        toCents(ledgerReceipt.amount) +
+        toCents(parsed.data.amount)
+      if (afterCents < 0)
+        return {
+          error: `Reducing this receipt to ${parsed.data.amount} would make the float negative (running balance ${(afterCents / 100).toFixed(2)}). Submit again to record it anyway.`,
+          negativeBalanceWarning: true,
+        }
+    }
+  }
+  // confirmDuplicate/confirmNegative are form-only flags, not columns —
+  // strip them before spreading, or Prisma rejects the whole update.
+  const { confirmDuplicate: _confirmDuplicate, confirmNegative: _confirmNegative, ...receiptData } = parsed.data
   // Resolved once, not per row — see createReceipt above.
   const cashAccount = await getCashAccount()
   try {

@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { RetentionGate } from "@/components/shared/RetentionGate"
 import { Button } from "@/components/ui/button"
 import { DeleteReceiptButton } from "@/components/petty-cash/DeleteReceiptButton"
 import { fmtAUD as fmt } from "@/lib/formatting"
@@ -68,7 +69,7 @@ export function SessionReceiptsTable({
                       <Link href={`/accounting/petty-cash/sessions/${sessionId}/receipts/${r.id}/edit`}>Edit</Link>
                     </Button>
                   )}
-                  {userIsAdmin && <DeleteReceiptButton id={r.id} locked={locked} />}
+                  {userIsAdmin && <RetentionGate date={r.date}><DeleteReceiptButton id={r.id} locked={locked} /></RetentionGate>}
                   {locked && !userIsAdmin && <span className="text-xs text-muted-foreground">Period locked</span>}
                 </div>
               )}
@@ -133,7 +134,7 @@ export function SessionReceiptsTable({
                       <Link href={`/accounting/petty-cash/sessions/${sessionId}/receipts/${r.id}/edit`}>Edit</Link>
                     </Button>
                   )}
-                  {userIsAdmin && <DeleteReceiptButton id={r.id} locked={locked} />}
+                  {userIsAdmin && <RetentionGate date={r.date}><DeleteReceiptButton id={r.id} locked={locked} /></RetentionGate>}
                   {locked && !userIsAdmin && <span className="text-xs text-muted-foreground">Period locked</span>}
                 </td>
               )}

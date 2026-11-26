@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { prisma } from "@/lib/prisma"
+import { hasBankDetails, OFFICE_WILL_SEND_PAYMENT_DETAILS } from "@/lib/eventPaymentRule"
 import { isLateClaimable } from "@/lib/checkoutSweep"
 import { notFound } from "next/navigation"
 import { headers } from "next/headers"
@@ -313,6 +314,24 @@ function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchNa
         <p className="text-xs text-muted-foreground mt-1">
           This registration is free — there is nothing further to pay.
         </p>
+      </div>
+    )
+  }
+
+  // Events published before the save rule existed can have no bank details;
+  // do not tell the registrant to transfer with no account shown.
+  if (!hasBankDetails(event.bankBsb, event.bankAccount)) {
+    const cardAvailable = event.onlinePaymentEnabled && stripeConfigured()
+    return (
+      <div className="bg-muted rounded-xl border border-border p-5 text-center">
+        {/* The office-will-send sentence is only true when card is not an option. */}
+        {!cardAvailable && <p className="text-sm text-foreground">{OFFICE_WILL_SEND_PAYMENT_DETAILS}</p>}
+        <p className="text-xs text-muted-foreground mt-1">
+          Your reference: <span className="font-bold text-primary">{resolvedRef}</span>
+        </p>
+        {cardAvailable && (
+          <PayNowButton slug={slug} publicToken={registration.publicToken} passCardFee={event.passCardFee} churchEmail={churchEmail} />
+        )}
       </div>
     )
   }

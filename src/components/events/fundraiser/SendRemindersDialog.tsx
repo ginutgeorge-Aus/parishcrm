@@ -153,6 +153,11 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
           Reminders go out in batches: {deferred} more {deferred === 1 ? "person" : "people"} will be left for later runs.
         </p>
       )}
+      {sendable > 0 && (
+        <p className="text-muted-foreground">
+          Each run has a time limit. If some people are left, run it again to continue.
+        </p>
+      )}
       <p className="text-muted-foreground">
         {lastSentAt ? `Reminders were last sent on ${lastSentAt}.` : "No reminders have been sent yet."}
       </p>

@@ -4,7 +4,7 @@ import { buildEventPayload, signBody, isAllowedSyncUrl, syncEventToWebsite, sync
 import { prisma } from "@/lib/prisma"
 
 jest.mock("@/lib/prisma", () => ({
-  prisma: { event: { findUnique: jest.fn(), findMany: jest.fn() } },
+  prisma: { event: { findUnique: jest.fn(), findMany: jest.fn() }, auditLog: { findMany: jest.fn() } },
 }))
 
 const baseEvent = {
@@ -331,12 +331,51 @@ describe("resyncAllEvents", () => {
     process.env.WEBSITE_SYNC_URL = "https://example.org/api/crm-sync.php"
     process.env.WEBSITE_SYNC_SECRET = "shared-secret"
     process.env.AUTH_URL = "https://crm.example.org"
+    ;(prisma.auditLog.findMany as jest.Mock).mockReset().mockResolvedValue([])
   })
   afterEach(() => {
     process.env.WEBSITE_SYNC_URL = OLD.url
     process.env.WEBSITE_SYNC_SECRET = OLD.secret
     process.env.AUTH_URL = OLD.auth
     jest.restoreAllMocks()
+  })
+
+  it("replays audited event deletions with the audit row's DB timestamp as revision", async () => {
+    ;(prisma.event.findMany as jest.Mock).mockResolvedValue([baseEvent])
+    ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([
+      { resourceId: 7, createdAt: new Date("2026-05-01T00:00:00.000Z") },
+      { resourceId: 42, createdAt: new Date("2026-05-02T00:00:00.000Z") }, // id still exists → skipped
+    ])
+    const fetchSpy = jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
+    await expect(resyncAllEvents()).resolves.toEqual({ synced: 2, failed: 0, truncated: false, disabled: false })
+    const bodies = fetchSpy.mock.calls.map((c) => JSON.parse((c[1] as { body: string }).body))
+    expect(bodies.filter((b) => b.action === "delete")).toEqual([
+      expect.objectContaining({ action: "delete", crmId: 7, revision: "2026-05-01T00:00:00.000Z" }),
+    ])
+  })
+
+  it("counts a failing delete replay as failed and keeps going", async () => {
+    ;(prisma.event.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([
+      { resourceId: 7, createdAt: new Date("2026-05-01T00:00:00.000Z") },
+      { resourceId: 8, createdAt: new Date("2026-05-01T00:00:00.000Z") },
+    ])
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    jest
+      .spyOn(global, "fetch" as never)
+      .mockRejectedValueOnce(new Error("ECONNRESET") as never)
+      .mockResolvedValueOnce({ ok: true } as never)
+    await expect(resyncAllEvents()).resolves.toEqual({ synced: 1, failed: 1, truncated: false, disabled: false })
+  })
+
+  it("flags truncated when the audited-delete replay hits the 500 cap", async () => {
+    ;(prisma.event.findMany as jest.Mock).mockResolvedValue([baseEvent])
+    ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue(
+      Array.from({ length: 500 }, (_, i) => ({ resourceId: 1000 + i, createdAt: new Date("2026-05-01T00:00:00.000Z") }))
+    )
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as never)
+    await expect(resyncAllEvents()).resolves.toEqual({ synced: 501, failed: 0, truncated: true, disabled: false })
   })
 
   it("returns zero counts for an empty event list", async () => {

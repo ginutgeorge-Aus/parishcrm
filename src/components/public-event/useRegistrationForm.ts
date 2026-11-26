@@ -45,6 +45,8 @@ export type RegistrationFormProps = {
   formToken: string
   onlinePaymentEnabled?: boolean
   stripeConfigured?: boolean
+  /** False when the event has no BSB/account; default true keeps older callers unchanged. */
+  hasBankDetails?: boolean
   passCardFee?: boolean
   cardFeePct?: number
   cardFeeFixedCents?: number

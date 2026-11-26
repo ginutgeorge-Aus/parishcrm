@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useState, useActionState } from "react"
+import { useState } from "react"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,6 +31,8 @@ import { cn } from "@/lib/utils"
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import { useSubmissionToken } from "./useSubmissionToken"
+import { FormError } from "@/components/shared/FormError"
+import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
 type Account = { id: number; code: string; name: string }
 type Person = { id: number; firstName: string; lastName: string }
@@ -60,7 +62,7 @@ export function ReceiptForm({
   const router = useRouter()
   // Idempotency token (#487), stable per mounted form; updateReceipt ignores it.
   const submitWithToken = useSubmissionToken(action)
-  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
+  const [state, onSubmit, isPending, errorSeq] = useRetainedForm(submitWithToken)
   const [accountId, setAccountId] = useState(receipt?.accountId ?? "")
   const [personId, setPersonId] = useState(receipt?.personId ?? "")
   const [donorOpen, setDonorOpen] = useState(false)
@@ -77,21 +79,28 @@ export function ReceiptForm({
   const selectedPerson = persons.find((p) => String(p.id) === personId)
 
   return (
-    <form action={formAction} className="max-w-lg space-y-4">
-      {state?.error && (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-          <p className="text-sm text-destructive">{state.error}</p>
+    <form onSubmit={onSubmit} className="max-w-lg space-y-4">
+      {/* Implicit submission (Enter in a field) clicks the FIRST submit button in tree
+          order. The "Post anyway"/"Record anyway" confirms render above the real submit,
+          so a nameless default button first keeps Enter on the ordinary, re-validating path. */}
+      <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" disabled={isPending} />
+      <FormError error={state?.error} errorKey={errorSeq} className="p-3">
           {/* Likely-duplicate warning: the button's own name/value pair
               is only included in the submitted FormData when it — not the main
               submit button — triggers the form, so re-submitting via the
               regular button never silently confirms a duplicate. */}
-          {state.duplicateWarning && (
+          {state?.duplicateWarning && (
             <Button type="submit" name="confirmDuplicate" value="true" variant="outline" size="sm" disabled={isPending}>
               Post anyway
             </Button>
           )}
-        </div>
-      )}
+          {/* Negative-float warning (edit only: reducing a receipt). Same pattern as ExpenseForm. */}
+          {state?.negativeBalanceWarning && (
+            <Button type="submit" name="confirmNegative" value="true" variant="outline" size="sm" disabled={isPending}>
+              Record anyway
+            </Button>
+          )}
+      </FormError>
 
       {/* Hidden input so personId is submitted with form */}
       <input type="hidden" name="personId" value={personId} />

@@ -753,11 +753,11 @@ describe("publishEvent", () => {
 
   it("updates isPublished, syncs to the website, and revalidates", async () => {
     mockSession("PASTOR")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair", ticketTypes: [] })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, true)
     expect(prisma.event.updateMany).toHaveBeenCalledWith({
-      where: { id: 1, slug: { not: null } },
+      where: { id: 1, isPublished: false, slug: { not: null } },
       data: { isPublished: true },
     })
     expect(syncEventToWebsite).toHaveBeenCalledWith(1)
@@ -767,7 +767,7 @@ describe("publishEvent", () => {
 
   it("revalidates the public event page so a stale publish/unpublish state doesn't survive the cache", async () => {
     mockSession("PASTOR")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair", ticketTypes: [] })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, false)
     expect(revalidatePath).toHaveBeenCalledWith("/e/summer-fair")
@@ -826,18 +826,38 @@ describe("event audit logging", () => {
 
   it("audit-logs EVENT_PUBLISHED with publish state", async () => {
     adminSession()
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: false, ticketTypes: [] })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(3, true)
     expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: true })
   })
 
-  it("audit-logs EVENT_PUBLISHED with published=false on unpublish", async () => {
+  it("audit-logs EVENT_UNPUBLISHED on unpublish", async () => {
     adminSession()
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, isPublished: true })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(3, false)
-    expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: false })
+    expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_UNPUBLISHED", "Event", 3, { published: false })
+    expect(mockLogAudit).not.toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, expect.anything())
+  })
+
+  it("skips the audit log when publish state is unchanged", async () => {
+    adminSession()
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: true, ticketTypes: [] })
+    // conditional write matches nothing: already published
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const result = await publishEvent(3, true)
+    expect(result).toBeUndefined()
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("audits only when the conditional write flipped the flag (concurrent toggle safe)", async () => {
+    adminSession()
+    // the pre-write read is stale (says published) but the write still flipped it
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x", isPublished: true, ticketTypes: [] })
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await publishEvent(3, true)
+    expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: true })
   })
 })
 
@@ -1441,7 +1461,7 @@ describe("optional event slug", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: null })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, false)
-    expect(prisma.event.updateMany).toHaveBeenCalledWith({ where: { id: 1 }, data: { isPublished: false } })
+    expect(prisma.event.updateMany).toHaveBeenCalledWith({ where: { id: 1, isPublished: true }, data: { isPublished: false } })
     expect(revalidatePath).not.toHaveBeenCalledWith(expect.stringMatching(/^\/e\//))
   })
 
