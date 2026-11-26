@@ -157,6 +157,25 @@ describe("AUD-2-03 — confirmation mail budgets", () => {
     expect(dbRateLimitRefund).toHaveBeenCalledWith("regmail:event:1")
   })
 
+  it("flags mailSkipped when the send itself fails", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    sendConfirmationMock.mockRejectedValue(new Error("smtp down"))
+    const result = await createEventRegistration("fete", makeBody(), "1.2.3.4")
+    expect(result).toMatchObject({ ok: true, mailSkipped: true })
+  })
+
+  it("flags mailSkipped when the send is skipped, and not when it is sent", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    dbRateLimitMock.mockResolvedValue(false)
+    const skipped = await createEventRegistration("fete", makeBody(), "1.2.3.4")
+    expect(skipped).toMatchObject({ ok: true, mailSkipped: true })
+
+    dbRateLimitMock.mockResolvedValue(true)
+    const sent = await createEventRegistration("fete", makeBody(), "1.2.3.4")
+    expect(sent).toMatchObject({ ok: true })
+    expect((sent as { mailSkipped?: boolean }).mailSkipped).toBeUndefined()
+  })
+
   it("still sends when both budgets have room", async () => {
     findUnique.mockResolvedValue(makeEvent())
     const result = await createEventRegistration("fete", makeBody(), "1.2.3.4")
