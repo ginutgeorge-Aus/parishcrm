@@ -3,6 +3,7 @@ import {
   createWebhookFailureTracker,
   FAILURE_WINDOW_MS,
   ALERT_COOLDOWN_MS,
+  buildAlertText,
 } from "@/lib/stripeWebhookAlert"
 
 jest.mock("@/lib/prisma", () => ({
@@ -47,7 +48,24 @@ it("first failure with a signature header sends one alert", async () => {
   const t = setup()
   await t.record(true)
   expect(t.sendAlert).toHaveBeenCalledTimes(1)
+  expect(t.sendAlert).toHaveBeenCalledWith(true)
   expect(t.setLastSentAt).toHaveBeenCalledTimes(1)
+  expect(t.setLastSentAt).toHaveBeenCalledWith(1_000_000)
+})
+
+it("alert text depends on whether the failure was signed", () => {
+  expect(buildAlertText("St X", true)).toContain("St X: a signed delivery was rejected.")
+  const unsigned = buildAlertText("St X", false)
+  expect(unsigned).not.toContain("signed delivery")
+  expect(unsigned).toContain("without a valid signature")
+})
+
+it("unsigned threshold alert passes signed=false", async () => {
+  const t = setup()
+  await t.record(false)
+  await t.record(false)
+  await t.record(false)
+  expect(t.sendAlert).toHaveBeenCalledWith(false)
 })
 
 it("second signed failure inside the cooldown sends none", async () => {

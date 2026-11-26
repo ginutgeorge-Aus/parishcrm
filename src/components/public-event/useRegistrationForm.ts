@@ -297,7 +297,8 @@ export function useRegistrationForm({
         return
       }
       const dupParam = data.duplicate ? "&dup=1" : ""
-      router.push(`/e/${slug}/success?ref=${encodeURIComponent(data.ref)}${dupParam}`)
+      const mailParam = data.mailSkipped ? "&mail=0" : ""
+      router.push(`/e/${slug}/success?ref=${encodeURIComponent(data.ref)}${dupParam}${mailParam}`)
     } catch {
       setError("Network error. Please try again.")
     } finally {

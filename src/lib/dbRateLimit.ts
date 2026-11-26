@@ -17,6 +17,21 @@ import { isP2002 } from "@/lib/validation"
 // the tail of one window plus `limit` at the head of the next allows ~2x burst.
 // Accepted — the login/reset consumers carry per-account lockout backstops; a
 // sliding-window rewrite isn't warranted at this scale.
+/**
+ * Gives back one slot taken by a successful `dbRateLimit` call on the same key,
+ * for callers that charge several budgets in sequence and must not burn the
+ * earlier ones when a later one denies. No-op when the window has expired or
+ * the count is already 0.
+ * @param key rate-limit key previously charged
+ * @param now current time in ms (injectable for tests)
+ */
+export async function dbRateLimitRefund(key: string, now: number = Date.now()): Promise<void> {
+  await prisma.rateLimit.updateMany({
+    where: { key, resetAt: { gt: new Date(now) }, count: { gt: 0 } },
+    data: { count: { decrement: 1 } },
+  })
+}
+
 export async function dbRateLimit(
   key: string,
   limit: number,
