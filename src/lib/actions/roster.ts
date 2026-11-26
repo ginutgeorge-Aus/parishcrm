@@ -301,20 +301,29 @@ export async function generateSundayServices(_prev: ActionResultWithSuccess, for
 
 /**
  * Delete a service with its slots and assignments (a cancelled one-off, or a
- * mistake). canManageRoster-gated; the audit row records how many
- * assignments went with it.
+ * mistake). Refused while anyone has CONFIRMED a place, like removing a slot.
+ * canManageRoster-gated; the audit row records how many assignments went with
+ * it. The slot rows are locked first, so a concurrent assign cannot change the
+ * count between the check and the delete.
  */
 export async function deleteRosterService(id: number): Promise<ActionResultWithSuccess> {
   const g = await manager()
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(id)) return { error: "Invalid service" }
-  const deleted = await prisma.$transaction(async (tx) => {
-    const assignments = await tx.rosterAssignment.count({ where: { serviceId: id } })
+  const result = await prisma.$transaction(async (tx): Promise<{ error: string } | { count: number }> => {
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    await tx.$queryRaw`SELECT id FROM "RosterSlot" WHERE "serviceId" = ${id} FOR UPDATE`
+    const [assignments, confirmed] = await Promise.all([
+      tx.rosterAssignment.count({ where: { serviceId: id } }),
+      tx.rosterAssignment.count({ where: { serviceId: id, status: "CONFIRMED" } }),
+    ])
+    if (confirmed > 0) return { error: "Some people have confirmed for this service; remove them first" }
     const r = await tx.rosterService.deleteMany({ where: { id } })
     if (r.count > 0) await logAuditTx(tx, actorId(g.session), "ROSTER_SERVICE_DELETED", "RosterService", id, { assignments })
-    return r.count
+    return { count: r.count }
   })
-  if (deleted === 0) return { error: SERVICE_GONE }
+  if ("error" in result) return result
+  if (result.count === 0) return { error: SERVICE_GONE }
   revalidateRoster(id)
   return { success: "Service deleted" }
 }
@@ -473,11 +482,11 @@ export async function suggestRosterAssignees(slotId: number): Promise<{ error: s
   const [assigned, unavailability, history] = await Promise.all([
     prisma.rosterAssignment.findMany({ where: { serviceId: slot.serviceId }, select: { personId: true } }),
     unavailabilityOn(prisma, ids, slot.service.date),
-    // Latest earlier service each person held a place at in this role.
+    // Latest earlier service each person actually served (CONFIRMED) in this role.
     ids.length === 0 ? Promise.resolve([]) : prisma.rosterAssignment.findMany({
       where: {
         personId: { in: ids },
-        status: { not: "DECLINED" },
+        status: "CONFIRMED",
         slot: { roleId: slot.roleId, service: { date: { lt: slot.service.date } } },
       },
       select: { personId: true, slot: { select: { service: { select: { date: true } } } } },
@@ -544,8 +553,8 @@ export async function assignToRosterSlot(slotId: number, personId: number): Prom
   } catch (e) {
     // A concurrent assign put the same person at this service first.
     if (isP2002(e)) return { error: ROSTER_CONFLICT_MESSAGES.ALREADY_ASSIGNED }
-    // The service (and so the slot) was deleted between the lock and the insert.
-    if (isP2003(e)) return { error: SLOT_GONE }
+    // A referenced row (slot, service or person) vanished between the lock and the insert.
+    if (isP2003(e)) return { error: "The slot or person no longer exists. Refresh and try again." }
     throw e
   }
   revalidateRoster(slot.serviceId)
