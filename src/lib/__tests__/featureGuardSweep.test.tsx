@@ -56,6 +56,8 @@ const ARGS: Record<string, unknown[]> = {
   // Public forms: honeypot/rate limit run first, so pass a clean input.
   "membership.ts:submitMembershipApplication": [{ payload: {}, signature: "" }],
   "familyUpdate.ts:submitFamilyUpdate": [{ token: "t", payload: {} }],
+  // Argument checks run before the feature read, so pass well-formed args.
+  "familyUpdate.ts:sendFamilyUpdateInvite": [1, "a@example.com"],
   "eventCheckout.ts:startEventCheckout": ["fete", {}],
   "eventCheckout.ts:startExistingRegistrationCheckout": ["fete", "tok"],
   "eventCheckout.ts:startFundraiserCheckout": ["tok"],
