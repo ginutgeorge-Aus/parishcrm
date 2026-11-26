@@ -18,7 +18,8 @@ export type WebhookAlertDeps = {
   /** Epoch ms of the last alert, or null when never sent. */
   getLastSentAt: () => Promise<number | null>
   setLastSentAt: (ms: number) => Promise<void>
-  sendAlert: () => Promise<void>
+  /** `signed` mirrors the failure that triggered the alert (stripe-signature header present). */
+  sendAlert: (signed: boolean) => Promise<void>
 }
 
 /**
@@ -52,7 +53,7 @@ export function createWebhookFailureTracker(deps: WebhookAlertDeps) {
           cooldownUntil = last + ALERT_COOLDOWN_MS
           return
         }
-        await deps.sendAlert()
+        await deps.sendAlert(signed)
         cooldownUntil = now + ALERT_COOLDOWN_MS
         failures = []
         await deps.setLastSentAt(now)
@@ -66,10 +67,31 @@ export function createWebhookFailureTracker(deps: WebhookAlertDeps) {
 }
 
 /**
+ * Builds the alert body; the first line reflects which path triggered it.
+ * @param churchName Church name shown in the first line.
+ * @param signed true when the triggering request carried a stripe-signature header.
+ * @returns Plain-text alert body.
+ */
+export function buildAlertText(churchName: string, signed: boolean): string {
+  const reason = signed
+    ? "a signed delivery was rejected"
+    : "repeated webhook requests without a valid signature were rejected"
+  return [
+    `Stripe webhook verification is failing on ${churchName}: ${reason}.`,
+    "",
+    "Check that STRIPE_WEBHOOK_SECRET matches the signing secret of this site's webhook endpoint in the Stripe Dashboard (Developers > Webhooks).",
+    "Until it is fixed, card payments still complete at Stripe but registrations stay unpaid and no confirmation email is sent.",
+    "",
+    "You will not get another alert about this for at least 1 hour.",
+  ].join("\n")
+}
+
+/**
  * Emails every active ADMIN the webhook-failure alert.
+ * @param signed true when the triggering request carried a stripe-signature header.
  * @throws When there is no recipient or every send definitively failed.
  */
-async function sendAdminAlert(): Promise<void> {
+async function sendAdminAlert(signed: boolean): Promise<void> {
   const admins = await prisma.user.findMany({
     where: { role: UserRole.ADMIN, archivedAt: null },
     select: { email: true },
@@ -77,14 +99,7 @@ async function sendAdminAlert(): Promise<void> {
   const recipients = [...new Set(admins.map((a) => a.email.trim()).filter(Boolean))]
   if (recipients.length === 0) throw new Error("no active ADMIN to email")
   const churchName = await getChurchName()
-  const text = [
-    `Stripe webhook verification is failing on ${churchName}: a signed delivery was rejected.`,
-    "",
-    "Check that STRIPE_WEBHOOK_SECRET matches the signing secret of this site's webhook endpoint in the Stripe Dashboard (Developers > Webhooks).",
-    "Until it is fixed, card payments still complete at Stripe but registrations stay unpaid and no confirmation email is sent.",
-    "",
-    "You will not get another alert about this for at least 1 hour.",
-  ].join("\n")
+  const text = buildAlertText(churchName, signed)
   const html = text
     .split("\n")
     .map((l) => (l ? `<p>${escapeHtml(l)}</p>` : ""))

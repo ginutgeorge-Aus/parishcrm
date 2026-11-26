@@ -1046,6 +1046,13 @@ describe("setVenueUsageStatus", () => {
     expect(r).toMatchObject({ warning: expect.stringMatching(/^The invoice request for .* was already sent .*Send again.* Could not email the venue/) })
     expect((r as { warning: string }).warning).not.toContain("Changes saved")
   })
+  it("checks demo mode before reading the session", async () => {
+    ;(assertNotDemo as jest.Mock).mockReturnValue({ error: "Not available in demo mode" })
+    ;(auth as jest.Mock).mockClear()
+    await setVenueUsageStatus([1], "CANCELLED", { emailVenue: true })
+    expect(auth).not.toHaveBeenCalled()
+  })
+
   it("blocks the cancellation email in demo mode without changing anything", async () => {
     asRole("PASTOR")
     ;(assertNotDemo as jest.Mock).mockReturnValue({ error: "Not available in demo mode" })
@@ -1153,5 +1160,28 @@ describe("per-month row cap", () => {
     ;(prisma.venueUsage.count as jest.Mock).mockResolvedValue(198)
     expect(await addAllSundays({ month: "2026-09", startTime: "17:00", endTime: "20:00" })).toEqual({ error: expect.stringMatching(/200 bookings/) })
     expect(prisma.venueUsage.createMany).not.toHaveBeenCalled()
+  })
+})
+
+describe("setVenueUsageStatus input checks (AUD-5-55, AUD-5-58)", () => {
+  it("rejects a status other than CONFIRMED or CANCELLED before any write", async () => {
+    asRole("PASTOR")
+    for (const bad of ["REQUESTED", "garbage", undefined, 5]) {
+      expect(await setVenueUsageStatus([1], bad as unknown as "CONFIRMED")).toEqual({ error: "Invalid status" })
+    }
+    expect(prisma.venueUsage.updateMany).not.toHaveBeenCalled()
+  })
+  it("does not throw on a null opts argument for an unauthorised caller", async () => {
+    asRole("AUDITOR")
+    await expect(setVenueUsageStatus([1], "CANCELLED", null as unknown as { emailVenue?: boolean })).resolves.toEqual({ error: "Unauthorized" })
+  })
+})
+
+describe("setVenueUsageStatus ids shape (AUD-5-58)", () => {
+  it("returns the normal error for a non-array ids argument", async () => {
+    asRole("PASTOR")
+    for (const bad of [null, undefined, "1", { length: 1 }]) {
+      expect(await setVenueUsageStatus(bad as unknown as number[], "CONFIRMED")).toEqual({ error: "Select at least one booking" })
+    }
   })
 })

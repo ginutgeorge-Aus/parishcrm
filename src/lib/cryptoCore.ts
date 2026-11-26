@@ -127,6 +127,19 @@ export function encrypt(plaintext: string): string {
   return `enc:${currentId}:${iv.toString("base64")}:${authTag.toString("base64")}:${encrypted.toString("base64")}`
 }
 
+/**
+ * Like `decrypt`, but refuses anything that is not in the encrypted format instead of returning it
+ * unchanged. Use for columns that must always hold ciphertext (e.g. `totpSecret`), so a write path
+ * that forgot to encrypt fails loudly rather than being silently accepted (AUD-1-13).
+ * @param value the stored column value
+ * @returns the decrypted plaintext
+ * @throws when `value` is not an encrypted blob, or decryption fails
+ */
+export function decryptStrict(value: string): string {
+  if (!hasEncryptedShape(value)) throw new Error("Decryption failed: not an encrypted value")
+  return decrypt(value)
+}
+
 export function decrypt(value: string): string {
   // not our ciphertext format (no `enc:` prefix, wrong colon count, or
   // a payload segment that isn't valid base64) — treat as plaintext rather

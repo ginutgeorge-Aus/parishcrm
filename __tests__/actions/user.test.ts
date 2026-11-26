@@ -143,6 +143,22 @@ describe("createUser", () => {
     expect(result).toEqual({ error: "Email already in use" })
   })
 
+  it("does not report a P2002 from the audit write as a duplicate email", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockQueryRaw.mockResolvedValue([])
+    mockCreate.mockResolvedValue({ id: 5, name: "Jane", email: "jane@example.com", role: "VIEWER" })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2002" })
+    await expect(createUser(undefined, fd(validNewUser))).rejects.toMatchObject({ code: "P2002" })
+  })
+
+  it("maps a P2034 from create to a retry prompt", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockQueryRaw.mockResolvedValue([])
+    mockCreate.mockRejectedValue({ code: "P2034" })
+    const result = await createUser(undefined, fd(validNewUser))
+    expect(result?.error).toMatch(/try again/i)
+  })
+
   it("stores an unusable random passwordHash (invite flow)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue(null)
@@ -327,11 +343,20 @@ describe("updateUser", () => {
     expect(order).toEqual(["tx:start", "passkeys", "tx:end"])
   })
 
-  it("keeps passkeys when the admin edit has no new password", async () => {
+  it("keeps passkeys when the admin edit has no new password and no email change", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockQueryRaw.mockResolvedValue([])
+    await updateUser(1, undefined, fd({ name: "X", email: "old@x.com", role: "VIEWER" }))
+    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.trustedDevice.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("drops trusted devices and passkeys when the email changes", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
-    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
+    expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
   })
 
   it("clears all four lockout fields on admin-forced password change", async () => {

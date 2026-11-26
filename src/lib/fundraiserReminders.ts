@@ -106,7 +106,7 @@ export const REMINDER_MAX_PER_RUN = 200
 
 /** Counts for the confirm dialog. */
 export type ReminderPlan = {
-  /** Upper bound: ignores the send time budget, so a slow run may defer some of these too. */
+  /** Upper bound: ignores the send time budget (`REMINDER_TIME_BUDGET_MS` in `actions/fundraiser.ts`), so a slow run may defer some of these too. */
   sendable: number
   skippedPaid: number
   skippedNoEmail: number

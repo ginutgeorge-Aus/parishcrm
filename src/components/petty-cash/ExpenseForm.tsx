@@ -56,6 +56,10 @@ export function ExpenseForm({
 
   return (
     <form onSubmit={onSubmit} className="max-w-lg space-y-4">
+      {/* Implicit submission (Enter in a field) clicks the FIRST submit button in tree
+          order. The "Post anyway"/"Record anyway" confirms render above the real submit,
+          so a nameless default button first keeps Enter on the ordinary, re-validating path. */}
+      <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" disabled={isPending} />
       <FormError error={state?.error} errorKey={errorSeq} className="p-3">
           {/* Likely-duplicate warning: the button's own name/value pair
               is only included in the submitted FormData when it — not the main

@@ -13,8 +13,7 @@ import { SacramentType } from "@/lib/generated/prisma/enums"
 import type { SacramentCreateResult } from "@/lib/actions/sacrament"
 import type { ActionResultWithSuccess } from "@/lib/actions/types"
 
-const SELECT_CLASS =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+import { SACRAMENT_SELECT_CLASS } from "@/components/sacraments/selectClass"
 
 /** Values of an existing entry, for the edit form. */
 export type SacramentFormValues = {
@@ -114,7 +113,7 @@ export function SacramentForm({ personId, defaultType, record, cancelHref = "/sa
           <select
             id="type"
             name="type"
-            className={SELECT_CLASS}
+            className={SACRAMENT_SELECT_CLASS}
             value={type}
             onChange={(e) => setType(e.target.value as SacramentType)}
           >

@@ -213,6 +213,8 @@ export async function setExamScore(examId: number, personId: number, raw: string
   const g = await examGuard(examId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
+  // A malformed (non-text) score must be refused, not treated as blank (which deletes the mark).
+  if (typeof raw !== "string") return { error: "Invalid score" }
   const score = parseScore(raw, g.totalMarks)
   if (!score.ok) return { error: score.error }
 

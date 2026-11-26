@@ -49,7 +49,7 @@ const PLAIN_ON_PURPOSE: Record<string, string[]> = {
   personClearance: ["documentType"],
   pettyCashExpense: ["receiptRef", "importKey"],
   pettyCashReceipt: ["importKey"],
-  pettyCashSession: ["title", "notes"],
+  pettyCashSession: ["title"], // notes encrypted since AUD-3-04
   pettyCashTransfer: ["depositSlipRef"],
   receiptSend: ["status", "errorMessage"],
   registration: ["firstName", "lastName", "emailHash", "paymentRef"],

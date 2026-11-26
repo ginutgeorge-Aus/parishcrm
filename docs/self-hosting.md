@@ -82,6 +82,8 @@ openssl rand -base64 32   # → AUTH_SECRET
 openssl rand -base64 32   # → ENCRYPTION_KEY
 ```
 
+In production the app refuses to start if `AUTH_SECRET` (or `CRON_SECRET` / `SETUP_TOKEN`, when set) is shorter than 32 characters or is still the placeholder from `.env.example`.
+
 Fill in the **Required** block of `.env`; uncomment optional features as
 needed (never `DISABLE_OTP` — the app refuses to boot in production with it
 set). Back up `ENCRYPTION_KEY` somewhere safe and separate from the database —
@@ -129,12 +131,23 @@ blocks duplicate live exams there.
 
 ## 4. Run
 
-`docker --env-file` keeps quotes as part of each value, so strip them first:
+Release tags are mutable in a registry, so pin the image by digest and verify its signed
+build provenance **before** running it with your secrets:
+
+Replace `<owner>/<repo>` in image references with the **lowercase** GitHub owner/repo (the publish workflow lowercases it; `--repo` keeps the original casing).
+
+```bash
+docker buildx imagetools inspect ghcr.io/<owner>/<repo>:vX.Y.Z   # note the Digest: sha256:<digest>
+gh attestation verify oci://ghcr.io/<owner>/<repo>@sha256:<digest> --repo <owner>/<repo>
+```
+
+Then run that same digest (not the tag). `docker --env-file` keeps quotes as part of
+each value, so strip them first:
 
 ```bash
 sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' .env > .env.docker
 docker run -d --restart unless-stopped --name church-crm --env-file .env.docker -p 3000:3000 \
-  ghcr.io/<owner>/<repo>:vX.Y.Z
+  ghcr.io/<owner>/<repo>@sha256:<digest>
 ```
 
 Put a TLS-terminating reverse proxy (Caddy, nginx, a platform ingress) in

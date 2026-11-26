@@ -422,6 +422,7 @@ describe("FIELDS map", () => {
     pettyCashExpense: ["payee", "description"],
     pettyCashReceipt: ["notes"],
     pettyCashTransfer: ["depositedByName", "notes"],
+    pettyCashSession: ["notes"],
     familyUpdateSubmission: ["payload", "reviewNote"],
     // MembershipApplication was omitted entirely; written encrypted at
     // src/lib/actions/membership.ts (submitMembershipApplication).

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,11 +12,14 @@ type Row = { price: string; _key: string }
 // required control the browser can't focus silently aborts the whole form
 // submit ("not focusable"). Disabled inputs are excluded from validation and
 // FormData; the server ignores tier fields unless tiered pricing is enabled.
-export function TieredPricingEditor({ defaultTiers, active }: Readonly<{ defaultTiers: string[]; active: boolean }>) {
+export function TieredPricingEditor({ defaultTiers, active, onPricesChange }: Readonly<{ defaultTiers: string[]; active: boolean; onPricesChange?: (prices: string[]) => void }>) {
   const keySeq = useRef(0)
   const [rows, setRows] = useState<Row[]>(
     () => (defaultTiers.length ? defaultTiers : [""]).map((p, i) => ({ price: p, _key: `tier-init-${i}` }))
   )
+  // Lets the parent form mirror the tier prices (used for the paid-event hint).
+  useEffect(() => { onPricesChange?.(rows.map((r) => r.price)) }, [rows, onPricesChange])
+  const setPrice = (key: string, price: string) => setRows((r) => r.map((x) => (x._key === key ? { ...x, price } : x)))
   const add = () => setRows((r) => [...r, { price: "", _key: `tier-new-${keySeq.current++}` }])
   const remove = (key: string) => setRows((r) => (r.length > 1 ? r.filter((x) => x._key !== key) : r))
 
@@ -32,7 +35,8 @@ export function TieredPricingEditor({ defaultTiers, active }: Readonly<{ default
               inputMode="decimal"
               required
               disabled={!active}
-              defaultValue={row.price}
+              value={row.price}
+              onChange={(e) => setPrice(row._key, e.target.value)}
             />
           </div>
           <Button

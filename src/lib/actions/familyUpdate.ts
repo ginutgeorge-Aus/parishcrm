@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
+import { isValidPgId } from "@/lib/validation"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { encryptPersonFields } from "@/lib/personFields"
 import { logAudit } from "@/lib/audit"
@@ -37,11 +38,15 @@ export async function sendFamilyUpdateInvite(
 ): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(familyId)) return { error: "Family not found" }
+  if (typeof email !== "string") return { error: "A valid email address is required" }
+  // After cheap argument checks so malformed calls skip the feature-settings read.
   const off = await featureGuard("familyUpdates")
   if (off) return off
 
-  const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true } })
-  if (!family) return { error: "Family not found" }
+  const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true, archivedAt: true } })
+  // An archived family's link would only show "expired": refuse instead of wasting an email.
+  if (!family || family.archivedAt) return { error: "Family not found" }
 
   const parsedEmail = z.string().email().max(255).safeParse(email.trim())
   if (!parsedEmail.success) return { error: "A valid email address is required" }
