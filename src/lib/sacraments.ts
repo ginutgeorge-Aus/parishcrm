@@ -59,20 +59,24 @@ function parseFormId(s: string): number | null {
   return n > 0 && n <= 2147483647 ? n : null
 }
 
-/** Optional positive int4 id from a form string: blank -> null. */
-const optionalId = z
-  .string()
-  .optional()
-  .transform((v, ctx) => {
-    const s = v?.trim()
-    if (!s) return null
-    const n = parseFormId(s)
-    if (n === null) {
-      ctx.addIssue({ code: "custom", message: "Invalid person." })
-      return z.NEVER
-    }
-    return n
-  })
+/**
+ * Optional positive int4 id from a form string: blank -> null.
+ * @param message validation text shown when a non-blank value is not a valid id
+ */
+const optionalId = (message: string) =>
+  z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      const s = v?.trim()
+      if (!s) return null
+      const n = parseFormId(s)
+      if (n === null) {
+        ctx.addIssue({ code: "custom", message })
+        return z.NEVER
+      }
+      return n
+    })
 
 /**
  * Editable fields of a register entry (create and update). The rite and the
@@ -89,7 +93,7 @@ export const SacramentFieldsSchema = z.object({
     .min(1, "Enter the place.")
     .max(MAX_PLACE_LEN, `Place must be ${MAX_PLACE_LEN} characters or fewer.`),
   ministerName: optionalText(MAX_NAME_LEN, "Minister"),
-  spouseId: optionalId,
+  spouseId: optionalId("Invalid spouse."),
   spouseName: optionalText(MAX_NAME_LEN, "Spouse name"),
   godparents: optionalText(MAX_GODPARENTS_LEN, "Godparents"),
   notes: optionalText(MAX_NOTES_LEN, "Notes"),

@@ -59,6 +59,7 @@ describe("SacramentFieldsSchema", () => {
   it.each(["1.5", "1e3", "0x10", "5.0", "0", "2147483648"])("rejects spouse id %s", (spouseId) => {
     const r = SacramentFieldsSchema.safeParse({ date: "2026-01-05", place: "x", spouseId })
     expect(r.success).toBe(false)
+    if (!r.success) expect(r.error.issues[0].message).toBe("Invalid spouse.")
   })
   it("measures the length cap after trimming", () => {
     const r = SacramentFieldsSchema.parse({ date: "2026-01-05", place: "x", notes: `${"a".repeat(2000)}\n\n\n` })

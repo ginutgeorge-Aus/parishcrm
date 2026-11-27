@@ -4,6 +4,7 @@ import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { safeDecrypt } from "@/lib/crypto"
+import { decryptOrNull } from "@/lib/nullableCrypto"
 import {
   resolveEmailHash,
   decryptPersonScalars,
@@ -100,6 +101,33 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       })
     : []
 
+  // Sacramental register entries where this person is the subject or the CRM
+  // spouse, with the encrypted spouseName/godparents/notes decrypted (the
+  // person-export contract covers every PII field held about them).
+  const sacramentRows = await prisma.sacramentRecord.findMany({
+    where: { OR: [{ personId: id }, { spouseId: id }] },
+    orderBy: [{ date: "asc" }, { id: "asc" }],
+    select: {
+      registerNo: true,
+      type: true,
+      date: true,
+      place: true,
+      ministerName: true,
+      personId: true,
+      spouseId: true,
+      spouseName: true,
+      godparents: true,
+      notes: true,
+      createdAt: true,
+    },
+  })
+  const sacraments = sacramentRows.map((r) => ({
+    ...r,
+    spouseName: decryptOrNull(r.spouseName),
+    godparents: decryptOrNull(r.godparents),
+    notes: decryptOrNull(r.notes),
+  }))
+
   // `clearances` and `transactions` are exported via their own decrypted
   // sections; keep the raw (encrypted) rows out of the spread person object.
   const { clearances, transactions, rosterAssignments, unavailability, ...personRest } = person
@@ -114,6 +142,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     clearances: clearances.map(decryptClearanceForExport),
     rosterAssignments,
     unavailability,
+    sacraments,
     exportedAt: new Date().toISOString(),
   }
 
@@ -123,7 +152,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     "PERSON_EXPORTED",
     "Person",
     id,
-    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "transactionNotes", "receiptSentTo", "registrationCustomAnswers", "clearances", "rosterAssignments", "unavailability"] },
+    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "transactionNotes", "receiptSentTo", "registrationCustomAnswers", "clearances", "rosterAssignments", "unavailability", "sacraments", "sacramentSpouseName", "sacramentGodparents", "sacramentNotes"] },
     ip
   )
 

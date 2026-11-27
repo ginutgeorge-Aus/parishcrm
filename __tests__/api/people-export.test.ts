@@ -5,6 +5,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     person: { findFirst: jest.fn() },
     registration: { findMany: jest.fn() },
+    sacramentRecord: { findMany: jest.fn() },
   },
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
@@ -24,6 +25,7 @@ import { NextRequest } from "next/server"
 const mockAuth = auth as jest.Mock
 const mockPersonFindFirst = prisma.person.findFirst as jest.Mock
 const mockRegistrationFindMany = prisma.registration.findMany as jest.Mock
+const mockSacramentFindMany = prisma.sacramentRecord.findMany as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
 
 function makeRequest() {
@@ -58,6 +60,7 @@ describe("GET /api/people/[id]/export", () => {
     __resetRateLimit()
     mockPersonFindFirst.mockResolvedValue(mockPerson)
     mockRegistrationFindMany.mockResolvedValue([])
+    mockSacramentFindMany.mockResolvedValue([])
   })
 
   it("returns 401 when unauthenticated", async () => {
@@ -302,5 +305,29 @@ describe("GET /api/people/[id]/export", () => {
       expect.any(Object),
       "203.0.113.5"
     )
+  })
+
+  it("includes decrypted sacramental register entries (as person or spouse) and lists them in the audit", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockSacramentFindMany.mockResolvedValue([
+      {
+        registerNo: "MAR-2026-001",
+        type: "MARRIAGE",
+        personId: 2,
+        spouseId: 1,
+        spouseName: null,
+        godparents: "enc:A Sponsor",
+        notes: "enc:Some note",
+      },
+    ])
+    const res = await GET(makeRequest(), makeProps("1"))
+    const body = JSON.parse(await res.text())
+    expect(mockSacramentFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { OR: [{ personId: 1 }, { spouseId: 1 }] } })
+    )
+    expect(body.sacraments).toHaveLength(1)
+    expect(body.sacraments[0]).toMatchObject({ registerNo: "MAR-2026-001", godparents: "A Sponsor", notes: "Some note", spouseName: null })
+    const meta = mockLogAudit.mock.calls[0][4] as { exportedFields: string[] }
+    expect(meta.exportedFields).toEqual(expect.arrayContaining(["sacraments", "sacramentGodparents", "sacramentNotes", "sacramentSpouseName"]))
   })
 })

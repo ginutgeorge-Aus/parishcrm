@@ -236,15 +236,19 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
     "Cannot delete — a linked record was just added for this person. Archive the family instead."
   const lockedSsMsg = (n: number) =>
     `Cannot delete — ${n} Sunday School record(s) in a locked school year reference this person. Archive the family instead.`
-  let linkedCount = 0
-  let lockedSsCount = 0
-  let sacramentCount = 0
+  const actor = actorId(session)
+  // The transaction returns a tagged result instead of mutating outer lets.
+  type DeleteOutcome =
+    | { blocked: "linked"; count: number }
+    | { blocked: "lockedSchool"; count: number }
+    | { blocked: "sacrament"; count: number }
+    | { blocked: null }
+  let outcome: DeleteOutcome
   // PersonClearance cascades on person delete; its ids/types are captured
   // inside the transaction so the removal can be audited (no decrypted values).
-  const actor = actorId(session)
   try {
-    linkedCount = await prisma.$transaction(
-      async (tx) => {
+    outcome = await prisma.$transaction(
+      async (tx): Promise<DeleteOutcome> => {
         // First statement, before the snapshot: see blockYearClosers (#234).
         await blockYearClosers(tx)
         const [txCount, dgrCount, pettyCashCount] = await Promise.all([
@@ -253,15 +257,15 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
           tx.pettyCashReceipt.count({ where: { personId: id } }),
         ])
         const total = txCount + dgrCount + pettyCashCount
-        if (total > 0) return total
+        if (total > 0) return { blocked: "linked", count: total }
         // SacramentRecord person/spouse FKs are Restrict: a register entry is a
         // permanent church record, so steer to archive instead of a P2003 500.
-        sacramentCount = await tx.sacramentRecord.count({ where: { OR: [{ personId: id }, { spouseId: id }] } })
-        if (sacramentCount > 0) return 0
+        const sacramentCount = await tx.sacramentRecord.count({ where: { OR: [{ personId: id }, { spouseId: id }] } })
+        if (sacramentCount > 0) return { blocked: "sacrament", count: sacramentCount }
         // Cascading away teacher/enrolment/attendance rows would rewrite a
         // locked Sunday School year.
-        lockedSsCount = await lockedYearRefs(tx, id)
-        if (lockedSsCount > 0) return 0
+        const lockedSsCount = await lockedYearRefs(tx, id)
+        if (lockedSsCount > 0) return { blocked: "lockedSchool", count: lockedSsCount }
         const removedClearances = await tx.personClearance.findMany({
           where: { personId: id },
           select: { id: true, type: true },
@@ -291,7 +295,7 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
             metadata: { cascade: true, personId: id },
           })),
         )
-        return 0
+        return { blocked: null }
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
@@ -303,11 +307,12 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
     if (isP2034(e) || isP2003(e)) return { error: CONCURRENT_LINK_ERROR }
     throw e
   }
-  if (linkedCount > 0) return { error: linkedMsg(linkedCount) }
-  if (lockedSsCount > 0) return { error: lockedSsMsg(lockedSsCount) }
-  if (sacramentCount > 0) {
+
+  if (outcome.blocked === "linked") return { error: linkedMsg(outcome.count) }
+  if (outcome.blocked === "lockedSchool") return { error: lockedSsMsg(outcome.count) }
+  if (outcome.blocked === "sacrament") {
     return {
-      error: `Cannot delete — ${sacramentCount} sacramental register record(s) reference this person. Archive the family instead.`,
+      error: `Cannot delete — ${outcome.count} sacramental register record(s) reference this person. Archive the family instead.`,
     }
   }
 
