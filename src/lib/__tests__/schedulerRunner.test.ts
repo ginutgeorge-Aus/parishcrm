@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { initialState } from "@/lib/scheduler"
-import { tick, startScheduler, FIRST_TICK_MS, TICK_MS, JOB_TIMEOUT_MS, type Jobs } from "@/lib/schedulerRunner"
+import { tick, startScheduler, shutdownScheduler, resetShutdownForTests, FIRST_TICK_MS, TICK_MS, JOB_TIMEOUT_MS, type Jobs } from "@/lib/schedulerRunner"
 
 const NOW = new Date("2026-07-01T17:00:00Z") // Thu 03:00 AEST — only reminders/checkouts due
 
@@ -13,6 +13,7 @@ function jobs(overrides: Partial<Jobs> = {}): Jobs {
     clearanceDigest: jest.fn(async () => ({})),
     venueInvoice: jest.fn(async () => ({})),
     groupMessages: jest.fn(async () => ({})),
+    telemetryPurge: jest.fn(async () => ({})),
     ...overrides,
   }
 }
@@ -268,5 +269,47 @@ describe("DEFAULT_JOBS feature gating", () => {
     const { DEFAULT_JOBS, sweeps } = await loadOff()
     await DEFAULT_JOBS.groupMessages(NOW)
     expect(sweeps.runGroupMessageSweep).toHaveBeenCalledWith(NOW)
+  })
+})
+
+describe("shutdownScheduler (AUD-6-08)", () => {
+  beforeEach(() => { jest.useRealTimers(); resetShutdownForTests() })
+  afterEach(() => resetShutdownForTests())
+
+  it("waits for a running job, then disconnects; later ticks start nothing", async () => {
+    let finish!: () => void
+    const slow = new Promise<void>((r) => { finish = r })
+    const order: string[] = []
+    const j = jobs({ reminders: jest.fn(async () => { await slow; order.push("job done"); return {} }) })
+    const t = tick(initialState(), j, NOW)
+    await Promise.resolve()
+    const down = shutdownScheduler(async () => { order.push("disconnect") }, 5_000)
+    finish()
+    await Promise.all([t, down])
+    expect(order).toEqual(["job done", "disconnect"])
+    const j2 = jobs()
+    await tick(initialState(), j2, NOW)
+    expect(j2.reminders).not.toHaveBeenCalled()
+  })
+
+  it("gives up waiting after the grace period and still disconnects", async () => {
+    jest.useFakeTimers({ now: NOW })
+    try {
+      const never = jobs({ reminders: jest.fn(() => new Promise<never>(() => {})) })
+      void tick(initialState(), never, NOW)
+      await Promise.resolve()
+      const disconnect = jest.fn(async () => {})
+      const down = shutdownScheduler(disconnect, 1_000)
+      await jest.advanceTimersByTimeAsync(1_000)
+      await down
+      expect(disconnect).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("logs and survives a failing disconnect", async () => {
+    await expect(shutdownScheduler(async () => { throw new Error("boom") }, 10)).resolves.toBeUndefined()
+    expect((console.error as jest.Mock).mock.calls.map((c) => String(c[0])).some((l) => l.includes("disconnect failed"))).toBe(true)
   })
 })

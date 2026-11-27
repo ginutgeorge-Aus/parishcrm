@@ -16,6 +16,8 @@ function state(patch: Partial<Record<keyof SchedulerState, Partial<SchedulerStat
   if (!("venueInvoice" in patch)) s.venueInvoice.lastSuccessKey = "2026-07"
   // Interval job: park it (never due) so each test's expectations stay about the job under test.
   if (!("groupMessages" in patch)) s.groupMessages.lastStart = Infinity
+  // Daily retention purge: always due on a fresh state, so park it unless a test patches it.
+  if (!("telemetryPurge" in patch)) s.telemetryPurge.lastStart = Infinity
   for (const [k, v] of Object.entries(patch)) Object.assign(s[k as keyof SchedulerState], v)
   return s
 }
@@ -236,5 +238,18 @@ describe("dueJobs — groupMessages", () => {
     const s = state({ groupMessages: { lastStart: at(3).getTime() } })
     expect(dueJobs(at(3, 29), s, {})).not.toContain("groupMessages")
     expect(dueJobs(at(3, 30), s, {})).toContain("groupMessages")
+  })
+})
+
+describe("dueJobs — telemetryPurge", () => {
+  it("is due with no env flags set (does not depend on ERROR_DIGEST)", () => {
+    expect(dueJobs(at(3), state({ telemetryPurge: {} }), {})).toContain("telemetryPurge")
+  })
+  it("runs once per Sydney day: not due after success the same day, due the next", () => {
+    const s = state({ telemetryPurge: { lastSuccessKey: successKey("telemetryPurge", at(3)) } })
+    s.telemetryPurge.lastStart = at(3).getTime()
+    expect(dueJobs(at(5), s, {})).not.toContain("telemetryPurge")
+    const next = new Date(at(3).getTime() + 24 * 60 * MIN)
+    expect(dueJobs(next, s, {})).toContain("telemetryPurge")
   })
 })

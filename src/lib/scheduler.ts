@@ -12,7 +12,7 @@ export { schedulerEnabled, type Env } from "@/lib/schedulerFlag"
  * period; the clearance digest's and venue invoice's budgets are per Sydney day) until one attempt fully succeeds. This in-memory state only avoids wasted work — the
  * jobs' own DB markers are what prevent duplicate sends after a restart.
  */
-export type JobName = "reminders" | "checkouts" | "celebrations" | "errorDigest" | "clearanceDigest" | "venueInvoice" | "groupMessages"
+export type JobName = "reminders" | "checkouts" | "celebrations" | "errorDigest" | "clearanceDigest" | "venueInvoice" | "groupMessages" | "telemetryPurge"
 type JobState = {
   lastStart: number | null
   lastSuccessKey: string | null // Sydney day / week of the last full success (period jobs only)
@@ -21,7 +21,7 @@ type JobState = {
 }
 export type SchedulerState = Record<JobName, JobState>
 
-const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest", "clearanceDigest", "venueInvoice", "groupMessages"]
+const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest", "clearanceDigest", "venueInvoice", "groupMessages", "telemetryPurge"]
 
 const EVERY_MS = 30 * 60_000
 const CELEBRATIONS_FROM_HOUR = 7
@@ -32,18 +32,18 @@ const MAX_ATTEMPTS_PER_PERIOD = 3
 
 export function initialState(): SchedulerState {
   const fresh = (): JobState => ({ lastStart: null, lastSuccessKey: null, attempts: { key: null, count: 0 }, running: false })
-  return { reminders: fresh(), checkouts: fresh(), celebrations: fresh(), errorDigest: fresh(), clearanceDigest: fresh(), venueInvoice: fresh(), groupMessages: fresh() }
+  return { reminders: fresh(), checkouts: fresh(), celebrations: fresh(), errorDigest: fresh(), clearanceDigest: fresh(), venueInvoice: fresh(), groupMessages: fresh(), telemetryPurge: fresh() }
 }
 
 /**
- * The period a success counts for: Sydney day (celebrations), Sydney week (error digest),
+ * The period a success counts for: Sydney day (celebrations, telemetry purge), Sydney week (error digest),
  * Sydney month (clearance digest, venue invoice), none (interval jobs).
  * @param job - Job to key.
  * @param now - Current instant.
  * @returns Period key, or null for interval jobs.
  */
 export function successKey(job: JobName, now: Date): string | null {
-  if (job === "celebrations") return sydneyClock(now).ymd
+  if (job === "celebrations" || job === "telemetryPurge") return sydneyClock(now).ymd
   if (job === "errorDigest") return sydneyWeekStartYMD(now)
   if (job === "clearanceDigest" || job === "venueInvoice") return sydneyMonthKey(now)
   return null
@@ -71,6 +71,8 @@ function attemptKey(job: JobName, now: Date): string | null {
 function windowOpen(job: JobName, now: Date, env: Env): boolean {
   const c = sydneyClock(now)
   if (job === "celebrations") return c.hour >= CELEBRATIONS_FROM_HOUR
+  // Daily retention purge: always on (no env flag), open all day; in-memory state, so a restart re-runs it (idempotent).
+  if (job === "telemetryPurge") return true
   // Monthly: opens on the 1st (Sydney) from 07:00 and stays open to the end of
   // the 7th, so an outage on the 1st catches up; the Sydney-month success key
   // sends once, and the 3-attempt cap applies per Sydney day. Opt-in like the

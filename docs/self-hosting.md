@@ -129,6 +129,13 @@ login lookups may pick either row. The same goes for the partial unique index
 `db:push` database has no DB backstop for it, so only the action's own check
 blocks duplicate live exams there.
 
+**Upgrade fails on `User_email_lower_key`?** Migration `20261028000000_user_email_lower_unique`
+aborts with "case-variant duplicate User emails exist (...)" when two user accounts
+have emails that differ only by letter case. Do not edit the migration. Find the pair with
+`SELECT lower(email), count(*) FROM "User" GROUP BY 1 HAVING count(*) > 1;`, then remove or
+change the extra account's email (keep the one that is used to sign in), and re-run
+`prisma migrate deploy`.
+
 ## 4. Run
 
 Release tags are mutable in a registry, so pin the image by digest and verify its signed
