@@ -167,6 +167,38 @@ test("deleteFund writes an audit row (AUD-3-10)", async () => {
   expect(logAudit).toHaveBeenCalledWith(1, "FUND_DELETED", "Fund", 2, { name: "Building" })
 })
 
+test("updateFund returns 'Fund not found' when the fund vanishes before the in-transaction re-read", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Earlier", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+  const r = await updateFund(2, undefined, fd({ name: "Hall", isActive: "on", sortOrder: "3" }))
+  expect(r).toEqual({ error: "Fund not found" })
+  expect(prisma.fund.update).not.toHaveBeenCalled()
+  expect(logAudit).not.toHaveBeenCalled()
+})
+
+test("updateFund maps a concurrent-rename P2002 to the duplicate-name error", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Earlier", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null)
+  mockPrismaTransaction.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002" }))
+  const r = await updateFund(2, undefined, fd({ name: "Hall", isActive: "on", sortOrder: "3" }))
+  expect(r).toEqual({ error: "A fund with this name already exists" })
+})
+
+test("updateFund maps a P2034 serialization conflict to a retry message", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Earlier", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null)
+  mockPrismaTransaction.mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+  const r = await updateFund(2, undefined, fd({ name: "Hall", isActive: "on", sortOrder: "3" }))
+  expect(r).toEqual({ error: "This fund was changed at the same time by someone else — try again." })
+})
+
+test("updateFund rethrows an unexpected transaction error", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Earlier", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null)
+  mockPrismaTransaction.mockRejectedValueOnce(new Error("connection dropped"))
+  await expect(updateFund(2, undefined, fd({ name: "Hall", isActive: "on", sortOrder: "3" }))).rejects.toThrow("connection dropped")
+})
+
 test("updateFund records before and after (AUD-3-10)", async () => {
   mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Earlier", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null).mockResolvedValueOnce({ name: "Building", isActive: true, sortOrder: 0 })
