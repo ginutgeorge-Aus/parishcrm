@@ -100,13 +100,22 @@ export async function applyRosterResponse(token: string, client: RosterClient, n
   const r = await resolve(token, nowMs)
   if (!r) return failure(client.key)
   const status = r.action === "confirm" ? "CONFIRMED" : "DECLINED"
+  // A DECLINED row is final for links: declining frees the place (staff may have refilled it), so an
+  // old confirm link must not flip it back. Decline is allowed from PENDING or CONFIRMED.
+  const from = r.action === "confirm" ? ["PENDING" as const] : ["PENDING" as const, "CONFIRMED" as const]
   const changed = await prisma.$transaction(async (tx) => {
     const { count } = await tx.rosterAssignment.updateMany({
-      where: { id: r.id, status: { not: status } },
+      // Repeats resolve()'s guards so an archive or the service ending between read and write wins.
+      where: {
+        id: r.id,
+        status: { in: from },
+        person: { archivedAt: null },
+        slot: { service: { endsAt: { gt: new Date(nowMs) } } },
+      },
       data: { status, respondedAt: new Date(nowMs) },
     })
     if (count === 0) return false
-    await logAuditTx(tx, null, `ROSTER_ASSIGNMENT_${status}`, "RosterAssignment", r.id, { via: "token" }, client.ip)
+    await logAuditTx(tx, null, `ROSTER_ASSIGNMENT_${status}`, "RosterAssignment", r.id, { via: "token", from: r.row.status }, client.ip)
     return true
   })
   return { ok: true, action: r.action, changed }

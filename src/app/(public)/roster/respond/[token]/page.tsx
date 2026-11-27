@@ -28,21 +28,25 @@ export default async function RosterRespondPage({ params }: Readonly<Props>) {
   if (!preview.ok) {
     const limited = "limited" in preview && preview.limited
     return (
-      <main className="mx-auto max-w-md p-6 text-center text-sm">
+      <div className="mx-auto max-w-md p-6 text-center text-sm">
         {limited ? "Too many requests. Please try again in a minute." : "This link is not valid or has expired. Please contact the church office."}
-      </main>
+      </div>
     )
   }
   const verb = preview.action === "confirm" ? "confirm" : "decline"
   const done = preview.status === (preview.action === "confirm" ? "CONFIRMED" : "DECLINED")
+  // A declined place is final for links (staff may have refilled it): a confirm link cannot reverse it.
+  const locked = preview.action === "confirm" && preview.status === "DECLINED"
   const when = preview.date.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
   return (
-    <main className="mx-auto max-w-md space-y-4 p-6 text-center">
+    <div className="mx-auto max-w-md space-y-4 p-6 text-center">
       <h1 className="text-xl font-semibold">{preview.title}</h1>
       <p>
         {preview.role} · {when}
       </p>
-      {done ? (
+      {locked ? (
+        <p role="status">You have already told us you cannot serve. Please contact the church office to change this.</p>
+      ) : done ? (
         <p role="status">{verb === "confirm" ? "Thank you, you are confirmed." : "Thank you, we have recorded that you cannot serve."}</p>
       ) : (
         <form action={respondToRoster.bind(null, token)}>
@@ -51,6 +55,6 @@ export default async function RosterRespondPage({ params }: Readonly<Props>) {
           </button>
         </form>
       )}
-    </main>
+    </div>
   )
 }

@@ -15,7 +15,7 @@ import { ROSTER_RESPOND_TOKEN_RE } from "@/lib/rosterRespondPath"
  * @param token the signed token from the page path
  */
 export async function respondToRoster(token: string): Promise<void> {
-  if (!ROSTER_RESPOND_TOKEN_RE.test(token)) redirect("/")
-  await applyRosterResponse(token, resolveClientIp(await headers()))
-  redirect(`/roster/respond/${token}`)
+  // A malformed token is not applied; the page shows the generic invalid-link message for it.
+  if (ROSTER_RESPOND_TOKEN_RE.test(token)) await applyRosterResponse(token, resolveClientIp(await headers()))
+  redirect(`/roster/respond/${encodeURIComponent(token)}`)
 }

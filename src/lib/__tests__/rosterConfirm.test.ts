@@ -83,6 +83,7 @@ describe("public path", () => {
     expect(isPublicPath("/roster/respond/abc")).toBe(false)
     expect(isPublicPath("/roster/respond")).toBe(false)
     expect(isPublicPath("/roster")).toBe(false)
+    expect(isPublicPath(`/roster/respond/${"a".repeat(600)}.b`)).toBe(false)
   })
 })
 
@@ -92,17 +93,33 @@ describe("applyRosterResponse", () => {
     const r = await applyRosterResponse(tok("confirm"), C, NOW)
     expect(r).toEqual({ ok: true, action: "confirm", changed: true })
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 7, status: { not: "CONFIRMED" } },
+      where: { id: 7, status: { in: ["PENDING"] }, person: { archivedAt: null }, slot: { service: { endsAt: { gt: new Date(NOW) } } } },
       data: { status: "CONFIRMED", respondedAt: new Date(NOW) },
     })
-    expect(logAuditTx).toHaveBeenCalledWith(tx, null, "ROSTER_ASSIGNMENT_CONFIRMED", "RosterAssignment", 7, { via: "token" }, "1.1.1.1")
+    expect(logAuditTx).toHaveBeenCalledWith(tx, null, "ROSTER_ASSIGNMENT_CONFIRMED", "RosterAssignment", 7, { via: "token", from: "PENDING" }, "1.1.1.1")
+  })
+
+  it("never flips a DECLINED row back to CONFIRMED (write is limited to PENDING)", async () => {
+    findUnique.mockResolvedValue(row({ status: "DECLINED" }))
+    updateMany.mockResolvedValue({ count: 0 })
+    const r = await applyRosterResponse(tok("confirm"), C, NOW)
+    expect(r).toEqual({ ok: true, action: "confirm", changed: false })
+    expect(updateMany.mock.calls[0][0]).toMatchObject({ where: { status: { in: ["PENDING"] } } })
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("allows declining a CONFIRMED row and records the previous status", async () => {
+    findUnique.mockResolvedValue(row({ status: "CONFIRMED" }))
+    await applyRosterResponse(tok("decline"), C, NOW)
+    expect(updateMany.mock.calls[0][0]).toMatchObject({ where: { status: { in: ["PENDING", "CONFIRMED"] } } })
+    expect(logAuditTx).toHaveBeenCalledWith(tx, null, "ROSTER_ASSIGNMENT_DECLINED", "RosterAssignment", 7, { via: "token", from: "CONFIRMED" }, "1.1.1.1")
   })
 
   it("declines", async () => {
     findUnique.mockResolvedValue(row())
     const r = await applyRosterResponse(tok("decline"), C, NOW)
     expect(r).toEqual({ ok: true, action: "decline", changed: true })
-    expect(logAuditTx).toHaveBeenCalledWith(tx, null, "ROSTER_ASSIGNMENT_DECLINED", "RosterAssignment", 7, { via: "token" }, "1.1.1.1")
+    expect(logAuditTx).toHaveBeenCalledWith(tx, null, "ROSTER_ASSIGNMENT_DECLINED", "RosterAssignment", 7, { via: "token", from: "PENDING" }, "1.1.1.1")
   })
 
   it("is idempotent: a repeat tap changes nothing and writes no audit row", async () => {
