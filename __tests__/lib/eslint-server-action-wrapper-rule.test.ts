@@ -75,6 +75,32 @@ describe("crm/server-action-wrapper fixtures", () => {
     expect(lint(`"use server"\nexport async function noHandler() {\n  return guardedAction({ guard: isAdmin, args: z.tuple([]) }, [])\n}\n`)).toEqual(["noHandler"])
   })
 
+  it("flags a wrapper that does not check every raw parameter (AUD-2-01 bypass shapes)", () => {
+    const fn = (sig: string, tuple: string, input: string, handler: string) =>
+      `"use server"\nexport async function f(${sig}) {\n  return guardedAction({ guard: isAdmin, args: z.tuple([${tuple}]) }, [${input}], ${handler})\n}\n`
+    // Empty tuple + handler closing over the raw, unchecked id.
+    expect(lint(fn("id: number", "", "", "async () => prisma.x.delete({ where: { id } })"))).toEqual(["f"])
+    // Tuple lists the param, but the handler still reads the raw outer value.
+    expect(lint(fn("id: number", "pgIdArg", "id", "async () => prisma.x.delete({ where: { id } })"))).toEqual(["f"])
+    // Fewer schemas than parameters.
+    expect(lint(fn("a: number, b: string", "pgIdArg", "a, b", "async (_c, [a]) => a"))).toEqual(["f"])
+    // Parameters passed out of order, or one missing.
+    expect(lint(fn("a: number, b: number", "pgIdArg, pgIdArg", "b, a", "async (_c, [a, b]) => a + b"))).toEqual(["f"])
+    expect(lint(fn("a: number, b: number", "pgIdArg, pgIdArg", "a", "async (_c, [a]) => a"))).toEqual(["f"])
+    // args not an inline tuple.
+    expect(lint(`"use server"\nexport async function f(id: number) {\n  return guardedAction({ guard: isAdmin, args: Schema }, [id], async (_c, [id]) => id)\n}\n`)).toEqual(["f"])
+    // Destructured or defaulted parameters cannot be passed through unchanged.
+    expect(lint(fn("{ id }: { id: number }", "pgIdArg", "id", "async (_c, [id]) => id"))).toEqual(["f"])
+    // Correct: every parameter, in order, handler uses only its parsed values (optional param ok).
+    expect(lint(fn("a: number, b?: { x?: boolean }", "pgIdArg, Opts", "a, b", "async (_c, [a, b]) => [a, b]"))).toEqual([])
+  })
+
+  it("flags generators, classes and export-all in a 'use server' file", () => {
+    expect(lint(`"use server"\nexport async function* g() { return guardedAction({ guard: isAdmin, args: z.tuple([]) }, [], async () => 1) }\n`)).toEqual(["g"])
+    expect(lint(`"use server"\nexport class C {}\n`)).toEqual(["C"])
+    expect(lint(`"use server"\nexport * from "./other"\n`)).toEqual(["<export>"])
+  })
+
   it("flags exported consts, re-exports and default exports", () => {
     expect(lint(`"use server"\nexport const a = async () => 1\nconst b = async () => 2\nexport { b }\nexport default async function () {}\n`))
       .toEqual(["a", "b", "default"])

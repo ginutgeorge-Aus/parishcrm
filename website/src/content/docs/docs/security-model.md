@@ -66,7 +66,8 @@ Server Actions therefore run through one wrapper, `guardedAction` (`src/lib/guar
 In a fixed order it checks the live-demo block (when asked), the signed-in user's role, and the
 feature switch, and then checks every argument against a schema. Only after that does the
 action's own code run, and only with the checked values. A lint rule
-(`crm/server-action-wrapper`) fails the build for any new action that skips the wrapper. Actions
+(`crm/server-action-wrapper`) fails the build for any new action in `src/lib/actions/` that skips
+the wrapper, or that passes the wrapper without checking every argument. Actions
 written before the wrapper existed are on a list that may only shrink, and they keep their own
 hand-written checks until they are converted.
 
