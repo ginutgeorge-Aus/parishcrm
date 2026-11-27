@@ -18,9 +18,9 @@ describe("AUD-2-05 mention and line-break hardening", () => {
     expect(escapeMarkdown("(@bar)")).toBe("(@​bar)")
   })
 
-  it("keeps an @ path segment inside a URL, still defuses a standalone mention", () => {
-    expect(escapeMarkdown("see https://example.org/@octocat")).toBe("see https://example.org/@octocat")
-    expect(escapeMarkdown("https://example.org/@octocat and @octocat")).toBe("https://example.org/@octocat and @\u200boctocat")
+  it("defuses an @ path segment in a URL and a standalone mention", () => {
+    expect(escapeMarkdown("see https://example.org/@octocat")).toBe("see https://example.org/@\u200boctocat")
+    expect(escapeMarkdown("x/@bob and @octocat")).toBe("x/@\u200bbob and @\u200boctocat")
   })
 
   it("defuses mentions that follow URL punctuation or whitespace", () => {

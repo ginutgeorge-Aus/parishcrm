@@ -14,9 +14,10 @@ export type IssueClientContext = {
 // Neutralise markdown control characters before embedding user-controlled text
 // into an issue body. `<` too: `\<` is a CommonMark literal, so
 // user text can't open or close raw HTML such as the `</details>` wrapper below.
-// A mention directly after `/` (a URL path segment such as `https://host/@user`) stays
-// literal; every other `@` before a handle character is defused.
-const MENTION = /(?<![\w\/])@(?=[\w-])/g
+// Every `@` before a handle character is defused unless preceded by a word character
+// (emails, `user@host`). Not exempting `/`: GitHub mention behaviour after a path
+// separator is not guaranteed.
+const MENTION = /(?<!\w)@(?=[\w-])/g
 
 // A mention gets a zero-width space after the `@` so GitHub does not ping that
 // user from the church's token (AUD-2-05).
