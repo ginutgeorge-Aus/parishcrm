@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
   // note: the running balance in a cut-off file would otherwise look final.
   let csv = generateGeneralLedgerCsv(rows)
   if (truncated) {
-    csv += `\nExport truncated at ${EXPORT_ROW_CAP} rows (oldest first); the running balance is incomplete. Export a shorter period to see the rest.\n`
+    csv += `\nExport truncated at ${EXPORT_ROW_CAP} rows (oldest first); the running balance is incomplete and later rows are not included.\n`
   }
 
   const ip = auditIpFromRequest(req)

@@ -18,6 +18,11 @@ describe("AUD-2-05 mention and line-break hardening", () => {
     expect(escapeMarkdown("(@bar)")).toBe("(@​bar)")
   })
 
+  it("keeps an @ path segment inside a URL, still defuses a standalone mention", () => {
+    expect(escapeMarkdown("see https://example.org/@octocat")).toBe("see https://example.org/@octocat")
+    expect(escapeMarkdown("https://example.org/@octocat and @octocat")).toBe("https://example.org/@octocat and @\u200boctocat")
+  })
+
   it("escapeLine collapses CR/LF so a forged line cannot start", () => {
     expect(escapeLine("a\r\n- Reporter: admin")).toBe("a - Reporter: admin")
   })
