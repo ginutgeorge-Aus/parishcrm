@@ -8,7 +8,7 @@ import { logAudit } from "@/lib/audit"
 import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
-import { isP2034 } from "@/lib/validation"
+import { isP2034, isP2002 } from "@/lib/validation"
 import type { ActionResult } from "./types"
 import { guardedAction, pgIdArg, formDataArg, prevStateArg } from "@/lib/guardedAction"
 
@@ -62,9 +62,24 @@ export async function updateFund(
         return { error: "The General fund cannot be renamed." }
       const dup = await prisma.fund.findUnique({ where: { name: parsed.data.name } })
       if (dup && dup.id !== id) return { error: "A fund with this name already exists" }
-      await prisma.fund.update({ where: { id }, data: parsed.data })
+      // Read the prior values in the same transaction as the write so the audit "before" can't be stale.
+      // Serializable so a concurrent edit aborts one side (P2034) instead of being silently overwritten.
+      let before: { name: string; isActive: boolean; sortOrder: number } | null
+      try {
+        before = await prisma.$transaction(async (tx) => {
+          const current = await tx.fund.findUnique({ where: { id }, select: { name: true, isActive: true, sortOrder: true } })
+          if (!current) return null
+          await tx.fund.update({ where: { id }, data: parsed.data })
+          return current
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      } catch (e) {
+        if (isP2002(e)) return { error: "A fund with this name already exists" }
+        if (isP2034(e)) return { error: "This fund was changed at the same time by someone else — try again." }
+        throw e
+      }
+      if (!before) return { error: "Fund not found" }
       await logAudit(actorId(session), "FUND_UPDATED", "Fund", id, {
-        before: { name: existing.name, isActive: existing.isActive, sortOrder: existing.sortOrder },
+        before,
         after: { name: parsed.data.name, isActive: parsed.data.isActive, sortOrder: parsed.data.sortOrder },
       })
       revalidateFunds()

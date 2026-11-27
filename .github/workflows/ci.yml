@@ -55,7 +55,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 2 # PR merge commit: HEAD^1 is the base branch tip (allowlist shrink check)
           persist-credentials: false
+      # The server-action allowlist may only shrink: a PR may delete entries, never add one
+      # (a same-size swap would slip past the size ceiling in the Jest ratchet).
+      - name: Server-action allowlist only shrinks
+        if: github.event_name == 'pull_request'
+        run: |
+          if ! git show HEAD^1:eslint-rules/serverActionAllowlist.json > "$RUNNER_TEMP/base-allowlist.json" 2>/dev/null; then
+            echo "No allowlist on the base branch yet; nothing to compare."
+            exit 0
+          fi
+          node scripts/check-action-allowlist.mjs "$RUNNER_TEMP/base-allowlist.json"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'

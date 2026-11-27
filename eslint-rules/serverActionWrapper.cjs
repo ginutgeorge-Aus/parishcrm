@@ -8,7 +8,9 @@
 // serverActionAllowlist.json ("<repo-relative file>:<export>"). The list may
 // only shrink: __tests__/lib/eslint-server-action-wrapper-rule.test.ts fails
 // on a stale entry (already wrapped or deleted), so migrating an action means
-// deleting its line. A NEW action must use the wrapper; do not add it here.
+// deleting its line. A NEW action must use the wrapper; do not add it here:
+// CI's `static` job fails a PR that adds any entry the base branch lacks
+// (newAllowlistEntries below).
 //
 // CommonJS for the same reason as rawPalette.cjs: eslint.config.mjs imports it
 // and Jest require()s it directly.
@@ -31,6 +33,67 @@ function isUseServer(program) {
 }
 
 /**
+ * Name of the identifier a member/call chain starts from (`z` for `z.string().max(5)`), or null.
+ * @param {any} node ESTree expression
+ * @returns {string | null}
+ */
+function chainRoot(node) {
+  let n = node
+  while (n) {
+    if (n.type === "Identifier") return n.name
+    if (n.type === "CallExpression") n = n.callee
+    else if (n.type === "MemberExpression") n = n.object
+    else return null
+  }
+  return null
+}
+
+/** Node keys that are not child nodes (ESTree `parent` would loop). */
+const SKIP_KEYS = new Set(["parent", "loc", "range", "tokens", "comments"])
+
+/**
+ * The first piece of `node` that would run code when the wrapper's arguments are evaluated (before
+ * the guard), described for the lint message, or null. Allowed: literals, identifiers, object/array
+ * literals and zod builder chains rooted at `z` (`z.tuple([...])`, `z.string().max(9)`). Rejected:
+ * any other call or `new`, `await`/`yield`, functions (only the handler may be one), assignments,
+ * updates, tagged templates, and getters.
+ * @param {any} node ESTree node inside the spec
+ * @returns {string | null}
+ */
+function preGuardCode(node) {
+  if (!node || typeof node.type !== "string") return null
+  switch (node.type) {
+    case "CallExpression":
+      if (chainRoot(node) !== "z") return "a call"
+      break
+    case "NewExpression":
+    case "AwaitExpression":
+    case "YieldExpression":
+    case "AssignmentExpression":
+    case "UpdateExpression":
+    case "TaggedTemplateExpression":
+    case "ImportExpression":
+    case "ArrowFunctionExpression":
+    case "FunctionExpression":
+    case "ClassExpression":
+      return node.type
+    case "Property":
+      if (node.kind !== "init" || node.method) return "an accessor or method"
+      break
+  }
+  for (const [key, value] of Object.entries(node)) {
+    if (SKIP_KEYS.has(key)) continue
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child && typeof child === "object" && typeof child.type === "string") {
+        const found = preGuardCode(child)
+        if (found) return found
+      }
+    }
+  }
+  return null
+}
+
+/**
  * Why `fn` is not a correctly wrapped action, or null when it is. Correct means:
  * `async function f(a, b) { return guardedAction({ guard, args: z.tuple([A, B]), ... }, [a, b], handler) }`
  * with nothing else in the body (no code runs before the guard), one tuple entry per parameter, the
@@ -47,12 +110,25 @@ function wrapProblem(fn, sourceCode) {
   const call = ret.argument
   if (call.callee.type !== "Identifier" || call.callee.name !== WRAPPER) return "no wrapper call"
   if (call.arguments.length !== 3) return "wrapper needs (spec, [params], handler)"
-  const [spec, input] = call.arguments
+  const [spec, input, handler] = call.arguments
+  // Arguments are evaluated before guardedAction runs: the handler must be an inline function
+  // (not `(await prisma.x.deleteMany(), async () => 1)` or a call that returns one), and the spec
+  // may hold only literals, identifiers and zod schema builders, never other calls or awaits.
+  if (handler.type !== "ArrowFunctionExpression" && handler.type !== "FunctionExpression") {
+    return "handler must be an inline async function"
+  }
   if (spec.type !== "ObjectExpression") return "spec must be an object literal"
+  const unsafe = preGuardCode(spec)
+  if (unsafe) return `spec runs code before the guard (${unsafe})`
   const props = new Map(
     spec.properties.filter((p) => p.type === "Property" && p.key.type === "Identifier").map((p) => [p.key.name, p.value]),
   )
-  if (!props.has("guard")) return "spec has no guard"
+  if (spec.properties.some((p) => p.type !== "Property" || p.computed)) return "spec must use plain keys (no spread)"
+  const guard = props.get("guard")
+  if (!guard) return "spec has no guard"
+  if (!(guard.type === "Identifier" || (guard.type === "Literal" && guard.value === "public"))) {
+    return 'guard must be a roleGuard helper name or "public"'
+  }
   const args = props.get("args")
   const isTuple =
     args &&
@@ -154,4 +230,18 @@ const rule = {
 
 const allowlist = require("./serverActionAllowlist.json")
 
-module.exports = { rule, allowlist }
+/**
+ * Allowlist entries in `head` that `base` (the PR's base branch) did not have. The list may only
+ * shrink, so CI fails on any result: a same-size swap (remove one, add a new unwrapped action)
+ * passes the size ceiling but not this.
+ * @param {string[]} base allowlist on the base branch
+ * @param {string[]} head allowlist in this change
+ * @returns {string[]}
+ * Used by scripts/check-action-allowlist.mjs (CI `static` job) and the rule's Jest test.
+ */
+function newAllowlistEntries(base, head) {
+  const before = new Set(base)
+  return head.filter((e) => !before.has(e))
+}
+
+module.exports = { rule, allowlist, newAllowlistEntries }

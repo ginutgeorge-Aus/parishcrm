@@ -7,9 +7,10 @@
 import fs from "node:fs"
 import path from "node:path"
 import { Linter } from "eslint"
-const { rule, allowlist } = require("../../eslint-rules/serverActionWrapper.cjs") as {
+const { rule, allowlist, newAllowlistEntries } = require("../../eslint-rules/serverActionWrapper.cjs") as {
   rule: import("eslint").Rule.RuleModule
   allowlist: string[]
+  newAllowlistEntries: (base: string[], head: string[]) => string[]
 }
 // The TypeScript parser eslint-config-next configures for `npm run lint`, resolved through it so
 // this test parses with the very same version.
@@ -95,6 +96,27 @@ describe("crm/server-action-wrapper fixtures", () => {
     expect(lint(fn("a: number, b?: { x?: boolean }", "pgIdArg, Opts", "a, b", "async (_c, [a, b]) => [a, b]"))).toEqual([])
   })
 
+  it("flags code that runs before the guard while the wrapper's arguments are evaluated", () => {
+    const fn = (spec: string, handler = "async () => 1") =>
+      `"use server"\nexport async function f() {\n  return guardedAction(${spec}, [], ${handler})\n}\n`
+    const ok = "{ guard: isAdmin, args: z.tuple([]) }"
+    // Handler position: a sequence that deletes first, a call returning a handler, a handler variable.
+    expect(lint(fn(ok, "(await prisma.fund.deleteMany(), async () => undefined)"))).toEqual(["f"])
+    expect(lint(fn(ok, "makeHandler()"))).toEqual(["f"])
+    expect(lint(fn(ok, "handler"))).toEqual(["f"])
+    // Spec: non-zod calls, awaits, computed guards, spreads, getters.
+    expect(lint(fn("{ guard: isAdmin, args: z.tuple([]), denied: prisma.fund.deleteMany() }"))).toEqual(["f"])
+    expect(lint(fn("{ guard: isAdmin, args: z.tuple([]), feature: await x }"))).toEqual(["f"])
+    expect(lint(fn("{ guard: (wipe(), isAdmin), args: z.tuple([]) }"))).toEqual(["f"])
+    expect(lint(fn("{ guard: pick(isAdmin), args: z.tuple([]) }"))).toEqual(["f"])
+    expect(lint(fn("{ ...base, guard: isAdmin, args: z.tuple([]) }"))).toEqual(["f"])
+    expect(lint(fn("{ guard: isAdmin, args: z.tuple([]), get denied() { return wipe() } }"))).toEqual(["f"])
+    expect(lint(fn("{ guard: isAdmin, args: z.tuple([z.string().max(prisma.x.count())]) }"))).toEqual(["f"])
+    // Allowed: literals, identifiers, arrays and zod builder chains; "public" guard; function handler.
+    expect(lint(fn('{ guard: "public", args: z.tuple([]), feature: "events", denied: [], blockInDemo: true }'))).toEqual([])
+    expect(lint(fn(ok, "async function () { return 1 }"))).toEqual([])
+  })
+
   it("flags generators, classes and export-all in a 'use server' file", () => {
     expect(lint(`"use server"\nexport async function* g() { return guardedAction({ guard: isAdmin, args: z.tuple([]) }, [], async () => 1) }\n`)).toEqual(["g"])
     expect(lint(`"use server"\nexport class C {}\n`)).toEqual(["C"])
@@ -142,6 +164,12 @@ describe("crm/server-action-wrapper ratchet over src/lib/actions", () => {
   it("the allowlist has no duplicates and never grows past its ceiling", () => {
     expect(new Set(allowlist).size).toBe(allowlist.length)
     expect(allowlist.length).toBeLessThanOrEqual(MAX_ALLOWLIST)
+  })
+
+  it("newAllowlistEntries (CI shrink check) flags additions, including a same-size swap", () => {
+    expect(newAllowlistEntries(["a:x", "a:y"], ["a:x"])).toEqual([])
+    expect(newAllowlistEntries(["a:x", "a:y"], ["a:x", "b:new"])).toEqual(["b:new"])
+    expect(newAllowlistEntries(["a:x"], ["a:x", "a:x2"])).toEqual(["a:x2"])
   })
 
   it("migrated files are off the list (fund.ts is fully wrapped)", () => {
