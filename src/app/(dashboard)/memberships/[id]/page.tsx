@@ -170,7 +170,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
             {app.reviewedBy?.name ? ` by ${app.reviewedBy.name}` : ""}
             {` on ${formatSydneyDate(app.reviewedAt)}`}
           </p>
-          {app.reviewNote && <p className="mt-1 text-muted-foreground">Note: {app.reviewNote}</p>}
+          {app.reviewNote && <p className="mt-1 text-muted-foreground">Note: {decrypt(app.reviewNote)}</p>}
         </section>
       )}
 

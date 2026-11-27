@@ -26,6 +26,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { readPayload, buildNotesBlock } from "@/lib/membership"
+import { decrypt } from "@/lib/crypto"
 import MembershipDetailPage from "@/app/(dashboard)/memberships/[id]/page"
 
 const mockAuth = auth as jest.Mock
@@ -92,8 +93,10 @@ test("approved application shows who approved it, when, and the family it joined
     ...reviewedBase,
     status: "APPROVED",
     linkedFamily: { id: 7, name: "Doe Family" },
-    reviewNote: "Welcome aboard",
+    reviewNote: "enc:welcome",
   })
+  // First decrypt call is the signature; the second is the stored (encrypted) review note.
+  ;(decrypt as jest.Mock).mockReturnValueOnce("data:image/png;base64,sig").mockReturnValueOnce("Welcome aboard")
   const html = renderToStaticMarkup(await MembershipDetailPage(props))
   expect(html).toContain('aria-label="Review outcome"')
   expect(html).toContain("Approved")
@@ -101,6 +104,7 @@ test("approved application shows who approved it, when, and the family it joined
   expect(html).toContain("Doe Family")
   expect(html).toContain("by Pat Reviewer")
   expect(html).toContain("Note: Welcome aboard")
+  expect(html).not.toContain("enc:welcome")
 })
 
 test("rejected application shows the outcome without a family link or reviewer name when absent", async () => {
