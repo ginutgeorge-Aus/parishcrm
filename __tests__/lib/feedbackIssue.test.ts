@@ -2,7 +2,15 @@ import { escapeMarkdown, escapeLine, buildIssueTitle, buildIssueBody } from "@/l
 
 describe("AUD-2-05 mention and line-break hardening", () => {
   it("defuses @mentions with a zero-width space", () => {
-    expect(escapeMarkdown("ping @octocat")).toBe("ping @​octocat")
+    expect(escapeMarkdown("ping @octocat")).toBe("ping @\u200boctocat")
+  })
+
+  it("leaves emails and user@host URLs intact", () => {
+    expect(escapeMarkdown("a@example.com https://u@host/x")).toBe("a@example.com https://u@host/x")
+  })
+
+  it("defuses a mention at the start and after punctuation", () => {
+    expect(escapeMarkdown("@a (@b)")).toBe("@​a (@​b)")
   })
 
   it("escapeLine collapses CR/LF so a forged line cannot start", () => {

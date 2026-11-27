@@ -5,7 +5,7 @@ import { headers } from "next/headers"
 import { prisma } from "@/lib/prisma"
 import { createIssue } from "@/lib/github"
 import { verifyTurnstile } from "@/lib/turnstile"
-import { dbRateLimit } from "@/lib/dbRateLimit"
+import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 import { sendEmail } from "@/lib/email"
 import { escapeLine, buildIssueTitle, buildIssueBody, type IssueClientContext } from "@/lib/feedbackIssue"
 import type { ActionResultWithSuccess } from "./types"
@@ -120,8 +120,11 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
   if (!(await verifyTurnstile(data.turnstileToken, ip))) return { error: "Verification failed. Please try again." }
   if (!(await dbRateLimit(`pubfeedback:ip:${rateKey}`, RATE_LIMIT, RATE_WINDOW_MS)))
     return { error: "Too many reports. Please try again later." }
-  if (!(await dbRateLimit("pubfeedback:global", GLOBAL_DAILY_LIMIT, GLOBAL_WINDOW_MS)))
+  if (!(await dbRateLimit("pubfeedback:global", GLOBAL_DAILY_LIMIT, GLOBAL_WINDOW_MS))) {
+    // Denied by the site-wide cap: give back this visitor's per-IP slot.
+    await dbRateLimitRefund(`pubfeedback:ip:${rateKey}`)
     return { error: "Too many reports. Please try again later." }
+  }
 
   const submittedAt = new Date()
   const timestamp = new Intl.DateTimeFormat(APP_LOCALE, {

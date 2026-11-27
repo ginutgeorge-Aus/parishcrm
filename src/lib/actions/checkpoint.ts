@@ -7,16 +7,11 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { findCheckpoint } from "@/lib/testCheckpoints"
 import { createIssue } from "@/lib/github"
+import { escapeMarkdown } from "@/lib/feedbackIssue"
 import { logAudit } from "@/lib/audit"
 import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
-
-// Neutralise markdown control characters before embedding user-controlled text
-// into the issue body (same approach as feedback.ts).
-function escapeMarkdown(value: string): string {
-  return value.replace(/[\\`|[\]*_~>#]/g, (c) => `\\${c}`)
-}
 
 const noteSchema = z.string().trim().min(1, "A note is required").max(500, "Note is too long")
 

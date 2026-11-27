@@ -7,5 +7,5 @@
  * @returns slug of at most 40 characters, never empty
  */
 export function filenameSlug(name: string, fallback = "file"): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || fallback
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40).replace(/(^-+|-+$)/g, "") || fallback
 }
