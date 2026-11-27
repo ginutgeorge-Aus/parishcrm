@@ -4,6 +4,10 @@ import { MONEY_DECIMAL_RE } from "@/lib/validation"
 // become unbounded JSON growth on one request.
 const MAX_TIERS = 20
 
+// Sanity ceiling for one tier price (AUD-4-08): an absurd typo times quantity
+// would overflow the Decimal(10,2) money column and break the public form.
+const MAX_TIER_PRICE = 999999.99
+
 // Read repeated `tier.<i>.price` form fields into an ordered dollar array.
 // Row i = the total price for a registration of (i+1) attendees; the array
 // length is the hard max group size. Trailing blank rows are skipped, but a
@@ -24,6 +28,7 @@ export function parseTiers(formData: FormData): { error: string } | { tiers: num
     if (sawBlank) return { error: `Tier ${i + 1} follows a blank tier — remove blank rows between prices` }
     if (!MONEY_DECIMAL_RE.test(raw)) return { error: `Invalid price for tier ${i + 1}` }
     const price = Number(raw)
+    if (price > MAX_TIER_PRICE) return { error: `Price for tier ${i + 1} is too large` }
     // Tier i = price for (i+1) attendees — a lower price for more attendees
     // than fewer is never intentional and would undercharge larger families
     // relative to smaller ones for the same event.

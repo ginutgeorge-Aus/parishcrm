@@ -10,7 +10,13 @@ jest.mock("@/lib/crypto", () => ({
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
 
+jest.mock("@/lib/fundraiserCheckout", () => ({
+  ...jest.requireActual("@/lib/fundraiserCheckout"),
+  expireOpenFundraiserCheckouts: jest.fn(async () => 0),
+}))
+
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
+import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { auth } from "@/auth"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
@@ -72,6 +78,14 @@ describe("recordPayment", () => {
     expect(data.paidAt).toEqual(new Date("2026-11-01T00:00:00.000Z"))
     expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", 1, expect.objectContaining({ amount: "20.00", method: "CASH" }))
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
+  })
+
+  it("expires open card checkouts after recording (AUD-4-20), but not for a repeat", async () => {
+    expect(await recordPayment(11, input)).toBeUndefined()
+    expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(11)
+    ;(expireOpenFundraiserCheckouts as jest.Mock).mockClear()
+    expect(await recordPayment(11, input)).toBeUndefined()
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
   })
 
   it("rejects an amount over the remaining balance", async () => {
@@ -170,6 +184,18 @@ describe("deletePayment", () => {
       id: 4, entryId: 11, amount: { toString: () => "20", toFixed: (n: number) => (20).toFixed(n) }, method: "BANK",
       entry: { fundraiser: { eventId: 7 } },
     })
+  })
+
+  it("expires open card checkouts after delete (AUD-4-20)", async () => {
+    expect(await deletePayment(4)).toBeUndefined()
+    expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(11)
+  })
+
+  it("locks the entry row before deleting; missing entry fails without deleting", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([])
+    expect(await deletePayment(4)).toEqual({ error: "Entry not found" })
+    expect(prismaMock.fundraiserPayment.deleteMany).not.toHaveBeenCalled()
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
   })
 
   it("deletes and audits amount + method in one transaction", async () => {

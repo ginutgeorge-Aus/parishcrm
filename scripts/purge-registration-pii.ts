@@ -92,6 +92,8 @@ async function main() {
         // Prisma.DbNull, not a literal null — the pure payloads carry `null` to
         // document intent, so override just those two fields here.
         await prisma.$transaction([
+          // AUD-4-07: the encrypted "reminder sent to" address outlives the anonymised registration otherwise.
+          prisma.paymentReminderSend.deleteMany({ where: { registrationId: reg.id } }),
           prisma.attendee.updateMany({
             where: { registrationItem: { registrationId: reg.id } },
             data: { ...anonymisedAttendeeData(), answers: Prisma.DbNull },
@@ -107,6 +109,18 @@ async function main() {
 
   console.log(
     `${regs} registration(s) and ${attendees} attendee(s) ${APPLY ? "anonymised" : "would be anonymised"}.`,
+  )
+
+  // AUD-4-07 one-time cleanup: earlier purge runs anonymised registrations but left their
+  // reminder rows (encrypted recipient address). The loop above skips those registrations.
+  const orphanReminders = await prisma.paymentReminderSend.count({
+    where: { registration: { anonymizedAt: { not: null } } },
+  })
+  if (APPLY && orphanReminders > 0) {
+    await prisma.paymentReminderSend.deleteMany({ where: { registration: { anonymizedAt: { not: null } } } })
+  }
+  console.log(
+    `${orphanReminders} reminder row(s) of already-anonymised registrations ${APPLY ? "deleted" : "would be deleted"}.`,
   )
 
   // Waitlist rows for the same past-retention events — same cursor-

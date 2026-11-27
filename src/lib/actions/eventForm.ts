@@ -147,8 +147,9 @@ const MAX_INT4 = 2147483647
 // TicketType.price is Decimal(10,2) — 8 integer digits max. MONEY_DECIMAL_RE has
 // no upper bound, so a 9+ digit price passes format validation and overflows the
 // column, surfacing as a raw Postgres numeric-overflow 500 instead of a clean
-// validation error.
-const MAX_TICKET_PRICE = 99999999.99
+// validation error. Capped lower (AUD-4-08) so price x quantity cannot overflow
+// the registration total either.
+const MAX_TICKET_PRICE = 999999.99
 
 // capped at 2 MB (down from 5 MB) so the two images together (banner +
 // poster) fit under `serverActions.bodySizeLimit` — that Next.js setting has no

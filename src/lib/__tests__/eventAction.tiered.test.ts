@@ -10,6 +10,10 @@ describe("parseTiers", () => {
   it("parses ordered dollar tiers", () => {
     expect(parseTiers(fd(["60", "120", "150", "180"]))).toEqual({ tiers: [60, 120, 150, 180] })
   })
+  it("caps a tier price at 999999.99 (AUD-4-08)", () => {
+    expect(parseTiers(fd(["999999.99"]))).toEqual({ tiers: [999999.99] })
+    expect(parseTiers(fd(["1000000.00"]))).toEqual({ error: "Price for tier 1 is too large" })
+  })
   it("skips a trailing blank row", () => {
     expect(parseTiers(fd(["60", "120", ""]))).toEqual({ tiers: [60, 120] })
   })

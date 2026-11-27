@@ -148,6 +148,7 @@ describe("createEvent — ticket price validation", () => {
     ["errors on a named ticket whose price has more than 2 decimal places instead of truncating", "9.999"],
     ["errors on a named ticket whose price is exponential notation (1e3) instead of accepting 1000", "1e3"],
     ["errors on a price that overflows the Decimal(10,2) column instead of hitting a DB 500", "100000000"],
+    ["errors on a price above the 999999.99 sanity cap (AUD-4-08)", "1000000"],
   ])("%s", async (_name, price) => {
     mockSession("PASTOR")
     ;(prisma.event.create as jest.Mock).mockResolvedValue({ id: 1 })
@@ -156,13 +157,13 @@ describe("createEvent — ticket price validation", () => {
     expect(prisma.event.create).not.toHaveBeenCalled()
   })
 
-  it("accepts a price at the Decimal(10,2) max (99999999.99)", async () => {
+  it("accepts a price at the sanity cap (999999.99)", async () => {
     mockSession("PASTOR")
     ;(prisma.event.create as jest.Mock).mockResolvedValue({ id: 1 })
-    await createEvent(undefined, ticketForm("99999999.99"))
+    await createEvent(undefined, ticketForm("999999.99"))
     expect(prisma.event.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        ticketTypes: { create: [{ name: "Adult", price: "99999999.99", capacity: null, countsTowardWaiver: false }] },
+        ticketTypes: { create: [{ name: "Adult", price: "999999.99", capacity: null, countsTowardWaiver: false }] },
       }),
     })
   })

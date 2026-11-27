@@ -152,6 +152,7 @@ export function formatUsageDate(date: Date): string {
  * @param value candidate date string
  */
 export function isValidYMD(value: string): boolean {
+  if (typeof value !== "string") return false
   const m = YMD_RE.exec(value)
   if (!m) return false
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
@@ -182,7 +183,8 @@ export function utcDateToYmd(date: Date): string {
  * @param value candidate month key
  */
 export function isValidMonth(value: string): boolean {
-  return MONTH_RE.test(value)
+  // typeof guard: RegExp.test coerces a one-element array to its string (AUD-4-36).
+  return typeof value === "string" && MONTH_RE.test(value)
 }
 
 /**
