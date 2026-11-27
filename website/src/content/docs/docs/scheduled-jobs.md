@@ -22,6 +22,14 @@ scheduler.
 | Venue invoice request | Once per Sydney month, on the 1st from 09:00 (catches up through the 7th if the app was down; at most 3 attempts per Sydney day, 30 minutes apart, and the budget refreshes each day). Sends last month's invoice request if an admin approved it and the month is still complete, otherwise emails ADMIN, PASTOR and OFFICE_ADMIN users a reminder. Does nothing until Venue bookings is enabled with a contact email. No env flag and no HTTP endpoint; the **Send request** button on the Venue bookings page is the manual route. |
 | Error digest | Once per Sydney week, from Monday 09:00. Opt-in: needs `ERROR_DIGEST=true` plus `GITHUB_TOKEN` and `GITHUB_REPO`. |
 
+**Monitoring.** Every tick (5 minutes) the scheduler saves a heartbeat in the
+database, and each job saves the time of its last full success. `GET /api/health`
+reports a coarse `scheduler` field next to `status`: `ok` (ticked in the last 15
+minutes), `stale` (it did not; the timer is stuck or the app is down), `off`
+(in-app scheduler disabled) or `unknown` (no tick yet, e.g. just after boot). A
+stale scheduler never fails the probe, so point your uptime monitor at the field
+rather than the status code.
+
 A period job that does not fully succeed is retried 30 minutes later, at most
 3 times per day, week or month. The timer only fires while the process is up, so on a
 host that scales to zero or sleeps idle apps, set `IN_APP_CRON=false` and use

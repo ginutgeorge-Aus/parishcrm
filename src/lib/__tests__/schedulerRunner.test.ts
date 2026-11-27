@@ -2,6 +2,9 @@
 import { initialState } from "@/lib/scheduler"
 import { tick, startScheduler, FIRST_TICK_MS, TICK_MS, JOB_TIMEOUT_MS, type Jobs } from "@/lib/schedulerRunner"
 
+const mockStatus = { recordHeartbeat: jest.fn(async () => {}), recordJobSuccess: jest.fn(async () => {}) }
+jest.mock("@/lib/jobStatus", () => ({ recordHeartbeat: (...a: unknown[]) => mockStatus.recordHeartbeat(...(a as [])), recordJobSuccess: (...a: unknown[]) => mockStatus.recordJobSuccess(...(a as [])) }))
+
 const NOW = new Date("2026-07-01T17:00:00Z") // Thu 03:00 AEST — only reminders/checkouts due
 
 function jobs(overrides: Partial<Jobs> = {}): Jobs {
@@ -30,6 +33,20 @@ afterEach(() => {
 })
 
 describe("tick", () => {
+  it("saves a heartbeat every tick and each job's last success", async () => {
+    mockStatus.recordHeartbeat.mockClear(); mockStatus.recordJobSuccess.mockClear()
+    await tick(initialState(), jobs(), NOW)
+    expect(mockStatus.recordHeartbeat).toHaveBeenCalledWith(NOW)
+    expect(mockStatus.recordJobSuccess).toHaveBeenCalledWith("reminders", expect.any(Date))
+    expect(mockStatus.recordJobSuccess).toHaveBeenCalledWith("checkouts", expect.any(Date))
+  })
+
+  it("does not save last success for a job that throws", async () => {
+    mockStatus.recordJobSuccess.mockClear()
+    await tick(initialState(), jobs({ reminders: jest.fn(async () => { throw new Error("x") }) }), NOW)
+    expect(mockStatus.recordJobSuccess).not.toHaveBeenCalledWith("reminders", expect.any(Date))
+  })
+
   it("runs the monthly clearance digest on the 1st and records the month as its success key", async () => {
     const s = initialState(); const j = jobs()
     const first = new Date("2026-06-30T21:00:00Z") // Wed 2026-07-01 07:00 AEST
