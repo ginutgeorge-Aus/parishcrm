@@ -39,7 +39,7 @@ ENV HOSTNAME="0.0.0.0"
 # Alpine's openssl runtime libs (libcrypto3/libssl3) pick up newly-published HIGH
 # CVEs (e.g. CVE-2026-14456, OpenSSL unbounded-memory DoS: 3.5.7-r0 → fixed 3.5.8-r0)
 # ahead of a base-image refresh, failing the Trivy gate. Upgrade just those packages
-# so the build stays current without waiting on a new node:24-alpine digest. zlib + musl + musl-utils
+# so the build stays current without waiting on a new node:26-alpine digest. zlib + musl + musl-utils
 # are included for CVE-2026-85091 / CVE-2026-107891.
 RUN apk --no-cache upgrade libcrypto3 libssl3 zlib musl musl-utils
 

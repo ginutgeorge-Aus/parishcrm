@@ -43,6 +43,11 @@ async function resolveCustodianId(): Promise<number> {
   return parseInt(row.value, 10)
 }
 
+/**
+ * Creates the missing petty cash Sunday sessions between `--from` and `--to`; dry run unless `--apply --yes`.
+ * Logs the custodian by person id only (no name) so the public script never prints PII (AUD-7-13).
+ * @returns resolves when the dry run or write has finished
+ */
 async function main() {
   const from = flag("--from") ?? "2025-09-01"
   const to = flag("--to") ?? mostRecentSundayYMD()
@@ -58,14 +63,14 @@ async function main() {
   const custodianId = await resolveCustodianId()
   const custodian = await prisma.person.findUnique({
     where: { id: custodianId },
-    select: { id: true, firstName: true, lastName: true },
+    select: { id: true },
   })
   if (!custodian) {
     console.error(`Custodian person #${custodianId} not found.`)
     await prisma.$disconnect()
     process.exit(1)
   }
-  console.log(`Custodian: ${custodian.firstName} ${custodian.lastName} (#${custodianId})`)
+  console.log(`Custodian: person #${custodian.id}`)
 
   const titles = sundaysBetween(from, to).map(pettyCashTitle)
   if (titles.length === 0) {

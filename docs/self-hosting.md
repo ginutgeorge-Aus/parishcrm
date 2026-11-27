@@ -98,11 +98,13 @@ container, apply it manually first with `npx prisma migrate deploy`.
 For the first administrator, either use the `/setup` page after starting the app
 (step 5), **or** create one now with the script — not both, since `/setup` closes
 once any user exists. The script reads `.env` as dotenv (no shell expansion, so a
-`$` in a password is safe):
+`$` in a password is safe). Put `USER_EMAIL` and `USER_PASSWORD` in `.env`
+temporarily rather than on the command line, so the password never lands in shell
+history or the process list, and delete both lines straight afterwards (before you
+build `.env.docker` below, which is copied from `.env`):
 
 ```bash
-USER_EMAIL=you@example.org USER_PASSWORD='<strong password>' \
-  npx tsx --env-file=.env scripts/create-admin-user.ts
+npx tsx --env-file=.env scripts/create-admin-user.ts
 ```
 
 Accounting starts empty. Optionally add a generic starter chart of accounts
@@ -275,3 +277,35 @@ because each page decrypts its rows. Measured timings for larger data sets are n
    (or run `npx prisma migrate deploy` from the new tag if `MIGRATE_ON_START=false`).
 
 Keep `ENCRYPTION_KEY*` and `AUTH_SECRET` unchanged across upgrades.
+
+### Migrations in production
+
+By default the container runs `prisma migrate deploy` on boot with the same database
+role the app uses, so that role needs DDL rights. For production, prefer a separate
+migration role: set `MIGRATE_ON_START=false`, give the app a least-privilege role
+(read/write on the tables, no DDL), and run `npx prisma migrate deploy` from the
+release checkout with the migration role's URL before starting the new image. The
+Prisma config reads `DIRECT_URL` before `DATABASE_URL`, so if `DIRECT_URL` is set in
+your environment, point that one at the migration role (or unset it).
+
+Tables added by later migrations are owned by the migration role, so grant the app
+role access to them automatically, once:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <app_role>;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO <app_role>;
+ALTER DEFAULT PRIVILEGES FOR ROLE <migration_role> IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <app_role>;
+ALTER DEFAULT PRIVILEGES FOR ROLE <migration_role> IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO <app_role>;
+```
+
+**Recovery from a failed migration.** A failed migration makes a
+`MIGRATE_ON_START=true` container exit and restart in a loop. To recover:
+
+1. Stop the container (or set `MIGRATE_ON_START=false`) so it stops retrying.
+2. Restore the pre-upgrade backup, or fix the cause and revert any partly applied change by hand.
+3. Run `npx prisma migrate status` to see which migration is marked failed.
+4. Mark it with `npx prisma migrate resolve --rolled-back <migration_name>` (changes undone)
+   or `--applied <migration_name>` (changes completed by hand).
+5. Re-run `npx prisma migrate deploy`, then start the container.
