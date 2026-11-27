@@ -751,6 +751,15 @@ TOTALS AT END OF PERIOD $0.00 $250.00
     expect(r.warnings![0]).toMatch(/do not match the statement totals/)
   })
 
+  test("a totals line with one amount followed by another line's number gives no false warning", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+TOTALS AT END OF PERIOD $100.00
+250.00 999.00
+`
+    expect(parseAnzStatement(text).warnings).toEqual([])
+  })
+
   test("report parser also lists skipped blocks", () => {
     const text = `Transaction Report
 9 May 2026 to 8 June 2026

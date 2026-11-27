@@ -534,6 +534,29 @@ describe("confirmBankImport — import anyway (AUD-3-14)", () => {
     expect(data[0].bankRef).not.toBe(dupRow.bankRef)
   })
 
+  it("imports two importAnyway rows with identical content but distinct refs, and drops a same-ref repeat as a duplicate", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    const second = { ...dupRow, bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_1090000" }
+    const result = await confirmBankImport([
+      { ...dupRow, importAnyway: true },
+      { ...second, importAnyway: true },
+      { ...second, importAnyway: true },
+    ])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.imported).toBe(2)
+    expect(result.duplicates).toBe(1)
+  })
+
+  it("still dedupes a forced row against a legacy full-number stored ref", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue([...existing, { bankRef: `${dupRow.bankRef}#dup`, type: "INCOME" }])
+    const result = await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.duplicates).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
   it("ignores importAnyway on a skipped row", async () => {
     mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
     const result = await confirmBankImport([{ ...dupRow, skip: true, importAnyway: true }])

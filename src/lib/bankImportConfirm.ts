@@ -188,19 +188,17 @@ const IMPORT_ANYWAY_SUFFIX = "#dup"
 /**
  * Give every un-skipped "import anyway" row a distinct stored bankRef (so it can
  * neither collide with the original it duplicates nor be re-imported twice) and
- * return the set of those refs. The suffix lives in the last ref segment, so
+ * return those rows. The suffix lives in the last ref segment, so
  * `contentKeyFromBankRef` still recovers the same content key from them.
+ * Applied BEFORE hashing on purpose: the suffixed ref is then hashed and gets its
+ * legacy full-number variant like any other ref, so dual-format dedup covers it.
  *
- * @param rows - confirm rows whose bankRefs are already hashed
- * @returns the suffixed refs, for which the content-key duplicate check is waived
+ * @param rows - confirm rows with restored (full-number) refs
+ * @returns the suffixed rows, whose hashed refs skip the content-key duplicate check
  */
-function suffixImportAnywayRefs(rows: ConfirmRow[]): Set<string> {
-  const forced = new Set<string>()
-  for (const r of rows) {
-    if (r.skip || !r.importAnyway) continue
-    r.bankRef = `${r.bankRef}${IMPORT_ANYWAY_SUFFIX}`
-    forced.add(r.bankRef)
-  }
+function suffixImportAnywayRefs(rows: ConfirmRow[]): ConfirmRow[] {
+  const forced = rows.filter((r) => !r.skip && r.importAnyway)
+  for (const r of forced) r.bankRef = `${r.bankRef}${IMPORT_ANYWAY_SUFFIX}`
   return forced
 }
 
@@ -224,6 +222,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
     return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again.", code: "SESSION_EXPIRED" }
   }
+  const forcedRows = suffixImportAnywayRefs(rows)
   let refVariants: (ref: string) => string[]
   try {
     refVariants = hashRowBankRefs(rows)
@@ -232,7 +231,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     // Fail closed: never insert unhashed refs, never throw past the result contract.
     return { ok: false, status: 500, error: BANKREF_HASH_ERROR, code: "BANKREF_HASH" }
   }
-  const forcedRefs = suffixImportAnywayRefs(rows)
+  const forcedRefs = new Set(forcedRows.map((r) => r.bankRef))
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
 

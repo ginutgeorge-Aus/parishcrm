@@ -208,7 +208,7 @@ function describeSkippedBlock(blockLines: string[], year: number): SkippedBlock 
  * @returns a user-facing warning or null
  */
 function checkStatementTotals(text: string, rows: ParsedRow[]): string | null {
-  const m = /TOTALS AT END OF PERIOD\s*\$?\s*([\d,]+\.\d{2})\s+\$?\s*([\d,]+\.\d{2})/.exec(text)
+  const m = /TOTALS AT END OF PERIOD[ \t]*\$?[ \t]*([\d,]+\.\d{2})[ \t]+\$?[ \t]*([\d,]+\.\d{2})/.exec(text)
   if (!m) return null
   const sum = (type: ParsedRow["type"]) => rows.filter((r) => r.type === type).reduce((a, r) => a + toCents(r.amount), 0)
   const [wd, dep] = [sum("EXPENSE"), sum("INCOME")]
