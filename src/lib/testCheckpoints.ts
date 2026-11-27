@@ -21,6 +21,38 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.18.0-petty-cash-carry-forward",
+    version: "v1.18.0",
+    area: "Petty cash",
+    title: "Counted cash carries forward and a transfer can be corrected",
+    steps:
+      "Open Petty cash → close a session with a counted amount → open the next session and confirm the opening balance equals the count → edit a transfer's amount and confirm the balance updates.",
+  },
+  {
+    id: "v1.18.0-dgr-receipt-frozen",
+    version: "v1.18.0",
+    area: "Giving",
+    title: "Sent donation receipt is frozen and can be resent unchanged",
+    steps:
+      "Open Giving → send a receipt → confirm it shows as sent and cannot be edited → resend it and confirm the PDF matches the original.",
+  },
+  {
+    id: "v1.18.0-sacrament-register-pagination",
+    version: "v1.18.0",
+    area: "Sacraments",
+    title: "Sacrament register is paginated",
+    steps:
+      "Open Sacraments → confirm a loading skeleton shows then the first page of records → move to the next page and confirm the records change.",
+  },
+  {
+    id: "v1.18.0-paid-event-publish-guard",
+    version: "v1.18.0",
+    area: "Events",
+    title: "Paid event cannot be published without a way to pay",
+    steps:
+      "Create a paid event with no payment method enabled → try to publish → confirm it is blocked with an explanation → enable a payment method and confirm publishing works.",
+  },
+  {
     id: "v1.17.0-pastoral-followups-prayer",
     version: "v1.17.0",
     area: "Pastoral",

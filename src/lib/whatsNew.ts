@@ -20,6 +20,17 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.18.0",
+    date: "2026-11-27",
+    highlights: [
+      "Petty cash: counted cash now carries forward into the next opening, and a mis-keyed transfer can be corrected.",
+      "Giving: donation receipts are frozen as sent, so a resend always matches what the donor first received.",
+      "Sacraments: the register is paginated, with loading placeholders.",
+      "Events: paid events can no longer be published without a way to pay, and pages fit phone screens better.",
+      "Forms keep what you typed when a save is rejected, and risky actions ask you to confirm first.",
+    ],
+  },
+  {
     version: "v1.17.0",
     date: "2026-11-19",
     highlights: [
