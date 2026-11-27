@@ -21,6 +21,7 @@ jest.mock("@/lib/turnstile", () => ({
 }))
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
+  rateLimitRefund: jest.fn(),
 }))
 jest.mock("@/lib/dbRateLimit", () => ({
   dbRateLimit: jest.fn(() => Promise.resolve(true)),
@@ -49,7 +50,7 @@ import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { verifyFormToken } from "@/lib/formToken"
 import { verifyTurnstile } from "@/lib/turnstile"
-import { rateLimit } from "@/lib/rateLimit"
+import { rateLimit, rateLimitRefund } from "@/lib/rateLimit"
 import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 import { sendRegistrationConfirmationEmail } from "@/lib/email"
 
@@ -127,6 +128,7 @@ beforeEach(() => {
   verifyFormTokenMock.mockReturnValue("ok")
   verifyTurnstileMock.mockResolvedValue(true)
   rateLimitMock.mockReturnValue(true)
+  ;(rateLimitRefund as jest.Mock).mockClear()
   dbRateLimitMock.mockResolvedValue(true)
   sendConfirmationMock.mockResolvedValue(undefined)
 })
@@ -155,6 +157,8 @@ describe("AUD-2-03 — confirmation mail budgets", () => {
     expect(dbRateLimitMock).toHaveBeenCalledWith("regmail:global", 500, 86_400_000)
     // The event slot charged before the global denial is given back.
     expect(dbRateLimitRefund).toHaveBeenCalledWith("regmail:event:1")
+    // The in-memory per-recipient slot is refunded too: no mail was sent.
+    expect(rateLimitRefund).toHaveBeenCalledTimes(1)
   })
 
   it("flags mailSkipped when the send itself fails", async () => {

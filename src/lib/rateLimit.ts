@@ -38,6 +38,18 @@ export function rateLimit(key: string, limit: number, windowMs: number, now: num
   return true
 }
 
+/**
+ * Gives back one slot taken by a successful `rateLimit` call on the same key,
+ * for callers that charge several budgets and must not burn this one when a
+ * later budget denies. No-op when the window has expired or the count is 0.
+ * @param key rate-limit key previously charged
+ * @param now current time in ms (injectable for tests)
+ */
+export function rateLimitRefund(key: string, now: number = Date.now()): void {
+  const entry = buckets.get(key)
+  if (entry && now <= entry.reset && entry.count > 0) entry.count--
+}
+
 // Test-only: clears all buckets so cases start from a clean slate.
 export function __resetRateLimit(): void {
   buckets.clear()

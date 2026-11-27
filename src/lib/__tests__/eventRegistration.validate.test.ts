@@ -22,6 +22,7 @@ jest.mock("@/lib/turnstile", () => ({
 }))
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
+  rateLimitRefund: jest.fn(),
 }))
 jest.mock("@/lib/email", () => ({
   sendRegistrationConfirmationEmail: jest.fn(() => Promise.resolve()),

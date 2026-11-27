@@ -24,6 +24,7 @@ jest.mock("@/lib/turnstile", () => ({
 }))
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
+  rateLimitRefund: jest.fn(),
 }))
 jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(() => Promise.resolve(true)) }))
 jest.mock("@/lib/churchSettings", () => ({
