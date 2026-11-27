@@ -191,4 +191,9 @@ describe("isOversizeMoney (AUD-3-20)", () => {
     expect(isOversizeMoney("99999999.99")).toBe(false)
     expect(isOversizeMoney("12abc")).toBe(false)
   })
+  it("ignores leading zeros when counting digits", () => {
+    expect(isOversizeMoney("0000000001")).toBe(false)
+    expect(isOversizeMoney("-0000000001.50")).toBe(false)
+    expect(isOversizeMoney("000123456789")).toBe(true)
+  })
 })

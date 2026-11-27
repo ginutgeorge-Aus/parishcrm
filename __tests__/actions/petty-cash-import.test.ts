@@ -259,7 +259,7 @@ describe("commitImport", () => {
     expect(data).toHaveLength(3)
     const keys = data.map((d: any) => d.importKey)
     expect(new Set(keys).size).toBe(3)
-    expect(keys[1]).toBe(`${keys[0]}#2`)
+    expect(keys[1]).toBe(`occurrence:2:${keys[0]}`)
 
     // Re-import: all three keys already stored, so nothing is added.
     mockRcptFind.mockResolvedValue(keys.map((k: string) => ({ date: new Date("2025-09-07T00:00:00.000Z"), accountId: 1, amount: 5, notes: "Candles", importKey: k })))

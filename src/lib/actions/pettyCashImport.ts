@@ -167,13 +167,13 @@ type RowInputResult =
 
 /**
  * Stored import key for the nth identical line of ONE csv file. The first keeps the plain key (so
- * entries imported before this rule still dedupe); repeats get "#n", so three identical $5 receipts in
+ * entries imported before this rule still dedupe); repeats get an "occurrence:n:" prefix (a base key always starts with a date, so it can never collide with a base key such as "...|candles#2"), so three identical $5 receipts in
  * one file are three entries, yet re-importing the same file skips all three.
  * @param base the plain dedupe key
  * @param n 1-based position among identical lines in this file
  */
 function occurrenceKey(base: string, n: number): string {
-  return n <= 1 ? base : `${base}#${n}`
+  return n <= 1 ? base : `occurrence:${n}:${base}`
 }
 
 /**

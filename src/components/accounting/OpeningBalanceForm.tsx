@@ -32,7 +32,6 @@ function BalanceRow({ paymentAccountId, label, current }: Readonly<BalanceRowPro
           name="amount"
           aria-label={`${label} opening amount`}
           step="0.01"
-          min="0"
           defaultValue={current ? Number.parseFloat(current.amount).toFixed(2) : ""}
           placeholder="0.00"
           required

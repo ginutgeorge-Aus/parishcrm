@@ -61,19 +61,19 @@ export async function upsertOpeningBalance(
   const account = await prisma.paymentAccount.findUnique({ where: { id: paymentAccountId } })
   if (!account) return { error: "Account not found" }
 
-  // Changing an opening balance dated inside a locked period shifts every closed-period balance.
-  const lockDate = await getAccountingLockDate()
-  if (lockDate) {
-    const existing = await prisma.accountOpeningBalance.findUnique({ where: { paymentAccountId }, select: { asOfDate: true } })
-    if (asOfDate <= lockDate || (existing && existing.asOfDate <= lockDate)) {
-      return { error: "Opening balance date is in a locked period. Clear or move the lock date first." }
-    }
-  }
-
   const uid = actorId(session)
+  const LOCKED = "Opening balance date is in a locked period. Clear or move the lock date first."
   try {
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
+      // Shared accounting lock first: a concurrent setAccountingLockDate (exclusive) waits for this
+      // save. Re-read the lock date AFTER acquiring it, via the shared client (not tx's snapshot).
+      await holdAccountingLock(tx, "shared")
+      // Changing an opening balance dated inside a locked period shifts every closed-period balance.
+      const lockDate = await getAccountingLockDate()
       const before = await tx.accountOpeningBalance.findUnique({ where: { paymentAccountId }, select: { amount: true, asOfDate: true } })
+      if (lockDate && (asOfDate <= lockDate || (before && before.asOfDate <= lockDate))) {
+        return { error: LOCKED }
+      }
       await tx.accountOpeningBalance.upsert({
         where: { paymentAccountId },
         create: { paymentAccountId, amount, asOfDate },
@@ -84,7 +84,9 @@ export async function upsertOpeningBalance(
         before: before ? { amount: before.amount.toString(), asOfDate: before.asOfDate.toISOString().slice(0, 10) } : null,
         after: { amount, asOfDate: asOfDate.toISOString().slice(0, 10) },
       })
+      return null
     })
+    if (result) return result
   } catch (e) {
     return auditTxErrorResult(e, "upsertOpeningBalance", "Failed to save. Try again.") ?? { error: "Failed to save" }
   }

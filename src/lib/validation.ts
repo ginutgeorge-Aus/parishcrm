@@ -13,7 +13,8 @@ export const SIGNED_MONEY_DECIMAL_RE = /^-?\d+(\.\d{1,2})?$/
  * overflow error (a 500). Callers refuse it with a clear "too large" message before any write.
  */
 export function isOversizeMoney(s: string): boolean {
-  return /^-?\d{9,}(\.\d{1,2})?$/.test(s)
+  // Drop leading zeros first so "0000000001" (value 1) is not counted as 10 digits.
+  return /^-?\d{9,}(\.\d{1,2})?$/.test(s.replace(/^(-?)0+(?=\d)/, "$1"))
 }
 
 // Same 2-decimal-place restriction as MONEY_DECIMAL_RE, for money fields that
