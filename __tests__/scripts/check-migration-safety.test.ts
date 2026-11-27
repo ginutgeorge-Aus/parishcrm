@@ -31,6 +31,22 @@ describe("findDestructiveStatements", () => {
     ["-- don't drop yet\nDROP TABLE \"X\";\n-- it's fine", "DROP"],
     ["SELECT '--'; DROP TABLE \"X\";", "DROP"],
     ["DO $$ BEGIN ALTER TABLE \"T\" DROP COLUMN \"c\"; END $$;", "DROP"],
+    // escape-string quote must not swallow the DROP after it
+    ["SELECT E'it\\'s';\nDROP TABLE \"X\";\nSELECT 'tail';", "DROP"],
+    // semicolon / comma inside quoted identifiers
+    ['ALTER TABLE "T;archive" ADD COLUMN "c" TEXT NOT NULL;', "ADD COLUMN NOT NULL without DEFAULT"],
+    ['ALTER TABLE "T" ADD COLUMN "x, ALTER COLUMN y SET DEFAULT 0" TEXT, ALTER COLUMN y SET NOT NULL;', "SET NOT NULL without DEFAULT"],
+    // identifiers with `$` and doubled quotes
+    ['ALTER TABLE "T" ALTER COLUMN amount$usd TYPE INTEGER;', "column TYPE change"],
+    ['ALTER TABLE "T" ALTER COLUMN "a""b" SET NOT NULL;', "SET NOT NULL without DEFAULT"],
+    // quoted case is significant
+    ['ALTER TABLE "T" ALTER COLUMN "A" SET DEFAULT 0, ALTER COLUMN "a" SET NOT NULL;', "SET NOT NULL without DEFAULT"],
+    // a quoted name is not the DEFAULT keyword
+    ['ALTER TABLE "T" ADD COLUMN "default" TEXT NOT NULL;', "ADD COLUMN NOT NULL without DEFAULT"],
+    // ALTER TABLE rules apply inside DO blocks
+    ['DO $$ BEGIN ALTER TABLE "T" ALTER COLUMN "c" TYPE INTEGER; END $$;', "column TYPE change"],
+    ['DO $$ BEGIN ALTER TABLE "T" ALTER COLUMN "c" SET NOT NULL; END $$;', "SET NOT NULL without DEFAULT"],
+    ['DO $$ BEGIN ALTER TABLE "T" ADD COLUMN "c" TEXT NOT NULL; END $$;', "ADD COLUMN NOT NULL without DEFAULT"],
   ])("flags %s", (sql, rule) => {
     expect(rules(sql)).toEqual([rule])
   })
@@ -51,6 +67,13 @@ describe("findDestructiveStatements", () => {
     ["DO $$ BEGIN RAISE EXCEPTION 'Archive or rename the extras, then DROP nothing'; END $$;"],
   ])("allows %s", (sql) => {
     expect(rules(sql)).toEqual([])
+  })
+
+  it("flags a constraint drop that no later add restores", () => {
+    const fk = 'ALTER TABLE "C" ADD CONSTRAINT "C_fk" FOREIGN KEY ("a") REFERENCES "B"("id");'
+    const drop = 'ALTER TABLE "C" DROP CONSTRAINT "C_fk";'
+    expect(rules(`${drop}\n${fk}\n${drop}`)).toEqual(["DROP"])
+    expect(rules(`${fk}\n${drop}`)).toEqual(["DROP"])
   })
 
   it("allows a foreign key dropped and re-added under the same name", () => {

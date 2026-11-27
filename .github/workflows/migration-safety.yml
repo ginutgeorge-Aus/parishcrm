@@ -5,10 +5,10 @@ name: Migration safety
 # Fails on DROP, RENAME, column TYPE change, TRUNCATE, DELETE, SET NOT NULL or
 # ADD COLUMN NOT NULL without DEFAULT in migration.sql files this PR adds or
 # edits (editing a shipped migration is itself forbidden, see CONTRIBUTING.md). A reviewed exception: add the
-# `destructive-migration` label (the run re-triggers on label changes).
+# `destructive-migration` label (the run re-triggers on label changes and base-branch edits).
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
     branches: [main]
 
 concurrency:
