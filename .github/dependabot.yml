@@ -27,6 +27,11 @@ updates:
       # migration, not an auto-bump. Stay on v3 until that lands.
       - dependency-name: "tailwindcss"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 removes the compiler JS API (ts.SyntaxKind etc.) that
+      # __tests__/scripts/encryption-coverage.test.ts uses (#954 failed build/tests).
+      # Stay on 6.x until that test is ported.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       next-ecosystem:
         patterns:
