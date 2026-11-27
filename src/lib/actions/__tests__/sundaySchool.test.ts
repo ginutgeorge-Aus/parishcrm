@@ -440,6 +440,24 @@ describe("enrolChildren", () => {
     expect((txRaw.mock.calls[idx][0] as TemplateStringsArray).join("?")).toContain("FOR UPDATE")
     expect(txRaw.mock.invocationCallOrder[idx]).toBeLessThan(txFindMany.mock.invocationCallOrder[0])
   })
+  it("takes a per-person/year advisory lock (sorted) before reading, so first enrolments serialise (#960)", async () => {
+    as(UserRole.ADMIN)
+    liveClass()
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 3 }, { id: 2 }])
+    const txRaw = jest.fn((sql: TemplateStringsArray, ...vals: unknown[]) =>
+      (prisma.$queryRaw as jest.Mock).getMockImplementation()!(sql, ...vals))
+    const txFindMany = jest.fn().mockResolvedValue([])
+    const tx = { ...prisma, $queryRaw: txRaw, sundaySchoolEnrolment: { ...prisma.sundaySchoolEnrolment, findMany: txFindMany } }
+    ;(prisma.$transaction as jest.Mock).mockImplementationOnce((fn: (t: typeof tx) => unknown) => fn(tx))
+    await enrolChildren(1, [3, 2])
+    const locks = txRaw.mock.calls
+      .map((c, i) => ({ sql: (c[0] as TemplateStringsArray).join("?"), val: c[1], i }))
+      .filter((c) => c.sql.includes("pg_advisory_xact_lock(?::bigint)"))
+    expect(locks).toHaveLength(2)
+    expect(locks[0].val).toBe(String(2026 * 2147483648 + 2))
+    expect(locks[1].val).toBe(String(2026 * 2147483648 + 3))
+    expect(txRaw.mock.invocationCallOrder[locks[1].i]).toBeLessThan(txFindMany.mock.invocationCallOrder[0])
+  })
   it("refuses when the class is archived before the enrolment transaction", async () => {
     as(UserRole.ADMIN)
     liveClass()

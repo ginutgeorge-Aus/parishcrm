@@ -192,6 +192,18 @@ export async function removeTeacher(classId: number, personId: number): Promise<
 }
 
 /**
+ * Single-bigint advisory-lock key for one child's enrolment in one year
+ * (`year * 2^31 + personId`; personId is an int4, so keys never collide).
+ * Postgres keeps single-bigint keys apart from the two-int4 keys used by
+ * accountingLock/sundaySchoolYearLock, so those namespaces can't clash.
+ * @param personId int4 person id
+ * @param year class year
+ */
+function enrolmentLockKey(personId: number, year: number): string {
+  return String(year * 2147483648 + personId)
+}
+
+/**
  * Enrol (or move) children into a class. One class per child per year is a DB
  * unique (personId, year), so a child already enrolled elsewhere this year is
  * moved: their enrolment is re-pointed and `enrolledAt` restarts, which bounds
@@ -237,6 +249,12 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       if (Object.keys(scope).length > 0) {
         const stillEligible = await tx.person.count({ where: { id: { in: ids }, archivedAt: null, ...scope } })
         if (stillEligible !== ids.length) throw new Error(PERSON_GONE)
+      }
+      // Row locks can't serialise a FIRST enrolment (no row yet), so also take a
+      // per-(person, year) advisory lock, in sorted order to avoid deadlocks.
+      for (const personId of [...ids].sort((a, b) => a - b)) {
+        // nosemgrep: crm-no-raw-sql — advisory lock; Prisma has no locking API
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(${enrolmentLockKey(personId, year)}::bigint)`
       }
       // Lock the existing enrolment rows so a concurrent move can't change them
       // between this read and our write (stale movedFrom in audit/revalidation).
