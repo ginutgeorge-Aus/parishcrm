@@ -113,6 +113,8 @@ export const FIELDS: Record<string, string[]> = {
   // request text + requester contact (actions/prayerRequest.ts).
   followUpTask: ["title", "notes"],
   prayerRequest: ["request", "requesterName", "requesterEmail", "requesterPhone"],
+  // Venue invoice request "sent to" address, encrypt()ed in venueInvoice.ts (AUD-6-04).
+  venueUsageRequest: ["sentTo"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string

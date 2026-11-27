@@ -269,3 +269,11 @@ test("an already-SENT slot is still a plain skip", async () => {
   const body = await runCelebrationSweep(NOW)
   expect(body).toEqual({ birthdays: { sent: 0, skipped: 1, failed: 0 }, anniversaries: { sent: 0, skipped: 0, failed: 0 } })
 })
+
+test("writes no batch audit row when nothing was sent or failed (AUD-6-18)", async () => {
+  flags.mockResolvedValue({ birthday: true, anniversary: true })
+  await sendDueCelebrations("Bearer s3cret", NOW)
+  const actions = (logAudit as jest.Mock).mock.calls.map((c) => c[1])
+  expect(actions).not.toContain("BIRTHDAY_EMAIL_BATCH_SENT")
+  expect(actions).not.toContain("ANNIVERSARY_EMAIL_BATCH_SENT")
+})
