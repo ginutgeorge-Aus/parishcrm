@@ -12,6 +12,92 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.18.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.17.0...v1.18.0) (2026-11-27)
+
+
+### Added
+
+* **petty-cash:** add updateTransfer to correct a mis-keyed transfer (AUD-3-04 B) ([#845](https://github.com/ginutgeorge-Aus/parishcrm/issues/845)) ([016a04e](https://github.com/ginutgeorge-Aus/parishcrm/commit/016a04e271d519eed10056eb35857c3a2670f773))
+* **sacraments:** paginate register, shared EmptyState, loading skeletons ([#728](https://github.com/ginutgeorge-Aus/parishcrm/issues/728)) ([#881](https://github.com/ginutgeorge-Aus/parishcrm/issues/881)) ([39c06c7](https://github.com/ginutgeorge-Aus/parishcrm/commit/39c06c7bcc8b6a04a4e8cbe98da2d829ea233f85))
+
+
+### Fixed
+
+* **accounting:** accept commas in statement balance and invoice price (AUD-8-04) ([#887](https://github.com/ginutgeorge-Aus/parishcrm/issues/887)) ([9c962a1](https://github.com/ginutgeorge-Aus/parishcrm/commit/9c962a186a95e01a31cfe4deb570e5cd084301c7))
+* **accounting:** auto-reconcile only rows after the lock date ([#839](https://github.com/ginutgeorge-Aus/parishcrm/issues/839)) ([f69f7b5](https://github.com/ginutgeorge-Aus/parishcrm/commit/f69f7b51f08380da217af8bfdb25157733ca9fa4))
+* **accounting:** exclude internal transfers from reports, giving and invoice links (AUD-3-02) ([#843](https://github.com/ginutgeorge-Aus/parishcrm/issues/843)) ([1017c6e](https://github.com/ginutgeorge-Aus/parishcrm/commit/1017c6e68e72f7879f91c10dc843e72667e99845))
+* **accounting:** hide Delete inside 7-year retention, explain correction path ([#931](https://github.com/ginutgeorge-Aus/parishcrm/issues/931)) ([d7bf830](https://github.com/ginutgeorge-Aus/parishcrm/commit/d7bf8304368f3e8999a1fd233fc78bb6c465a7cd))
+* **accounting:** unmark-paid removes invoice-created payment (AUD-3-16) ([#905](https://github.com/ginutgeorge-Aus/parishcrm/issues/905)) ([9e4a4f1](https://github.com/ginutgeorge-Aus/parishcrm/commit/9e4a4f167c86810373f3802be49c840e808e3452))
+* **auth:** claim login attempt before compare so concurrent guesses cap at 5 (AUD-1-01c) ([#837](https://github.com/ginutgeorge-Aus/parishcrm/issues/837)) ([0543b88](https://github.com/ginutgeorge-Aus/parishcrm/commit/0543b88e7d8426e9128f7f76d5a3351c5fd3dece))
+* **auth:** harden login attempt claim per [#863](https://github.com/ginutgeorge-Aus/parishcrm/issues/863) review ([#902](https://github.com/ginutgeorge-Aus/parishcrm/issues/902)) ([65ac692](https://github.com/ginutgeorge-Aus/parishcrm/commit/65ac692787437280dcf9911e10af55288bdeab81))
+* **dgr:** freeze issuer, legal text and PDF on send; Sydney issue date (AUD-3-05) ([#898](https://github.com/ginutgeorge-Aus/parishcrm/issues/898)) ([12c0f53](https://github.com/ginutgeorge-Aus/parishcrm/commit/12c0f5376b50490aeaaad4a23989f4dfed1c0b4c))
+* **dgr:** freeze possibly-delivered receipts, guard edit/delete/create races ([#842](https://github.com/ginutgeorge-Aus/parishcrm/issues/842)) ([ccffe94](https://github.com/ginutgeorge-Aus/parishcrm/commit/ccffe94e70e8f6aed7235783cf1f3678aa9ab78f))
+* **dgr:** freeze stale SENDING receipts, resend only ([#868](https://github.com/ginutgeorge-Aus/parishcrm/issues/868)) ([#974](https://github.com/ginutgeorge-Aus/parishcrm/issues/974)) ([ed013cc](https://github.com/ginutgeorge-Aus/parishcrm/commit/ed013ccdf08c3f5ceb9f88a77b27c816ce539f3f))
+* **dgr:** keep createdAt for UNKNOWN retry, serve frozen UNKNOWN PDF, skip strict read with snapshot ([#916](https://github.com/ginutgeorge-Aus/parishcrm/issues/916)) ([#917](https://github.com/ginutgeorge-Aus/parishcrm/issues/917)) ([9af1447](https://github.com/ginutgeorge-Aus/parishcrm/commit/9af1447e25e6e56991fb0662ca385851dc1523ed))
+* **dgr:** list sent-date and UNKNOWN badge nits, clearer race error, receipts docs ([#957](https://github.com/ginutgeorge-Aus/parishcrm/issues/957)) ([7afa833](https://github.com/ginutgeorge-Aus/parishcrm/commit/7afa8335058932f609fcbaef0f1e1c679083ede7))
+* **dgr:** reject stale DRAFT claim when receipt edited after read ([#914](https://github.com/ginutgeorge-Aus/parishcrm/issues/914)) ([#964](https://github.com/ginutgeorge-Aus/parishcrm/issues/964)) ([3e8d1bd](https://github.com/ginutgeorge-Aus/parishcrm/commit/3e8d1bd4684a2bc5f2b65513159cfa9582423fbe))
+* **events:** block markPaid on free registrations, align free count and docs ([#904](https://github.com/ginutgeorge-Aus/parishcrm/issues/904)) ([d9281b3](https://github.com/ginutgeorge-Aus/parishcrm/commit/d9281b364358bf51c36bb211dfa700e63ead6ecb))
+* **events:** block publishing paid events with no way to pay (StMarkCRM[#3358](https://github.com/ginutgeorge-Aus/parishcrm/issues/3358)) ([#926](https://github.com/ginutgeorge-Aus/parishcrm/issues/926)) ([4ff5461](https://github.com/ginutgeorge-Aus/parishcrm/commit/4ff54610bab743b79d774683ca79a87e5adeb853))
+* **events:** cap total attendee names per registration ([#810](https://github.com/ginutgeorge-Aus/parishcrm/issues/810)) ([83777c8](https://github.com/ginutgeorge-Aus/parishcrm/commit/83777c833f8a090974b44b5d67971dd2dfea3346))
+* **events:** log unpublish as EVENT_UNPUBLISHED, friendly length messages ([#894](https://github.com/ginutgeorge-Aus/parishcrm/issues/894)) ([28fc039](https://github.com/ginutgeorge-Aus/parishcrm/commit/28fc0390ae5b391dd38efe05f47eb0d13ade28e9))
+* **events:** phone layouts for registration, tickets, headers, invoice lines ([#930](https://github.com/ginutgeorge-Aus/parishcrm/issues/930)) ([ee61b55](https://github.com/ginutgeorge-Aus/parishcrm/commit/ee61b5544acfefdeb53f0b955b95113bfb520500))
+* **events:** recover stranded paid checkouts, settle deleted pay-now registrations (AUD-4 roll-up part) ([#935](https://github.com/ginutgeorge-Aus/parishcrm/issues/935)) ([9b76941](https://github.com/ginutgeorge-Aus/parishcrm/commit/9b76941617bd9af9cf8da55dac75ab6994e53508))
+* **events:** refund event mail slot when global budget denies ([#946](https://github.com/ginutgeorge-Aus/parishcrm/issues/946)) ([e52705e](https://github.com/ginutgeorge-Aus/parishcrm/commit/e52705e71cfce5d9c9a32b8fd76880dcfdfee9eb))
+* **events:** resync replays audited event deletes ([#853](https://github.com/ginutgeorge-Aus/parishcrm/issues/853)) ([#896](https://github.com/ginutgeorge-Aus/parishcrm/issues/896)) ([ef09fce](https://github.com/ginutgeorge-Aus/parishcrm/commit/ef09fcee36a88d8cf7022f18b541e84cbd79a6da))
+* **events:** stop treating free registrations as payment pending ([#840](https://github.com/ginutgeorge-Aus/parishcrm/issues/840)) ([e9a27bd](https://github.com/ginutgeorge-Aus/parishcrm/commit/e9a27bdf704aea4e79211fa7245360be65b350b8))
+* **forms:** keep typed input and focus the error when a save is rejected (StMarkCRM[#3352](https://github.com/ginutgeorge-Aus/parishcrm/issues/3352)) ([#927](https://github.com/ginutgeorge-Aus/parishcrm/issues/927)) ([6d5c21d](https://github.com/ginutgeorge-Aus/parishcrm/commit/6d5c21dfdbda11cd3a7e2bb1136854df7c506adb))
+* **group-email:** alert ambiguity from sends only, guard skip-path write, log sweep closures ([#874](https://github.com/ginutgeorge-Aus/parishcrm/issues/874)) ([b1908ab](https://github.com/ginutgeorge-Aus/parishcrm/commit/b1908ab1c67ba0b7667fb20c14dd96528e4bb430))
+* harden auth secrets, reset flow, remember-me, settings readers (AUD-1 roll-up part) ([#937](https://github.com/ginutgeorge-Aus/parishcrm/issues/937)) ([c4213bd](https://github.com/ginutgeorge-Aus/parishcrm/commit/c4213bd6510a3032c510690f4f6287dce5ac9dfb))
+* **import:** list parse errors and header hint in preview ([#886](https://github.com/ginutgeorge-Aus/parishcrm/issues/886)) ([75dc8f0](https://github.com/ginutgeorge-Aus/parishcrm/commit/75dc8f0dd78ab1dfbe5a54c687f219e59fd0c347))
+* **maintenance:** auto-expire stuck flag 15 min after backAt ([#3327](https://github.com/ginutgeorge-Aus/parishcrm/issues/3327)) ([#965](https://github.com/ginutgeorge-Aus/parishcrm/issues/965)) ([0686e0a](https://github.com/ginutgeorge-Aus/parishcrm/commit/0686e0ab6b160a7f76fbd74fd427f7a249f4f1cd))
+* **membership:** name the failing field on public form rejection ([#889](https://github.com/ginutgeorge-Aus/parishcrm/issues/889)) ([fbbc1b5](https://github.com/ginutgeorge-Aus/parishcrm/commit/fbbc1b55261d167bbc70c8ec6ff4a7caf2e9f0e8))
+* **memberships:** confirm merge, show target family, avoid second Head ([#906](https://github.com/ginutgeorge-Aus/parishcrm/issues/906)) ([6582a57](https://github.com/ginutgeorge-Aus/parishcrm/commit/6582a5782efe625416890b57a660fd1038974603))
+* **memberships:** form row limits, sex select, display and print polish ([#967](https://github.com/ginutgeorge-Aus/parishcrm/issues/967)) ([6108d44](https://github.com/ginutgeorge-Aus/parishcrm/commit/6108d44245eb0aaf1d7538bc73b773c15b8647e9))
+* **memberships:** review follow-ups and organiser shell polish ([#847](https://github.com/ginutgeorge-Aus/parishcrm/issues/847), [#850](https://github.com/ginutgeorge-Aus/parishcrm/issues/850)) ([#966](https://github.com/ginutgeorge-Aus/parishcrm/issues/966)) ([6602095](https://github.com/ginutgeorge-Aus/parishcrm/commit/66020956ca66f766f9a530c632312e34d52cae4e))
+* **pastoral:** format follow-up due date by locale, show public prayer form URL ([#871](https://github.com/ginutgeorge-Aus/parishcrm/issues/871)) ([77ccd49](https://github.com/ginutgeorge-Aus/parishcrm/commit/77ccd49793f4e75a4df6f343cf4d10b470cb956f))
+* **payments:** late pay-now claim, keep payment records on event delete (AUD-4-03, AUD-6-01) ([#819](https://github.com/ginutgeorge-Aus/parishcrm/issues/819)) ([c19c86a](https://github.com/ginutgeorge-Aus/parishcrm/commit/c19c86af7cbc651cd93bef76115d296ab3b3078c))
+* **payments:** scrub window from expiry time, no EXPIRED resurrection, softer pending copy ([#786](https://github.com/ginutgeorge-Aus/parishcrm/issues/786)) ([#814](https://github.com/ginutgeorge-Aus/parishcrm/issues/814)) ([7b7f0c0](https://github.com/ginutgeorge-Aus/parishcrm/commit/7b7f0c07ef401ba885771e924fc58726da4026c2))
+* **people:** harden branding slot, service types, venue status, DGR list, exam score, invites (AUD-5 roll-up part) ([#936](https://github.com/ginutgeorge-Aus/parishcrm/issues/936)) ([648c4d9](https://github.com/ginutgeorge-Aus/parishcrm/commit/648c4d9d5647cfc57f7debccc0dcd472b31979c8))
+* **people:** never overwrite unreadable encrypted fields with decryption placeholder ([#820](https://github.com/ginutgeorge-Aus/parishcrm/issues/820)) ([a131397](https://github.com/ginutgeorge-Aus/parishcrm/commit/a131397905468e4ae30e9d99f1763cbd84861548))
+* **petty-cash:** audit session creation, guard audit failures (OSS-AUDIT3) ([#836](https://github.com/ginutgeorge-Aus/parishcrm/issues/836)) ([08a87a7](https://github.com/ginutgeorge-Aus/parishcrm/commit/08a87a72acd24a1010e1f3e2515ede923d2a394d))
+* **petty-cash:** carry counted cash forward and roll final close into next opening (AUD-3-04 A+C) ([#844](https://github.com/ginutgeorge-Aus/parishcrm/issues/844)) ([147673c](https://github.com/ginutgeorge-Aus/parishcrm/commit/147673c12567ce3d569c68e463e4c896440cf42b))
+* **receipts:** recheck recipient eligibility per row in sendBatchReceipts ([#817](https://github.com/ginutgeorge-Aus/parishcrm/issues/817)) ([1222402](https://github.com/ginutgeorge-Aus/parishcrm/commit/122240252eb99ef6b60caf6ed2799f119149f6ab))
+* **reconciliation:** treat zero-row lock reconcile as no-op, reuse lock helpers ([#864](https://github.com/ginutgeorge-Aus/parishcrm/issues/864)) ([#903](https://github.com/ginutgeorge-Aus/parishcrm/issues/903)) ([739ac25](https://github.com/ginutgeorge-Aus/parishcrm/commit/739ac25703fe3e0de53be77842f3fe0c26878594))
+* **roster:** [#705](https://github.com/ginutgeorge-Aus/parishcrm/issues/705) review follow-ups (restore guard, id masking, person export) ([#942](https://github.com/ginutgeorge-Aus/parishcrm/issues/942)) ([03199cf](https://github.com/ginutgeorge-Aus/parishcrm/commit/03199cfb49a3401cb9724d0cb2a939b84ec039e8))
+* **roster:** [#705](https://github.com/ginutgeorge-Aus/parishcrm/issues/705) review follow-ups, round 2 (delete guard, FK errors, history) ([#944](https://github.com/ginutgeorge-Aus/parishcrm/issues/944)) ([e4ff730](https://github.com/ginutgeorge-Aus/parishcrm/commit/e4ff730499667aba6b3d3998099f2586e94e50a5))
+* **scheduler:** time-limit jobs and DB waits ([#910](https://github.com/ginutgeorge-Aus/parishcrm/issues/910)) ([11d82ec](https://github.com/ginutgeorge-Aus/parishcrm/commit/11d82ecf442fe4bb94f7c99be5c857f35bf2edd9))
+* **stripe:** alert on first signed webhook verification failure ([#912](https://github.com/ginutgeorge-Aus/parishcrm/issues/912)) ([85139cc](https://github.com/ginutgeorge-Aus/parishcrm/commit/85139cccfc508ecc35da05d318f290d781a3d9c5))
+* **stripe:** alert wording follows signed flag, stronger webhook tests ([#958](https://github.com/ginutgeorge-Aus/parishcrm/issues/958)) ([54ee8ed](https://github.com/ginutgeorge-Aus/parishcrm/commit/54ee8edd43dc8ccf506262645d3a0516d260838c))
+* **sunday-school:** headmaster can only enrol children (AUD-5-01) ([#823](https://github.com/ginutgeorge-Aus/parishcrm/issues/823)) ([508fe9f](https://github.com/ginutgeorge-Aus/parishcrm/commit/508fe9f6d45fbc0335f6b007e42c0981d04809da))
+* **sunday-school:** headmaster can only enrol children or already-enrolled people (AUD-5-01) ([#821](https://github.com/ginutgeorge-Aus/parishcrm/issues/821)) ([3e699ab](https://github.com/ginutgeorge-Aus/parishcrm/commit/3e699abd8366c8cbf4f66ac37bfa17756b7ec05a))
+* **sunday-school:** serialise first enrolments per person/year ([#960](https://github.com/ginutgeorge-Aus/parishcrm/issues/960)) ([#961](https://github.com/ginutgeorge-Aus/parishcrm/issues/961)) ([2420ba1](https://github.com/ginutgeorge-Aus/parishcrm/commit/2420ba1231c27c4c264388a2cf6724574032efa2))
+* **sync:** stop late upsert resurrecting a deleted event ([#831](https://github.com/ginutgeorge-Aus/parishcrm/issues/831)) ([3ddafaf](https://github.com/ginutgeorge-Aus/parishcrm/commit/3ddafaf56c912f74104d6f4d71b7cbc1b40e6cd7))
+* **telemetry:** stop private data leaking into monitoring (AUD-1-04) ([#909](https://github.com/ginutgeorge-Aus/parishcrm/issues/909)) ([39e17a2](https://github.com/ginutgeorge-Aus/parishcrm/commit/39e17a2dd5b1f61f99cecdc5607d09f8b4621c79))
+* **ui:** confirm dialogs for lock date, DGR send, mark paid, payment delete, resets ([#3356](https://github.com/ginutgeorge-Aus/parishcrm/issues/3356)) ([#907](https://github.com/ginutgeorge-Aus/parishcrm/issues/907)) ([058547e](https://github.com/ginutgeorge-Aus/parishcrm/commit/058547ed0defaeed5d1c69831ca8157ca0452f5a))
+* **users:** block office-admin peer takeover, audit user changes in-transaction ([#841](https://github.com/ginutgeorge-Aus/parishcrm/issues/841)) ([13fec55](https://github.com/ginutgeorge-Aus/parishcrm/commit/13fec55b76c2b1691081c2aaae0984d615240819))
+* **users:** deferred review nits from [#841](https://github.com/ginutgeorge-Aus/parishcrm/issues/841) (createUser errors, stale comments) ([#948](https://github.com/ginutgeorge-Aus/parishcrm/issues/948)) ([c7505d2](https://github.com/ginutgeorge-Aus/parishcrm/commit/c7505d235044568cf283f5997bc0da5ec0c543b8))
+* **venue:** add-all-Sundays no longer requests past Sundays ([#888](https://github.com/ginutgeorge-Aus/parishcrm/issues/888)) ([af9395d](https://github.com/ginutgeorge-Aus/parishcrm/commit/af9395de487607fdbbf7f4ca78083ec8338f7c27))
+* **venue:** booking follow-ups from deferred review findings (OSS-318) ([#833](https://github.com/ginutgeorge-Aus/parishcrm/issues/833)) ([741e955](https://github.com/ginutgeorge-Aus/parishcrm/commit/741e955502df5fd4c71ca93283a55118fd6e44d6))
+* **welcome-letter:** validate family, recipients and model on send ([#911](https://github.com/ginutgeorge-Aus/parishcrm/issues/911)) ([3aed001](https://github.com/ginutgeorge-Aus/parishcrm/commit/3aed001cdaf3bfcec789a4140d9b2ec0a80b46b9))
+
+
+### Changed
+
+* **audit:** move invoice, customer, payment-account and DGR audits into transactions (CRM-3283) ([#832](https://github.com/ginutgeorge-Aus/parishcrm/issues/832)) ([5381dc9](https://github.com/ginutgeorge-Aus/parishcrm/commit/5381dc91e91555bf1464cd17b025ca21d17ec11d))
+* **people:** share one Person field encryption helper ([#834](https://github.com/ginutgeorge-Aus/parishcrm/issues/834)) ([36efe29](https://github.com/ginutgeorge-Aus/parishcrm/commit/36efe29ba5baba2d4cb8b9f76fd99d61d6e5af27))
+
+
+### Dependencies
+
+* Bump @lucide/astro in /website in the website group ([#977](https://github.com/ginutgeorge-Aus/parishcrm/issues/977)) ([a452d0c](https://github.com/ginutgeorge-Aus/parishcrm/commit/a452d0cff1a714f481bdb8f86874640f0eb36788))
+* Bump @testing-library/jest-dom from 7.0.1 to 8.0.0 ([#955](https://github.com/ginutgeorge-Aus/parishcrm/issues/955)) ([2a12b42](https://github.com/ginutgeorge-Aus/parishcrm/commit/2a12b42f8d94d1a968cbbb06dd9c679b8f2d62ab))
+* Bump eslint from 9.39.4 to 10.15.0 ([#956](https://github.com/ginutgeorge-Aus/parishcrm/issues/956)) ([bcfb125](https://github.com/ginutgeorge-Aus/parishcrm/commit/bcfb125274f5a0f968ea9cf48fb1cf4c82a0cc4d))
+* Bump the minor-and-patch group across 1 directory with 4 updates ([#953](https://github.com/ginutgeorge-Aus/parishcrm/issues/953)) ([5635463](https://github.com/ginutgeorge-Aus/parishcrm/commit/5635463f28874d9207494780f51f41f138f11333))
+* Bump the minor-and-patch group across 1 directory with 8 updates ([#922](https://github.com/ginutgeorge-Aus/parishcrm/issues/922)) ([e3def1e](https://github.com/ginutgeorge-Aus/parishcrm/commit/e3def1e5bc2f05877efe39b2d44cae5cd3654982))
+* Bump the next-ecosystem group with 2 updates ([#919](https://github.com/ginutgeorge-Aus/parishcrm/issues/919)) ([6b7b3d5](https://github.com/ginutgeorge-Aus/parishcrm/commit/6b7b3d5830fbf320e53deb8d95fbed4e4eb80b3b))
+* Bump the website group in /website with 2 updates ([#950](https://github.com/ginutgeorge-Aus/parishcrm/issues/950)) ([14e06a9](https://github.com/ginutgeorge-Aus/parishcrm/commit/14e06a918254aa90d23c8df2a24cc569d8a503c4))
+* Bump the website group in /website with 3 updates ([#918](https://github.com/ginutgeorge-Aus/parishcrm/issues/918)) ([667819a](https://github.com/ginutgeorge-Aus/parishcrm/commit/667819a7169aa50ff8bcbc35f1f856dba3bec43f))
+
 ## [1.17.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.16.0...v1.17.0) (2026-11-18)
 
 
