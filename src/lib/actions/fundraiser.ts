@@ -415,6 +415,60 @@ export async function updateEntryQuantity(entryId: number, quantity: string): Pr
 }
 
 /**
+ * Change an entry's unit price (a per-entry override of the snapshot taken when
+ * the entry was added; the fundraiser's own price is untouched). Uses the same
+ * money validation as `saveFundraiser`. Blocked (no reconciliation) when the
+ * entry has any recorded payment or an open card checkout, so a price can never
+ * silently change what someone paid against. Same Serializable + row-lock
+ * discipline as `updateEntryQuantity`; the audit row (old and new price)
+ * commits with the change. Totals derive from quantity x unitPrice at read
+ * time, so they update on revalidation. No-op success when unchanged.
+ * Switching pickup/delivery later (`updateEntryDelivery`) re-snapshots the
+ * fundraiser's price and so replaces a price set here (documented behaviour).
+ *
+ * @param entryId - Entry id.
+ * @param price - 2-dp positive decimal string, at most $999,999.99.
+ * @returns `{ error }` on failure, `undefined` on success.
+ */
+export async function updateEntryPrice(entryId: number, price: string): Promise<ActionResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(entryId)) return { error: "Invalid entry" }
+  const next = (typeof price === "string" ? price : "").trim()
+  if (!MONEY_DECIMAL_RE.test(next)) return { error: "Price must be a positive amount with at most 2 decimals" }
+  // Length check before toCents: a huge digit string would lose precision there.
+  if (next.length > 12 || toCents(next) > MAX_OWED_CENTS) return { error: "Price is too large (max $999,999.99)" }
+  if (!(toCents(next) > 0)) return { error: "Price must be a positive amount with at most 2 decimals" }
+
+  const res = await serializableWrite<{ error: string } | { eventId: number }>(async (tx) => {
+    if (!(await lockEntry(tx, entryId))) return { error: "Entry not found" }
+    const entry = await tx.fundraiserEntry.findUnique({
+      where: { id: entryId },
+      select: { id: true, quantity: true, unitPrice: true, fundraiser: { select: { eventId: true } }, payments: { select: { amount: true } } },
+    })
+    if (!entry) return { error: "Entry not found" }
+    const eventId = entry.fundraiser.eventId
+    if (toCents(next) === toCents(entry.unitPrice)) return { eventId }
+    if (entry.payments.length > 0) {
+      return { error: "Cannot change the price of an entry that has payments. Delete the payments first." }
+    }
+    if ((await tx.checkoutSession.count({ where: { fundraiserEntryId: entryId, status: CheckoutStatus.OPEN } })) > 0) {
+      return { error: "Payment in progress" }
+    }
+    const newOwed = entryTotals({ quantity: entry.quantity, unitPrice: next }, []).owedCents
+    if (newOwed > MAX_OWED_CENTS) return OWED_TOO_LARGE
+    await tx.fundraiserEntry.update({ where: { id: entryId }, data: { unitPrice: (toCents(next) / 100).toFixed(2) } })
+    await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_ENTRY_PRICE", "FundraiserEntry", entryId, {
+      from: (toCents(entry.unitPrice) / 100).toFixed(2), to: (toCents(next) / 100).toFixed(2), quantity: entry.quantity,
+    })
+    return { eventId }
+  }, BUSY).catch(auditFailedOrThrow)
+  if ("error" in res) return res
+  revalidateFundraiser(res.eventId)
+  return undefined
+}
+
+/**
  * Switch an entry between pickup and delivery. Re-snapshots the entry's unit
  * price from the fundraiser's CURRENT price for the new choice. Rejected when
  * the entry already has recorded payments (the price would silently change what

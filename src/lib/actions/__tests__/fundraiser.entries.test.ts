@@ -15,7 +15,7 @@ jest.mock("@/lib/fundraiserCheckout", () => ({
   expireOpenFundraiserCheckouts: jest.fn(async () => 0),
 }))
 
-import { addEntry, updateEntryQuantity, updateEntryDelivery, deleteEntry, searchFundraiserFamilies } from "@/lib/actions/fundraiser"
+import { addEntry, updateEntryQuantity, updateEntryPrice, updateEntryDelivery, deleteEntry, searchFundraiserFamilies } from "@/lib/actions/fundraiser"
 import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { generateUniqueBankRef } from "@/lib/fundraiserEntry"
 import { randomInt } from "node:crypto"
@@ -420,6 +420,67 @@ describe("updateEntryDelivery", () => {
     expect(await updateEntryDelivery(11, true)).toEqual({ error: "Entry not found" })
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "VIEWER" } })
     expect(await updateEntryDelivery(11, true)).toEqual({ error: "Unauthorized" })
+  })
+})
+
+describe("updateEntryPrice", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 11, quantity: 4, unitPrice: "10.00", fundraiser: { eventId: 7 }, payments: [], ...over,
+  })
+  beforeEach(() => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(row())
+    prismaMock.checkoutSession.count.mockResolvedValue(0)
+  })
+
+  it("updates the price, locks the row, audits old and new, revalidates", async () => {
+    expect(await updateEntryPrice(11, " 12.50 ")).toBeUndefined()
+    expect(prismaMock.$queryRaw).toHaveBeenCalled()
+    expect(prismaMock.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { unitPrice: "12.50" } })
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_ENTRY_PRICE", "FundraiserEntry", 11, { from: "10.00", to: "12.50", quantity: 4 })
+    expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
+    expect(revalidatePath).toHaveBeenCalledWith("/events")
+  })
+
+  it.each(["", "abc", "0", "0.00", "-1", "1.234", "1000000.00", "12345678901234"])("rejects invalid price %p", async (v) => {
+    expect((await updateEntryPrice(11, v))?.error).toBeDefined()
+    expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects an invalid id", async () => {
+    expect(await updateEntryPrice(0, "5.00")).toEqual({ error: "Invalid entry" })
+  })
+
+  it("blocks when the entry has any payment", async () => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(row({ payments: [{ amount: "5.00" }] }))
+    expect(await updateEntryPrice(11, "12.00")).toEqual({ error: "Cannot change the price of an entry that has payments. Delete the payments first." })
+    expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("blocks while a card checkout is open", async () => {
+    prismaMock.checkoutSession.count.mockResolvedValue(1)
+    expect(await updateEntryPrice(11, "12.00")).toEqual({ error: "Payment in progress" })
+    expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects a price whose total exceeds the cap", async () => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(row({ quantity: 2000 }))
+    expect(await updateEntryPrice(11, "500.00")).toEqual({ error: "Total owed is too large (max $999,999.99 per entry)" })
+  })
+
+  it("is a no-op success when unchanged", async () => {
+    expect(await updateEntryPrice(11, "10.00")).toBeUndefined()
+    expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("rejects a missing entry, a VIEWER, and fails closed when the audit write fails", async () => {
+    prismaMock.$queryRaw.mockResolvedValueOnce([])
+    expect(await updateEntryPrice(11, "12.00")).toEqual({ error: "Entry not found" })
+    jest.mocked(logAuditTx).mockRejectedValueOnce(new Error("db"))
+    expect(await updateEntryPrice(11, "12.00")).toEqual({ error: AUDIT_FAILED_ERROR })
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "VIEWER" } })
+    expect(await updateEntryPrice(11, "12.00")).toEqual({ error: "Unauthorized" })
   })
 })
 

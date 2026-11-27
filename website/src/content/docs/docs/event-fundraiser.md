@@ -57,7 +57,12 @@ Click **Add** and choose one of:
   contact details are encrypted at rest. Without an email the buyer cannot be sent reminders.
 
 Quantity is a whole number from 1 to 9999. You can change a row's quantity later, but not below
-what it has already paid. A row can be deleted only while it has no payments.
+what it has already paid. You can also change a row's price from the row's Price box (a positive
+amount with at most 2 decimals, up to $999,999.99, and the row's total must stay within the owed
+limit). This changes only that row, not the fundraiser's price. It is refused once the row has any
+recorded payment, or while a card payment is in progress for it; the change is recorded in the
+audit log with the old and new price. Switching a row between Pickup and Delivery afterwards
+resets its price to the fundraiser's current price for that choice. A row can be deleted only while it has no payments.
 
 The totals strip at the top shows expected, collected and outstanding amounts. Each row shows a
 status: **Unpaid**, **Part paid**, **Paid** or **Overpaid**.
