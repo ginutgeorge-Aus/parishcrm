@@ -44,7 +44,7 @@ export function FormError({
       role="alert"
       tabIndex={-1}
       className={cn(
-        "space-y-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive focus:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40",
+        "space-y-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive focus:outline-hidden focus-visible:ring-2 focus-visible:ring-destructive/40",
         className,
       )}
     >

@@ -56,6 +56,14 @@ it("renders the completed form with the applicant name and signature for an ADMI
   expect(html).toContain("John Miller")
   expect(html).toContain("data:image/png;base64,ABCD")
   expect(html).toContain("FOR OFFICE USE ONLY")
+  // Display polish: label maps, AU dates, currency, print CSS.
+  expect(html).toContain(">Male<")
+  expect(html).toContain(">Married<")
+  expect(html).toContain("02/01/1980")
+  expect(html).not.toContain("1980-01-02")
+  expect(html).toContain("$80.00")
+  expect(html).toContain("break-inside: avoid")
+  expect(html).toContain("print-color-adjust: exact")
   // Audit row carries the proxy-appended client IP.
   expect(logAudit).toHaveBeenCalledWith(1, "MEMBERSHIP_PRINTED", "MembershipApplication", 5, undefined, "203.0.113.9")
   expect(html).toContain("Signature of the Vicar")

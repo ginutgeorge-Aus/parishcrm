@@ -44,7 +44,15 @@ export default async function GroupPrintPage(props: Readonly<{ params: Promise<{
         body { font-family: sans-serif; font-size: 11px; margin: 24px; }
         h1 { font-size: 16px; margin-bottom: 2px; }
         .meta { color: var(--c-meta); font-size: 10px; margin-bottom: 16px; }
-        table { width: 100%; border-collapse: collapse; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th:nth-child(1) { width: 18%; }
+        th:nth-child(2) { width: 16%; }
+        th:nth-child(3) { width: 12%; }
+        th:nth-child(4) { width: 14%; }
+        th:nth-child(5) { width: 24%; }
+        th:nth-child(6) { width: 16%; }
+        td { overflow-wrap: anywhere; }
+        @page { size: A4; }
         th { font-size: 9px; text-transform: uppercase; color: var(--c-th); font-weight: 600; border-bottom: 1px solid var(--c-rule); padding: 3px 4px; text-align: left; }
         td { padding: 3px 4px; font-size: 10px; border-bottom: 1px solid var(--c-rule); }
         tr { page-break-inside: avoid; }

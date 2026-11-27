@@ -42,6 +42,27 @@ export function isDgrReceiptEditable(status: string, sentAt: Date | null | undef
 }
 
 /**
+ * Badge variant for a receipt status on the list page: SENT solid, FAILED
+ * destructive, UNKNOWN outline (needs a staff check), anything else secondary.
+ * @param status receipt status
+ */
+export function dgrStatusBadgeVariant(status: string): "default" | "destructive" | "outline" | "secondary" {
+  if (status === DGR_STATUS.SENT) return "default"
+  if (status === DGR_STATUS.FAILED) return "destructive"
+  if (status === DGR_STATUS.UNKNOWN) return "outline"
+  return "secondary"
+}
+
+/**
+ * Whether `sentAt` is a real delivery time to show in the list: only SENT.
+ * While SENDING it is the claim time, and UNKNOWN may not have been delivered.
+ * @param status receipt status
+ */
+export function dgrShowsSentAt(status: string): boolean {
+  return status === DGR_STATUS.SENT
+}
+
+/**
  * Whether a receipt may be deleted: only DRAFT, or FAILED with a definite
  * failure. SENDING and UNKNOWN may have reached the donor; SENT has.
  * @param status receipt status

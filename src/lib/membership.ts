@@ -42,9 +42,9 @@ export const membershipPayloadSchema = z.object({
       dateOfMarriage: z.string().max(50).nullable().refine((v) => v === null || isRealCalendarDate(v), DATE_MSG),
       parish: z.string().max(200).nullable(), working: z.boolean().nullable(), email: emailRule.nullable() })
     .nullable(),
-  children: z.array(row.extend({ occupation: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(4),
-  dependents: z.array(row.extend({ relationship: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(4),
-  relativesInAustralia: z.array(z.object({ name: z.string().trim().min(1).max(200), place: z.string().max(200).nullable(), relationship: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(3),
+  children: z.array(row.extend({ occupation: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(8),
+  dependents: z.array(row.extend({ relationship: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(8),
+  relativesInAustralia: z.array(z.object({ name: z.string().trim().min(1).max(200), place: z.string().max(200).nullable(), relationship: z.string().max(200).nullable(), phoneEmail: z.string().max(255).nullable() })).max(6),
   // Bounded like family.ts's MAX_MONTHLY_DUES_DOLLARS — an unbounded number
   // (e.g. 1e20) passes Zod, then overflows the Decimal(10,2) column at write
   // and throws inside an un-try/catched create(), crashing the public submit
