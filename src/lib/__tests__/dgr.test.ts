@@ -166,6 +166,26 @@ describe("DGR receipt edit/delete guards", () => {
   })
 
   it.each([
+    ["SENT", "default"],
+    ["FAILED", "destructive"],
+    ["UNKNOWN", "outline"],
+    ["DRAFT", "secondary"],
+    ["SENDING", "secondary"],
+  ] as const)("dgrStatusBadgeVariant(%s) = %s", (status, expected) => {
+    expect(dgrStatusBadgeVariant(status)).toBe(expected)
+  })
+
+  it.each([
+    ["SENT", true],
+    ["SENDING", false],
+    ["UNKNOWN", false],
+    ["DRAFT", false],
+    ["FAILED", false],
+  ])("dgrShowsSentAt(%s) = %s", (status, expected) => {
+    expect(dgrShowsSentAt(status)).toBe(expected)
+  })
+
+  it.each([
     ["DRAFT", true],
     ["FAILED", true],
     ["SENDING", false],
