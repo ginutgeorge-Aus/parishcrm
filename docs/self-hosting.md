@@ -101,7 +101,9 @@ once any user exists. The script reads `.env` as dotenv (no shell expansion, so 
 `$` in a password is safe). Put `USER_EMAIL` and `USER_PASSWORD` in `.env`
 temporarily rather than on the command line, so the password never lands in shell
 history or the process list, and delete both lines straight afterwards (before you
-build `.env.docker` below, which is copied from `.env`):
+build `.env.docker` below, which is copied from `.env`). If a password contains `#`, wrap the value in double quotes, e.g.
+`USER_PASSWORD="abc#def"`; unquoted, dotenv reads `#def` as a comment and the
+account gets the password `abc`. Inside double quotes use `\"` for a literal quote.
 
 ```bash
 npx tsx --env-file=.env scripts/create-admin-user.ts
@@ -300,12 +302,25 @@ ALTER DEFAULT PRIVILEGES FOR ROLE <migration_role> IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO <app_role>;
 ```
 
+**Existing deployments:** tables already created by the app role are still owned by
+that role, and grants do not move ownership, so the migration role cannot `ALTER` them.
+Either use the current owner as the migration role, or transfer ownership once
+(as a superuser or the owner): `ALTER TABLE <table> OWNER TO <migration_role>;` for each
+table (also sequences and enums created by migrations, plus `_prisma_migrations`), then
+run the grants above so the app role keeps read/write access without DDL rights.
+
 **Recovery from a failed migration.** A failed migration makes a
 `MIGRATE_ON_START=true` container exit and restart in a loop. To recover:
 
 1. Stop the container (or set `MIGRATE_ON_START=false`) so it stops retrying.
-2. Restore the pre-upgrade backup, or fix the cause and revert any partly applied change by hand.
+2. Choose one branch:
+   - **Restore:** restore the pre-upgrade backup. It predates the failed migration, so
+     no failed record remains: skip `migrate status` and `migrate resolve`. Fix the
+     original cause, then go to step 5.
+   - **Fix in place:** the failed record remains. Continue with steps 3 and 4.
 3. Run `npx prisma migrate status` to see which migration is marked failed.
-4. Mark it with `npx prisma migrate resolve --rolled-back <migration_name>` (changes undone)
-   or `--applied <migration_name>` (changes completed by hand).
-5. Re-run `npx prisma migrate deploy`, then start the container.
+4. Undo any objects the migration created before it failed (a retry will try to create
+   them again), then run `npx prisma migrate resolve --rolled-back <migration_name>`.
+   Use `--applied <migration_name>` only after you have run the migration's remaining SQL
+   by hand and verified the schema: `--applied` skips that SQL on every later deploy.
+5. Run `npx prisma migrate deploy`, then start the container.

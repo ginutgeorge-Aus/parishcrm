@@ -13,7 +13,9 @@ import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpe
 // One-time backfill: create zero-balance petty cash sessions for every Sunday
 // from --from (default 2025-09-01) through --to (default the current week's
 // Sunday). ensureWeeklySession only ever opens the current week, so historical
-// Sundays never get a session; this fills the gap. Idempotent — sessions whose
+// Sundays never get a session; this fills the gap. Both dates are rounded back
+// to the Sunday of their week (so --from 2025-09-01, a Monday, starts on
+// 2025-08-31). Idempotent — sessions whose
 // title already exists are skipped, so it is safe to re-run. Dry-run unless
 // both --apply and --yes are passed.
 
