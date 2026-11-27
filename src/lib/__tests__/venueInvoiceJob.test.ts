@@ -131,6 +131,16 @@ it("not approved: sends the reminder (what is missing / not approved), never the
   expect((sendEmail as jest.Mock).mock.calls[0][3]).toContain("not been approved")
 })
 
+it("a month sent by hand while the reminder was being built gets no reminder (#857)", async () => {
+  findUnique()
+    .mockResolvedValueOnce({ id: 3, status: null, approvedAt: null }) // work() read
+    .mockResolvedValueOnce({ status: "SUCCESS", reminderSentAt: null }) // recheck before notifying
+  const r = await runVenueInvoiceJob(OPEN)
+  expect(r).toEqual(ZERO)
+  expect(sendEmail).not.toHaveBeenCalled()
+  expect(updateMany().mock.calls.at(-1)[0].data).toEqual({ reminderSentAt: expect.any(Date) })
+})
+
 it("approved but no longer complete: reminder lists the gap, no invoice", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
   ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(complete.slice(1))

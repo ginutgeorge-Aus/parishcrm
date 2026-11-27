@@ -50,6 +50,8 @@ const mockPerson = {
   family: { id: 1, name: "Smith Family" },
   transactions: [],
   clearances: [],
+  sacramentRecords: [],
+  sacramentSpouseRecords: [],
 }
 
 describe("GET /api/people/[id]/export", () => {
@@ -217,6 +219,38 @@ describe("GET /api/people/[id]/export", () => {
     expect(include.clearances.select).toBeDefined()
     expect(include.clearances.select.document).toBeUndefined()
     expect(mockLogAudit.mock.calls[0][4].exportedFields).toContain("clearances")
+  })
+
+  it("includes decrypted sacrament register entries (person and CRM spouse) and lists them in the audit fields", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    const row = {
+      type: "MARRIAGE",
+      registerNo: "MAR-2026-001",
+      personId: 1,
+      spouseId: null,
+      date: new Date("2026-05-02T00:00:00.000Z"),
+      place: "St Test",
+      ministerName: "Fr Test",
+      spouseName: "enc:Alex Example",
+      godparents: "enc:A and B",
+      notes: "enc:A note",
+      createdAt: new Date("2026-05-03T00:00:00.000Z"),
+    }
+    mockPersonFindFirst.mockResolvedValue({
+      ...mockPerson,
+      sacramentRecords: [row],
+      sacramentSpouseRecords: [{ ...row, registerNo: "MAR-2026-002", personId: 9, spouseId: 1, spouseName: null }],
+    })
+    const res = await GET(makeRequest(), makeProps("1"))
+    const body = await res.json()
+    expect(body.sacraments).toHaveLength(2)
+    expect(body.sacraments[0]).toMatchObject({
+      registerNo: "MAR-2026-001", role: "person", date: "2026-05-02", spouseName: "Alex Example", godparents: "A and B", notes: "A note",
+    })
+    expect(body.sacraments[1]).toMatchObject({ registerNo: "MAR-2026-002", role: "spouse", spouseName: null })
+    expect(body.person).not.toHaveProperty("sacramentRecords")
+    expect(body.person).not.toHaveProperty("sacramentSpouseRecords")
+    expect(mockLogAudit.mock.calls[0][4].exportedFields).toContain("sacraments")
   })
 
   it("exports transactions once, decrypted, and not duplicated under person", async () => {

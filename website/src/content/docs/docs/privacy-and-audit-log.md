@@ -93,7 +93,7 @@ Run each without flags first to review the dry-run output. See
 
 **Data access/correction requests.** The privacy policy directs data-subject requests to the
 parish office. Operationally, an ADMIN can produce a full JSON export of a person's stored
-data (contact details, family, financial giving history, etc.) for exactly this purpose; the
+data (contact details, family, financial giving history, sacramental register entries as the person or as a CRM spouse, etc.) for exactly this purpose; the
 export action itself is audit-logged.
 
 **Read-only integrity check.** A separate diagnostic script (not a purge) scans every field

@@ -15,6 +15,7 @@ import { headers } from "next/headers"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
+import { sexLabel, maritalLabel, formatPayloadDate, formatMonthlyDues } from "@/lib/membershipLabels"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -80,11 +81,14 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
         .row { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dotted #cbd5e1; }
         .lbl { width: 220px; font-weight: 600; }
         .val { flex: 1; }
-        table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-        th, td { border: 1px solid #94a3b8; padding: 3px 6px; text-align: left; font-size: 11px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 4px; table-layout: fixed; }
+        th:first-child { width: 28px; }
+        th, td { border: 1px solid #94a3b8; padding: 3px 6px; text-align: left; font-size: 11px; overflow-wrap: anywhere; }
         th { background: #e2e8f0; }
         .sig { max-height: 120px; border: 1px solid #94a3b8; background: #fff; }
-        .office { border: 1px solid #94a3b8; padding: 8px; margin-top: 16px; }
+        .office { border: 1px solid #94a3b8; padding: 8px; margin-top: 16px; break-inside: avoid; page-break-inside: avoid; }
+        .band, th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        tr { break-inside: avoid; }
         @media print { button { display: none; } }
       `}</style>
 
@@ -96,16 +100,16 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
 
       <div className="band">A. Personal particulars</div>
       <Line label="Name" value={pe.name} />
-      <Line label="Sex" value={pe.gender} />
-      <Line label="Date of birth" value={pe.dateOfBirth} />
+      <Line label="Sex" value={sexLabel(pe.gender)} />
+      <Line label="Date of birth" value={formatPayloadDate(pe.dateOfBirth)} />
       <Line label="E-mail ID" value={pe.email} />
       <Line label="Mobile" value={pe.mobile} />
       <Line label="Residential address" value={[pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ")} />
       <Line label="Qualification & profession" value={pe.qualificationProfession} />
       {(parishFields || pe.motherParish) && <Line label="Previous church" value={pe.motherParish} />}
       {(homeAddressLabel || pe.addressInIndia) && <Line label={ol.homeAddress} value={pe.addressInIndia} />}
-      {(arrivalDateLabel || pe.dateOfArrivalNsw) && <Line label={ol.arrivalDate} value={pe.dateOfArrivalNsw} />}
-      <Line label="Marital status" value={pe.maritalStatus} />
+      {(arrivalDateLabel || pe.dateOfArrivalNsw) && <Line label={ol.arrivalDate} value={formatPayloadDate(pe.dateOfArrivalNsw)} />}
+      <Line label="Marital status" value={maritalLabel(pe.maritalStatus)} />
       {(parishFields || pe.transferCertFurnished != null) && (
         <Line label="Transfer letter provided" value={yesNo(pe.transferCertFurnished)} />
       )}
@@ -114,8 +118,8 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
         <>
           <div className="band">B. Details of family (spouse)</div>
           <Line label="Name of spouse" value={p.spouse.name} />
-          <Line label="Date of birth" value={p.spouse.dateOfBirth} />
-          <Line label="Date of marriage" value={p.spouse.dateOfMarriage} />
+          <Line label="Date of birth" value={formatPayloadDate(p.spouse.dateOfBirth)} />
+          <Line label="Date of marriage" value={formatPayloadDate(p.spouse.dateOfMarriage)} />
           {(parishFields || p.spouse.parish) && <Line label="Spouse's church" value={p.spouse.parish} />}
           <Line label="Spouse working" value={yesNo(p.spouse.working)} />
           <Line label="Spouse e-mail ID" value={p.spouse.email} />
@@ -131,7 +135,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
             </thead>
             <tbody>
               {p.children.map((c, i) => (
-                <tr key={i}><td>{i + 1}</td><td>{c.name}</td><td>{c.sex}</td><td>{c.dateOfBirth}</td><td>{c.occupation}</td><td>{c.phoneEmail}</td></tr>
+                <tr key={i}><td>{i + 1}</td><td>{c.name}</td><td>{sexLabel(c.sex)}</td><td>{formatPayloadDate(c.dateOfBirth)}</td><td>{c.occupation}</td><td>{c.phoneEmail}</td></tr>
               ))}
             </tbody>
           </table>
@@ -147,7 +151,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
             </thead>
             <tbody>
               {p.dependents.map((d, i) => (
-                <tr key={i}><td>{i + 1}</td><td>{d.name}</td><td>{d.sex}</td><td>{d.dateOfBirth}</td><td>{d.relationship}</td><td>{d.phoneEmail}</td></tr>
+                <tr key={i}><td>{i + 1}</td><td>{d.name}</td><td>{sexLabel(d.sex)}</td><td>{formatPayloadDate(d.dateOfBirth)}</td><td>{d.relationship}</td><td>{d.phoneEmail}</td></tr>
               ))}
             </tbody>
           </table>
@@ -171,7 +175,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
       )}
 
       <div className="band">F. Subscription & declaration</div>
-      <Line label="Monthly subscription" value={app.monthlyDues ? `$${app.monthlyDues.toString()}` : ""} />
+      <Line label="Monthly subscription" value={formatMonthlyDues(app.monthlyDues)} />
       <p style={{ fontStyle: "italic", margin: "8px 0" }}>
         I declare that the above information is true and correct to the best of my knowledge.
       </p>
