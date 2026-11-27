@@ -29,6 +29,7 @@ export default async function OrganiserLayout({ children }: Readonly<{ children:
         showEvents={!teacher && features.has("events")}
         showClasses={features.has("sundaySchool")}
         showGroups={!teacher}
+        showRoster={isEventOrganiser(role)}
         home={teacher ? CLASSES_HOME : organiserHome(features)}
       />
       <main className="min-w-0 flex-1 bg-muted p-4 md:p-8">{children}</main>

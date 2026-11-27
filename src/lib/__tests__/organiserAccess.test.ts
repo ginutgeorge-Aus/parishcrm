@@ -9,6 +9,8 @@ describe("isOrganiserAllowedPath", () => {
     "/my-classes/4/roll",
     "/my-groups",
     "/my-groups/4",
+    "/my-roster",
+    "/my-roster/9",
     "/api/auth/session",
     "/_next/data/abc.json",
     "/api/health",
@@ -39,5 +41,7 @@ describe("isOrganiserAllowedPath", () => {
     "/api/event-exports/5/csvx",
     "/api/event-exports/abc/csv",
     "/my-groupsx",
+    "/my-rosterx",
+    "/roster",
   ])("blocks %s", (p) => expect(isOrganiserAllowedPath(p)).toBe(false))
 })

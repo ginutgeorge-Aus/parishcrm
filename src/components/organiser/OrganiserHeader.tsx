@@ -12,12 +12,14 @@ import type { OrganiserHome } from "@/lib/organiserHome"
  * @param showEvents false hides the Events link while the events feature is off
  * @param showClasses false hides the Classes link while Sunday School is off
  * @param showGroups false hides the Groups link (TEACHER: classes only)
+ * @param showRoster false hides the Roster link (only group-leader logins can use /my-roster)
  * @param home brand link label/target, resolved by the layout (`organiserHome`)
  */
-export function OrganiserHeader({ showEvents = true, showClasses = true, showGroups = true, home }: Readonly<{
+export function OrganiserHeader({ showEvents = true, showClasses = true, showGroups = true, showRoster = true, home }: Readonly<{
   showEvents?: boolean
   showClasses?: boolean
   showGroups?: boolean
+  showRoster?: boolean
   home: OrganiserHome
 }>) {
   // Groups pages are not under "My Events"/"My Classes": use a neutral brand title there.
@@ -45,6 +47,11 @@ export function OrganiserHeader({ showEvents = true, showClasses = true, showGro
         {showGroups && (
           <Link href="/my-groups" className="flex min-h-11 items-center rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
             Groups
+          </Link>
+        )}
+        {showRoster && (
+          <Link href="/my-roster" className="flex min-h-11 items-center rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
+            Roster
           </Link>
         )}
         <button
