@@ -14,9 +14,9 @@ export type IssueClientContext = {
 // Neutralise markdown control characters before embedding user-controlled text
 // into an issue body. `<` too: `\<` is a CommonMark literal, so
 // user text can't open or close raw HTML such as the `</details>` wrapper below.
-// A mention is an `@` not preceded by a word character or dot (so emails and
+// A mention is an `@` not preceded by a word character (so emails and
 // `user@host` URLs are left intact) and followed by a handle character.
-const MENTION = /(?<![\w.])@(?=[\w-])/g
+const MENTION = /(?<!\w)@(?=[\w-])/g
 
 // A mention gets a zero-width space after the `@` so GitHub does not ping that
 // user from the church's token (AUD-2-05).

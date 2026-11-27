@@ -13,6 +13,11 @@ describe("AUD-2-05 mention and line-break hardening", () => {
     expect(escapeMarkdown("@a (@b)")).toBe("@​a (@​b)")
   })
 
+  it("defuses a mention after a dot (foo.@bar)", () => {
+    expect(escapeMarkdown("foo.@bar")).toBe("foo.@​bar")
+    expect(escapeMarkdown("(@bar)")).toBe("(@​bar)")
+  })
+
   it("escapeLine collapses CR/LF so a forged line cannot start", () => {
     expect(escapeLine("a\r\n- Reporter: admin")).toBe("a - Reporter: admin")
   })
