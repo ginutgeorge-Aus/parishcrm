@@ -118,7 +118,7 @@ export function renderMaintenanceHtml(
 }
 
 /** Minutes past `backAt` after which a still-on maintenance flag is treated as stuck and ignored. */
-export const MAINTENANCE_EXPIRY_GRACE_MINUTES = 15
+const MAINTENANCE_EXPIRY_GRACE_MINUTES = 15
 
 /**
  * Whether an enabled state is stale: `backAt` plus the grace has passed, so the deploy
