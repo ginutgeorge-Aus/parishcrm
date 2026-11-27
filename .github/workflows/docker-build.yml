@@ -1,0 +1,52 @@
+name: Docker build
+
+# Dry-run image build on PRs that touch the image inputs. publish-image.yml only
+# runs at release time, so a broken Dockerfile or an out-of-date
+# docker/prisma-cli lockfile (`npm ci` fails) would otherwise surface only when a
+# release is cut. Nothing is pushed and no secrets are used, so fork PRs run too.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+      - 'prisma/**'
+      - 'prisma.config.ts'
+      - 'next.config.*'
+      - '.github/workflows/docker-build.yml'
+      - '.github/workflows/publish-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Same build as publish-image.yml, minus push/SBOM/attestation.
+      - name: Build image (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: false
+          tags: parishcrm:pr-dry-run
+          build-args: |
+            APP_VERSION=pr-dry-run
+            GIT_SHA=${{ github.sha }}
