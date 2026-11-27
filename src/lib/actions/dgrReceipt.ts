@@ -21,7 +21,7 @@ import {
   parseIssuerSnapshot,
   type DgrLine,
   DGR_STATUS,
-  DGR_SEND_STALE_MS,
+  isDgrPossiblyDelivered,
   isDgrReceiptEditable,
   isDgrReceiptDeletable,
 } from "@/lib/dgr"
@@ -222,10 +222,17 @@ export async function updateDgrReceipt(
   if (!existing) return { error: "Receipt not found." }
   // A SENT receipt is a legal document already delivered — frozen, and so is an
   // UNKNOWN one (may have been delivered). FAILED (definite failure) never reached
-  // the donor. A SENDING row is editable only once its claim went stale (a
-  // mid-send crash); a live send must not be reset to DRAFT under it.
-  if (!isDgrReceiptEditable(existing.status, existing.sentAt)) {
-    if (existing.status === DGR_STATUS.SENDING) return { error: "This receipt is being sent. Try again in a few minutes." }
+  // the donor. A SENDING row is never editable: a live send must not be reset to
+  // DRAFT under it, and a stale one (mid-send crash) may have been delivered, so it
+  // is resend-only like UNKNOWN.
+  if (!isDgrReceiptEditable(existing.status)) {
+    if (existing.status === DGR_STATUS.SENDING) {
+      return {
+        error: isDgrPossiblyDelivered(existing.status, existing.sentAt)
+          ? "This receipt may have been delivered and can no longer be edited. Resend it instead."
+          : "This receipt is being sent. Try again in a few minutes.",
+      }
+    }
     if (existing.status === DGR_STATUS.UNKNOWN)
       return { error: "This receipt may have been delivered and can no longer be edited." }
     return { error: "This receipt has been sent and can no longer be edited." }
@@ -264,22 +271,14 @@ export async function updateDgrReceipt(
   // Status predicate in the write itself: a send that claimed the row after the
   // read above (DRAFT -> SENDING) makes this match no row, so the edit can't
   // overwrite a receipt in flight or reset a delivered one to DRAFT.
-  const staleBefore = new Date(Date.now() - DGR_SEND_STALE_MS)
   // Encrypt before the transaction so the row isn't held open for slow work.
   const encryptedEmail = encrypt(donorEmail)
   let raced = false
   try {
     await prisma.$transaction(async (tx) => {
       const res = await tx.dgrReceipt.updateMany({
-        where: {
-          id,
-          OR: [
-            { status: { in: [DGR_STATUS.DRAFT, DGR_STATUS.FAILED] } },
-            { status: DGR_STATUS.SENDING, OR: [{ sentAt: null }, { sentAt: { lt: staleBefore } }] },
-          ],
-        },
-        // Editing a FAILED or stale SENDING receipt clears the failure state and the
-        // claim time so it reads as ready-to-send again.
+        where: { id, status: { in: [DGR_STATUS.DRAFT, DGR_STATUS.FAILED] } },
+        // Editing a FAILED receipt clears the failure state so it reads as ready-to-send again.
         data: {
           personId,
           donorName,
@@ -365,6 +364,8 @@ const SEND_STALE_ERROR = "This receipt was edited while it was being prepared. R
 async function claimLostError(id: number, readStatus: string): Promise<{ error: string }> {
   const now = await prisma.dgrReceipt.findUnique({ where: { id }, select: { status: true } })
   if (!now) return { error: "Receipt not found." }
+  // A SENDING row that is still SENDING was re-claimed by another send, not edited.
+  if (readStatus === DGR_STATUS.SENDING && now.status === DGR_STATUS.SENDING) return { error: SEND_RACE_ERROR }
   if (now.status === readStatus || now.status === DGR_STATUS.DRAFT) return { error: SEND_STALE_ERROR }
   return { error: SEND_RACE_ERROR }
 }
@@ -391,6 +392,9 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   // donor — a double-click or retry must never re-email it or overwrite
   // sentAt/sentById. Same freeze rule as updateDgrReceipt/deleteDgrReceipt.
   if (row.status === DGR_STATUS.SENT) return { error: "This receipt has already been sent." }
+  // UNKNOWN, or a SENDING claim gone stale (crashed send): may already have reached the donor.
+  const possiblyDelivered = isDgrPossiblyDelivered(row.status, row.sentAt)
+  if (row.status === DGR_STATUS.SENDING && !possiblyDelivered) return { error: SEND_RACE_ERROR }
   if (confirmedEmail != null) {
     const stored = safeDecrypt(row.donorEmail).trim().toLowerCase()
     if (stored !== confirmedEmail.trim().toLowerCase())
@@ -398,13 +402,13 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   }
 
   // Atomically claim the row BEFORE the slow render+email. Only a DRAFT/FAILED
-  // row is claimable, plus UNKNOWN (possibly delivered): its content is frozen, so
+  // row is claimable, plus UNKNOWN or a stale SENDING (possibly delivered): its content is frozen, so
   // a resend after staff check can only repeat the identical receipt; the conditional updateMany flips it to SENDING so a
   // concurrent double-click / parallel retry finds no claimable row — it can
   // neither re-email the donor nor let a losing failure overwrite the winner's
   // SENT with FAILED. Every finalize below is likewise guarded on `SENDING`, so
   // only this claimant writes the terminal state. A row wedged in
-  // SENDING by a mid-send crash is recovered by editing it (resets to DRAFT) once
+  // SENDING by a mid-send crash is recovered by resending it (like UNKNOWN) once
   // the claim time stored in sentAt is older than DGR_SEND_STALE_MS.
   // Read strict church settings BEFORE claiming the row: a strict read
   // rejects on a cold-cache/transient DB error, and if that happened after the
@@ -414,7 +418,7 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   // and retryable.
   // An UNKNOWN row may already have reached the donor: its first document (issuer snapshot,
   // issue date, encrypted PDF) was stored on that attempt and a retry must resend exactly that.
-  const keptSnapshot = row.status === DGR_STATUS.UNKNOWN ? parseIssuerSnapshot(row.issuer) : null
+  const keptSnapshot = possiblyDelivered ? parseIssuerSnapshot(row.issuer) : null
   // A usable snapshot carries the whole issuer identity, so the strict live settings read is skipped.
   let church: Pick<ChurchSettings, "name" | "abn" | "address" | "email">
   if (keptSnapshot) {
@@ -439,7 +443,7 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
       fyEndYear: row.fyEndYear,
       // The issue date is the send date in the church's timezone, not the UTC day the draft was made.
       // A retry of a possibly delivered UNKNOWN row without a snapshot keeps createdAt, the date the first send used.
-      issueDate: row.status === DGR_STATUS.UNKNOWN ? row.createdAt : sydneyToday(),
+      issueDate: possiblyDelivered ? row.createdAt : sydneyToday(),
       donorName: row.donorName,
       lines: row.lines as DgrLine[],
     },
@@ -455,7 +459,7 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   const claimAt = new Date()
   // Claim only the status this document was built from: if a parallel send moved the row
   // (e.g. DRAFT to UNKNOWN with its own stored PDF) after our read, we must not email a different document.
-  const claimable: string[] = [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN]
+  const claimable: string[] = [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN, DGR_STATUS.SENDING]
   if (!claimable.includes(row.status)) return { error: SEND_RACE_ERROR }
   // Claim only the content this document was built from (#914): an edit landing between the
   // read and the claim must not let us freeze and email the old copy. updateDgrReceipt is the
@@ -463,8 +467,23 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   // ciphertext changes on every edit and works as a version token without a schema column.
   // donorName and totalAmount are matched too, as a cheap guard should a future writer skip the email.
   const claim = await prisma.dgrReceipt.updateMany({
-    where: { id, status: row.status, donorEmail: row.donorEmail, donorName: row.donorName, totalAmount: row.totalAmount },
-    data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: claimAt },
+    // A stale SENDING row is matched on its claim time too, so a fresh claim by another send is not taken over.
+    where: {
+      id,
+      status: row.status,
+      donorEmail: row.donorEmail,
+      donorName: row.donorName,
+      totalAmount: row.totalAmount,
+      ...(row.status === DGR_STATUS.SENDING ? { sentAt: row.sentAt } : {}),
+    },
+    // A first attempt stores the issuer snapshot (incl. issue date) with the claim, so a crash after
+    // the provider accepted the mail leaves the exact document behind for a later resend.
+    data: {
+      status: DGR_STATUS.SENDING,
+      errorMessage: null,
+      sentAt: claimAt,
+      ...(possiblyDelivered ? {} : { issuer: toIssuerSnapshot(model) }),
+    },
   })
   if (claim.count === 0) return claimLostError(id, row.status)
 
@@ -505,7 +524,7 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
       revalidatePath(LIST_PATH)
       return { error: message }
     }
-    if (row.status === DGR_STATUS.UNKNOWN) {
+    if (possiblyDelivered) {
       // This was a resend of a possibly-delivered receipt: a definite failure now says
       // nothing about the earlier attempt, so it stays frozen (no edit, no delete).
       const message = "Resend failed, but the earlier attempt may have been delivered. Check before resending."
@@ -518,7 +537,7 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
       return { error: message }
     }
     // Terminal-state recovery: write FAILED unconditionally and audit best-effort. A rolled-back
-    // flip would leave the row wedged in SENDING (the claim only accepts DRAFT/FAILED).
+    // flip would leave the row wedged in SENDING (a stale SENDING claim is resendable, a live one is not).
     await prisma.dgrReceipt.updateMany({
       where: { id, status: DGR_STATUS.SENDING, sentAt: claimAt },
       data: { status: DGR_STATUS.FAILED, errorMessage: "Email delivery failed. Please try again.", sentAt: null },

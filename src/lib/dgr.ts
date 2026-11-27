@@ -21,24 +21,44 @@ export const DGR_STATUS = {
 } as const
 
 /**
- * A SENDING claim older than this is treated as a crashed send and may be
- * recovered by editing the receipt. Same window as the giving-statement claim.
+ * A SENDING claim older than this is treated as a crashed send: possibly
+ * delivered, so frozen and resend-only. Same window as the giving-statement claim.
  * While SENDING, `sentAt` holds the claim time (overwritten on SENT, cleared on FAILED).
  */
 export const DGR_SEND_STALE_MS = 15 * 60 * 1000
 
 /**
- * Whether a receipt may be edited: DRAFT, FAILED (definite failure), or a
- * SENDING whose claim went stale. A SENDING row with no claim time predates
- * the claim timestamp and is treated as stale.
+ * Whether a receipt is a SENDING row whose claim went stale (a crashed send).
+ * A SENDING row with no claim time predates the claim timestamp and is stale.
  * @param status receipt status
  * @param sentAt claim time while SENDING
  * @param now current time
  */
-export function isDgrReceiptEditable(status: string, sentAt: Date | null | undefined, now: Date = new Date()): boolean {
-  if (status === DGR_STATUS.DRAFT || status === DGR_STATUS.FAILED) return true
+export function isDgrSendStale(status: string, sentAt: Date | null | undefined, now: Date = new Date()): boolean {
   if (status !== DGR_STATUS.SENDING) return false
   return !sentAt || now.getTime() - sentAt.getTime() > DGR_SEND_STALE_MS
+}
+
+/**
+ * Whether the mail may already have reached the donor: UNKNOWN, or a stale
+ * SENDING (the process may have died after the provider accepted the mail but
+ * before SENT was written). Such a receipt is frozen: resend only, never edit.
+ * @param status receipt status
+ * @param sentAt claim time while SENDING
+ * @param now current time
+ */
+export function isDgrPossiblyDelivered(status: string, sentAt: Date | null | undefined, now: Date = new Date()): boolean {
+  return status === DGR_STATUS.UNKNOWN || isDgrSendStale(status, sentAt, now)
+}
+
+/**
+ * Whether a receipt may be edited: only DRAFT or FAILED (definite failure).
+ * SENDING (live or stale) and UNKNOWN may have reached the donor, so editing
+ * could leave two different documents under one number.
+ * @param status receipt status
+ */
+export function isDgrReceiptEditable(status: string): boolean {
+  return status === DGR_STATUS.DRAFT || status === DGR_STATUS.FAILED
 }
 
 /**

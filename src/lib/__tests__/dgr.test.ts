@@ -8,6 +8,7 @@ import {
   buildDgrPdfModel,
   currentFyEndYear,
   isDgrReceiptEditable,
+  isDgrPossiblyDelivered,
   dgrStatusBadgeVariant,
   dgrShowsSentAt,
   isDgrReceiptDeletable,
@@ -123,16 +124,25 @@ describe("DGR receipt edit/delete guards", () => {
   const ago = (ms: number) => new Date(now.getTime() - ms)
 
   it.each([
-    ["DRAFT", null, true],
-    ["FAILED", null, true],
-    ["SENT", ago(1000), false],
-    ["UNKNOWN", ago(DGR_SEND_STALE_MS * 10), false],
+    ["DRAFT", true],
+    ["FAILED", true],
+    ["SENT", false],
+    ["UNKNOWN", false],
+    ["SENDING", false],
+  ] as const)("isDgrReceiptEditable(%s) = %s", (status, expected) => {
+    expect(isDgrReceiptEditable(status)).toBe(expected)
+  })
+
+  it.each([
+    ["UNKNOWN", ago(1000), true],
     ["SENDING", ago(60_000), false],
     ["SENDING", ago(DGR_SEND_STALE_MS), false],
     ["SENDING", ago(DGR_SEND_STALE_MS + 1), true],
     ["SENDING", null, true],
-  ] as const)("isDgrReceiptEditable(%s, %s) = %s", (status, sentAt, expected) => {
-    expect(isDgrReceiptEditable(status, sentAt, now)).toBe(expected)
+    ["DRAFT", null, false],
+    ["SENT", ago(DGR_SEND_STALE_MS * 10), false],
+  ] as const)("isDgrPossiblyDelivered(%s, %s) = %s", (status, sentAt, expected) => {
+    expect(isDgrPossiblyDelivered(status, sentAt, now)).toBe(expected)
   })
 
   it.each([

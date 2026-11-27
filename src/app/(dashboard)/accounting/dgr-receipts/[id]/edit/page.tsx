@@ -21,10 +21,9 @@ export default async function EditDgrReceiptPage(props: Readonly<Props>) {
 
   const receipt = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!receipt) redirect("/accounting/dgr-receipts")
-  // A SENT or UNKNOWN (possibly delivered) receipt is frozen. DRAFT/FAILED, plus
-  // a SENDING row whose claim went stale (mid-send crash), are editable (mirrors
-  // updateDgrReceipt's guard).
-  if (!isDgrReceiptEditable(receipt.status, receipt.sentAt)) {
+  // Only DRAFT/FAILED are editable; SENT, UNKNOWN and SENDING (live or stale,
+  // possibly delivered) are frozen (mirrors updateDgrReceipt's guard).
+  if (!isDgrReceiptEditable(receipt.status)) {
     redirect("/accounting/dgr-receipts")
   }
 

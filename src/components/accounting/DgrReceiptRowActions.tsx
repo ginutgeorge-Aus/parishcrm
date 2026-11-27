@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton";
 import {
   DGR_STATUS,
+  isDgrPossiblyDelivered,
   isDgrReceiptEditable,
   isDgrReceiptDeletable,
+  isDgrSendStale,
 } from "@/lib/dgr";
 
 type Props = {
@@ -18,7 +20,7 @@ type Props = {
   donorName?: string;
   donorEmail?: string | null;
   status: string;
-  /** Claim time while SENDING (sent time once SENT); decides when a stuck send is editable. */
+  /** Claim time while SENDING (sent time once SENT); decides when a stuck send becomes resendable. */
   sentAt?: Date | null;
   canManage: boolean;
 };
@@ -42,9 +44,12 @@ export function DgrReceiptRowActions({
   }
 
   // SENT is frozen (the server refuses a duplicate delivery), so no send action;
-  // UNKNOWN (possibly delivered) is the only resend.
-  const canSend = status !== DGR_STATUS.SENT;
-  const sendVerb = status === DGR_STATUS.UNKNOWN ? "Resend" : "Send";
+  // UNKNOWN and a stale SENDING (possibly delivered) are the only resends. A live
+  // SENDING has no action: the server would refuse a second claim.
+  const canSend =
+    status !== DGR_STATUS.SENT &&
+    (status !== DGR_STATUS.SENDING || isDgrSendStale(status, sentAt));
+  const sendVerb = isDgrPossiblyDelivered(status, sentAt) ? "Resend" : "Send";
   const toDonor = donorName ? ` to ${donorName}` : "";
   const atEmail = donorEmail ? ` (${donorEmail})` : "";
 
@@ -61,10 +66,9 @@ export function DgrReceiptRowActions({
       </Button>
       {canManage && (
         <>
-          {/* DRAFT/FAILED are editable — a SENT or UNKNOWN (possibly delivered)
-              one is frozen; a SENDING one becomes editable once its claim is
-              stale (a stuck send). Matches updateDgrReceipt's guard. */}
-          {isDgrReceiptEditable(status, sentAt) && (
+          {/* Only DRAFT/FAILED are editable — SENT, UNKNOWN and SENDING (live or
+              stale, possibly delivered) are frozen. Matches updateDgrReceipt's guard. */}
+          {isDgrReceiptEditable(status) && (
             <Button asChild variant="outline" size="sm">
               <Link href={`/accounting/dgr-receipts/${id}/edit`}>Edit</Link>
             </Button>

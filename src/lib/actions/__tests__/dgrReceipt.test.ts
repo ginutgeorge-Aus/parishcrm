@@ -392,16 +392,14 @@ describe("updateDgrReceipt", () => {
     expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
-  it("edit of a SENDING receipt whose send went stale recovers it to DRAFT", async () => {
+  it("edit of a SENDING receipt whose send went stale is refused (possibly delivered, resend only)", async () => {
     ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({
       id: 1, status: "SENDING", fyEndYear: 2025, personId: 7, sentAt: new Date(Date.now() - 20 * 60_000),
     })
     ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ id: 7, firstName: "Alex", lastName: "Sample" })
     const res = await updateDgrReceipt(1, undefined, formDataWithLines())
-    expect(res).toBeUndefined()
-    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "DRAFT", sentAt: null }) })
-    )
+    expect(res).toEqual({ error: expect.stringMatching(/may have been delivered.*Resend/i) })
+    expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalled()
   })
 
   it("edit that loses a race to a send is refused (status predicate matches no row)", async () => {
@@ -411,14 +409,8 @@ describe("updateDgrReceipt", () => {
     const res = await updateDgrReceipt(1, undefined, formDataWithLines())
     expect(res).toEqual({ error: "This receipt is being sent or was sent" })
     const call = (prisma.dgrReceipt.updateMany as jest.Mock).mock.calls[0][0]
-    // Only DRAFT/FAILED, or a stale SENDING, may be overwritten.
-    expect(call.where).toEqual({
-      id: 1,
-      OR: [
-        { status: { in: ["DRAFT", "FAILED"] } },
-        { status: "SENDING", OR: [{ sentAt: null }, { sentAt: { lt: expect.any(Date) } }] },
-      ],
-    })
+    // Only DRAFT/FAILED may be overwritten.
+    expect(call.where).toEqual({ id: 1, status: { in: ["DRAFT", "FAILED"] } })
     expect(prisma.dgrReceipt.update).not.toHaveBeenCalled()
     expect(mockLogAudit).not.toHaveBeenCalled()
   })
@@ -916,10 +908,40 @@ describe("sendDgrReceipt", () => {
   })
 
   it("claims only the status its document was built from, and refuses a row already SENDING", async () => {
-    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "SENDING" })
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "SENDING", sentAt: new Date() })
     expect(await sendDgrReceipt(5)).toEqual({ error: expect.stringMatching(/already being sent/i) })
     expect(prisma.dgrReceipt.updateMany).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it("resends a stale SENDING receipt, claiming on its claim time", async () => {
+    const staleAt = new Date(Date.now() - 20 * 60_000)
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "SENDING", sentAt: staleAt })
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    await sendDgrReceipt(5)
+    const claim = (prisma.dgrReceipt.updateMany as jest.Mock).mock.calls[0][0]
+    expect(claim.where).toEqual(expect.objectContaining({ status: "SENDING", sentAt: staleAt }))
+    expect(mockSendEmail).toHaveBeenCalled()
+  })
+
+  it("a first send stores the issuer snapshot with the claim so a crash leaves the document behind", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    await sendDgrReceipt(5)
+    const claim = (prisma.dgrReceipt.updateMany as jest.Mock).mock.calls[0][0]
+    expect(claim.data.issuer).toEqual(expect.objectContaining({ issueDate: expect.any(String) }))
+  })
+
+  it("a definite failure on a stale SENDING resend stays UNKNOWN, never editable FAILED", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue({ ...draftReceipt, status: "SENDING", sentAt: null })
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockRejectedValue(new Error("550 rejected"))
+    await sendDgrReceipt(5)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "UNKNOWN" }) })
+    )
   })
 
   it("does not report success when the SENT write matches no row", async () => {
