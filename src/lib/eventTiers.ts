@@ -6,7 +6,7 @@ const MAX_TIERS = 20
 
 // Sanity ceiling for one tier price (AUD-4-08): an absurd typo times quantity
 // would overflow the Decimal(10,2) money column and break the public form.
-export const MAX_TIER_PRICE = 999999.99
+const MAX_TIER_PRICE = 999999.99
 
 // Read repeated `tier.<i>.price` form fields into an ordered dollar array.
 // Row i = the total price for a registration of (i+1) attendees; the array
