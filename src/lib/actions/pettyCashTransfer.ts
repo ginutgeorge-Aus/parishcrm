@@ -46,6 +46,22 @@ const DUPLICATE_LEG_ERROR =
   "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit is not in the list (it shows only the newest deposits), use the \"Look up deposits for the date and amount entered\" link under the picker; if it still cannot be picked, ask an admin."
 
 /**
+ * Edit-mode rejection for a transfer correction that would now match an unlinked imported cash-out. The edit
+ * form has no deposit picker, so the next step is to keep the old values or ask an admin (#856).
+ */
+const EDIT_DUPLICATE_LEG_ERROR =
+  "An imported cash-out for this amount and date already exists, so this correction would count it twice. The edit form cannot link imported deposits: keep the amount and date as they were, or use different values. If this transfer is that deposit, ask an admin."
+
+/**
+ * Edit-mode rejection for a correction within the import mirror window of an unlinked imported cash-out on another day (#856).
+ * @param depositDay the imported deposit's UTC day (YYYY-MM-DD)
+ * @returns the user-facing message naming that day
+ */
+function editWindowLegError(depositDay: string): string {
+  return `An imported deposit for this amount on ${depositDay} ${WINDOW_GUARD_TAG} already booked its petty cash cash-out, so this correction would count it twice. The edit form cannot link imported deposits: keep the amount and date as they were, or ask an admin to apply this correction anyway.`
+}
+
+/**
  * Rejection for a manual transfer when an unlinked imported cash-out matches but its deposit was re-dated to a
  * different day than the cash-out (#562). The picker and adoption both require deposit day = cash-out day = transfer
  * day, so the deposit cannot be picked and setting the date would not help; the carrying tag lets an ADMIN override.
@@ -145,11 +161,11 @@ async function tokenState(
  * shared by createTransfer and updateTransfer. Throws `TransferError` with the user-facing reason,
  * or returns whether the ADMIN-only cross-day window override was applied.
  * @param tx the caller's Serializable transaction (the leg reads are what SSI orders against imports)
- * @param args the transfer's amount/date, the XFER + cash account ids, and whether an admin asked to override
+ * @param args the transfer's amount/date, the XFER + cash account ids, whether an admin asked to override, and `edit` for edit-mode wording (the edit form has no deposit picker)
  */
 async function assertNoImportedLegConflict(
   tx: Prisma.TransactionClient,
-  args: { amount: string; date: Date; xferAccountId: number; cashAccountId: number | null; windowOverride: boolean },
+  args: { amount: string; date: Date; xferAccountId: number; cashAccountId: number | null; windowOverride: boolean; edit?: boolean },
 ): Promise<boolean> {
   let windowOverridden = false
   // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
@@ -215,13 +231,17 @@ async function assertNoImportedLegConflict(
     })
     // Same-day unlinked first: the picker resolves it with the date as entered. Then a
     // different-day unlinked leg (re-date + pick), then a same-day adopted one (#492).
-    if (kinds.some((k) => k.sameDay && !k.linked && k.adoptable)) throw new TransferError(DUPLICATE_LEG_ERROR)
+    if (kinds.some((k) => k.sameDay && !k.linked && k.adoptable)) throw new TransferError(args.edit ? EDIT_DUPLICATE_LEG_ERROR : DUPLICATE_LEG_ERROR)
     // Prefer an adoptable entry so the message never depends on DB row order.
     const other = kinds.find((k) => !k.linked && k.adoptable) ?? kinds.find((k) => !k.linked)
     // The window guard alone is admin-overridable (e.g. fixed recurring weekly deposits). A re-dated
     // deposit (not adoptable even on the same day) gets the same override instead of a dead end.
     if (other && !args.windowOverride)
-      throw new TransferError(other.adoptable ? windowLegError(other.depositDay) : redatedDepositError(other.day, other.depositDay))
+      throw new TransferError(
+        other.adoptable
+          ? (args.edit ? editWindowLegError : windowLegError)(other.depositDay)
+          : redatedDepositError(other.day, other.depositDay),
+      )
     if (other) windowOverridden = true
     if (kinds.some((k) => k.linked)) throw new TransferError(DUPLICATE_ADOPTED_LEG_ERROR)
   }
@@ -573,7 +593,7 @@ export async function updateTransfer(
       // A new amount or day could now match an imported cash-out: same guard as a manual create.
       const changed = toCents(amount) !== toCents(transfer.amount) || utcYmd(date) !== utcYmd(transfer.date)
       const windowOverridden = changed
-        ? await assertNoImportedLegConflict(tx, { amount, date, xferAccountId, cashAccountId: cashAccount?.id ?? null, windowOverride })
+        ? await assertNoImportedLegConflict(tx, { amount, date, xferAccountId, cashAccountId: cashAccount?.id ?? null, windowOverride, edit: true })
         : false
 
       await tx.pettyCashTransfer.update({

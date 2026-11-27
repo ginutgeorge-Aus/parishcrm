@@ -168,7 +168,10 @@ describe("updateTransfer", () => {
       legs: [{ bankRef: "XFER_OUT_ANZ_1", pettyCashTransferId: null, date: new Date("2026-08-01T00:00:00.000Z") }],
       deposits: [{ bankRef: "ANZ_1", date: new Date("2026-08-01T00:00:00.000Z") }],
     }))
-    await expect(updateTransfer(5, undefined, form())).resolves.toEqual({ error: expect.stringMatching(/imported cash-out for this amount and date already exists/) })
+    const res = await updateTransfer(5, undefined, form())
+    expect(res).toEqual({ error: expect.stringMatching(/imported cash-out for this amount and date already exists/) })
+    // Edit form has no deposit picker: the message must not send the user to one (#856).
+    expect((res as { error: string }).error).not.toMatch(/picker|pick the imported/i)
     expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
   })
 

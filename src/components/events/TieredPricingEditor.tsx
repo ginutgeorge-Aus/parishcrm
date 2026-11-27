@@ -1,32 +1,36 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-type Row = { price: string; _key: string }
+/** Rows shown for a price list: always at least one (blank) row so the first tier is enterable. */
+function rowsFor(prices: string[]): string[] {
+  return prices.length ? prices : [""]
+}
 
 // `active` mirrors the parent's tieredPricingEnabled toggle. When false the
 // section is display:none, so its `required` inputs must be disabled — a hidden
 // required control the browser can't focus silently aborts the whole form
 // submit ("not focusable"). Disabled inputs are excluded from validation and
 // FormData; the server ignores tier fields unless tiered pricing is enabled.
-export function TieredPricingEditor({ defaultTiers, active, onPricesChange }: Readonly<{ defaultTiers: string[]; active: boolean; onPricesChange?: (prices: string[]) => void }>) {
-  const keySeq = useRef(0)
-  const [rows, setRows] = useState<Row[]>(
-    () => (defaultTiers.length ? defaultTiers : [""]).map((p, i) => ({ price: p, _key: `tier-init-${i}` }))
-  )
-  // Lets the parent form mirror the tier prices (used for the paid-event hint).
-  useEffect(() => { onPricesChange?.(rows.map((r) => r.price)) }, [rows, onPricesChange])
-  const setPrice = (key: string, price: string) => setRows((r) => r.map((x) => (x._key === key ? { ...x, price } : x)))
-  const add = () => setRows((r) => [...r, { price: "", _key: `tier-new-${keySeq.current++}` }])
-  const remove = (key: string) => setRows((r) => (r.length > 1 ? r.filter((x) => x._key !== key) : r))
+/**
+ * Controlled tier price list: the parent form owns the prices (also used for its paid-event hint).
+ * @param prices current tier prices, one per attendee count
+ * @param onChange called with the new price list on any edit, add or remove
+ * @param active whether tiered pricing is on (inputs are disabled when it is not)
+ */
+export function TieredPricingEditor({ prices, onChange, active }: Readonly<{ prices: string[]; onChange: (prices: string[]) => void; active: boolean }>) {
+  const rows = rowsFor(prices)
+  const setPrice = (idx: number, price: string) => onChange(rows.map((x, i) => (i === idx ? price : x)))
+  const add = () => onChange([...rows, ""])
+  const remove = (idx: number) => onChange(rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows)
 
   return (
     <div className="mt-2 space-y-2">
       {rows.map((row, idx) => (
-        <div key={row._key} className="flex items-end gap-2">
+        // Index key: rows have no identity beyond position, and inputs are controlled.
+        <div key={idx} className="flex items-end gap-2">
           <div className="flex-1">
             <Label htmlFor={`tier.${idx}.price`}>Price for {idx + 1} attendee{idx > 0 ? "s" : ""} ($)</Label>
             <Input
@@ -35,14 +39,14 @@ export function TieredPricingEditor({ defaultTiers, active, onPricesChange }: Re
               inputMode="decimal"
               required
               disabled={!active}
-              value={row.price}
-              onChange={(e) => setPrice(row._key, e.target.value)}
+              value={row}
+              onChange={(e) => setPrice(idx, e.target.value)}
             />
           </div>
           <Button
             type="button"
             variant="outline"
-            onClick={() => remove(row._key)}
+            onClick={() => remove(idx)}
             disabled={rows.length === 1}
             aria-label={`Remove tier (row ${idx + 1})`}
           >
