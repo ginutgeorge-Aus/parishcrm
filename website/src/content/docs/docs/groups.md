@@ -75,7 +75,17 @@ group or changing the login's role away from Event organiser removes the access.
 Every change (group created, edited, archived, restored; member added, updated, removed; leader
 login linked or unlinked) writes an audit-log row in the same database transaction as the change.
 
+## Roster confirm and decline links
+
+A volunteer can confirm or decline a rostered role without logging in, from a signed link of the
+form `/roster/respond/<token>`. The page shows only the role and service date, then one button
+(confirming or declining, as the link was issued). The change happens when the button is pressed, so
+email scanners that only open the link change nothing. Links expire, work only for the one
+assignment and action they were issued for, and repeat taps are harmless. Repeated bad links from
+one network are rate limited, and every real change writes an audit-log row. Sending these links by
+email is not part of this version.
+
 ## Not in this version
 
-Custom role lists, SMS, attachments, rich-text email, group attendance
-and volunteer rosters are out of scope for now.
+Custom role lists, SMS, attachments, rich-text email and group attendance
+are out of scope for now.

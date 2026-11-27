@@ -17,5 +17,6 @@ export const TOKEN_ROUTES: readonly TokenRoute[] = [
   { gate: "/family/update/", prefix: "\\/family\\/update\\/", sample: "/family/update/abc" },
   { gate: "/crew/", prefix: "\\/e\\/[^/?#]+\\/crew\\/", sample: "/e/slug/crew/abc" },
   { gate: "/api/roster/feed/", prefix: "\\/api\\/roster\\/feed\\/", sample: "/api/roster/feed/abc" },
+  { gate: "/roster/respond/", prefix: "\\/roster\\/respond\\/", sample: "/roster/respond/abc.def" },
   { gate: "/pay/fundraiser/", prefix: "\\/pay\\/fundraiser\\/", sample: "/pay/fundraiser/abc" },
 ]
