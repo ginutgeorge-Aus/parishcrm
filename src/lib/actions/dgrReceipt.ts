@@ -350,6 +350,25 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
   return { success: "Receipt deleted." }
 }
 
+const SEND_RACE_ERROR = "This receipt is already being sent or has already been sent."
+const SEND_STALE_ERROR = "This receipt was edited while it was being prepared. Review the changes and send it again."
+
+/**
+ * Explain why a send's claim matched no row, by re-reading the receipt's current status.
+ *
+ * @param id Receipt id.
+ * @param readStatus Status the send read before building its document.
+ * @returns The stale-content error when the status is unchanged or is now DRAFT (an edit after
+ *   our read; editing a FAILED row resets it to DRAFT), not-found when the row is gone, else the
+ *   "already being sent" error.
+ */
+async function claimLostError(id: number, readStatus: string): Promise<{ error: string }> {
+  const now = await prisma.dgrReceipt.findUnique({ where: { id }, select: { status: true } })
+  if (!now) return { error: "Receipt not found." }
+  if (now.status === readStatus || now.status === DGR_STATUS.DRAFT) return { error: SEND_STALE_ERROR }
+  return { error: SEND_RACE_ERROR }
+}
+
 /**
  * Email a DGR receipt to the donor. ADMIN/PASTOR only.
  *
@@ -437,14 +456,17 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   // Claim only the status this document was built from: if a parallel send moved the row
   // (e.g. DRAFT to UNKNOWN with its own stored PDF) after our read, we must not email a different document.
   const claimable: string[] = [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN]
-  if (!claimable.includes(row.status))
-    return { error: "This receipt is already being sent or has already been sent." }
+  if (!claimable.includes(row.status)) return { error: SEND_RACE_ERROR }
+  // Claim only the content this document was built from (#914): an edit landing between the
+  // read and the claim must not let us freeze and email the old copy. updateDgrReceipt is the
+  // only content writer and always re-encrypts donorEmail with a fresh random IV, so the stored
+  // ciphertext changes on every edit and works as a version token without a schema column.
+  // donorName and totalAmount are matched too, as a cheap guard should a future writer skip the email.
   const claim = await prisma.dgrReceipt.updateMany({
-    where: { id, status: row.status },
+    where: { id, status: row.status, donorEmail: row.donorEmail, donorName: row.donorName, totalAmount: row.totalAmount },
     data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: claimAt },
   })
-  if (claim.count === 0)
-    return { error: "This receipt is already being sent or has already been sent." }
+  if (claim.count === 0) return claimLostError(id, row.status)
 
   let frozenPdf: ReturnType<typeof encryptBytes> | undefined
   try {
