@@ -39,7 +39,7 @@ it("associates every visible label with its control", () => {
   expect(screen.getByLabelText("E-mail ID *")).toHaveProperty("tagName", "INPUT")
   // Sex/Marital status are shadcn Select (Radix) — the labelled control is the
   // trigger button, not a native <select> ( swapped raw controls for shadcn).
-  expect(screen.getByLabelText("Sex")).toHaveProperty("tagName", "BUTTON")
+  expect(screen.getByLabelText("Sex", { selector: "#gender" })).toHaveProperty("tagName", "BUTTON")
   expect(screen.getByLabelText("Marital status")).toHaveProperty("tagName", "BUTTON")
 })
 
@@ -197,6 +197,41 @@ describe("field-level server errors", () => {
     fireEvent.change(document.getElementById("spouseEmail")!, { target: { value: "pat@bad" } })
     fireEvent.submit(screen.getByRole("button", { name: /submit membership form/i }).closest("form")!)
     await waitFor(() => expect(document.getElementById("spouseEmail")).toHaveAttribute("aria-invalid", "true"))
+    expect(submit).not.toHaveBeenCalled()
+  })
+})
+
+describe("repeating row limits and sex select", () => {
+  const props = { churchName: "Demo Church", churchWebsite: "https://demo.example.com", parishFields: false, minDues: null, homeAddressLabel: "", arrivalDateLabel: "" }
+
+  it("uses a select (not free text) for the child sex column", () => {
+    render(<MembershipForm {...props} />)
+    expect(screen.getByLabelText("C. Name of children, row 1 Sex")).toHaveProperty("tagName", "BUTTON")
+    expect(screen.queryByText("Sex (M/F)")).not.toBeInTheDocument()
+  })
+
+  it("shows a limit hint instead of silently hiding Add row at the cap", () => {
+    render(<MembershipForm {...props} />)
+    expect(screen.queryByText(/Maximum of/)).not.toBeInTheDocument()
+    const addRelative = () => screen.getAllByRole("button", { name: /add row/i })[2]
+    for (let i = 0; i < 5; i++) fireEvent.click(addRelative())
+    expect(screen.getByText(/Maximum of 6 rows reached/)).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: /add row/i })).toHaveLength(2)
+  })
+
+  it("flags a row with details but no name instead of dropping it silently", async () => {
+    render(<MembershipForm {...props} />)
+    const set = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    set("Name *", "Jo Demo")
+    set("E-mail ID *", "jo@example.com")
+    set("Residential address *", "1 Example St")
+    set("Suburb *", "Sampletown")
+    set("State *", "NSW")
+    set("Postcode *", "2000")
+    fireEvent.change(screen.getByLabelText("C. Name of children, row 1 Occupation"), { target: { value: "Student" } })
+    fireEvent.submit(screen.getByRole("button", { name: /submit membership form/i }).closest("form")!)
+    await waitFor(() => expect(screen.getByLabelText("C. Name of children, row 1 Name")).toHaveAttribute("aria-invalid", "true"))
+    expect(screen.getAllByText(/Enter a name for row 1/).length).toBeGreaterThan(0)
     expect(submit).not.toHaveBeenCalled()
   })
 })

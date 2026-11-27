@@ -7,7 +7,7 @@ import { decrypt } from "@/lib/crypto"
 import { readPayload, buildNotesBlock, overseasFieldLabels } from "@/lib/membership"
 import { getMembershipSettings } from "@/lib/membershipSettings"
 import { findMembershipMatches } from "@/lib/actions/membership"
-import { MEMBERSHIP_STATUS_LABELS } from "@/lib/membershipLabels"
+import { MEMBERSHIP_STATUS_LABELS, sexLabel, maritalLabel, formatPayloadDate, formatMonthlyDues } from "@/lib/membershipLabels"
 import { ReviewPanel } from "./ReviewPanel"
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
@@ -84,16 +84,16 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
       <section className="rounded-md border p-4">
         <h3 className="font-semibold mb-2">Personal</h3>
         <div className="grid gap-x-6 sm:grid-cols-2">
-          <Field label="Sex" value={pe.gender} />
-          <Field label="Date of birth" value={pe.dateOfBirth} />
+          <Field label="Sex" value={sexLabel(pe.gender)} />
+          <Field label="Date of birth" value={formatPayloadDate(pe.dateOfBirth)} />
           <Field label="Email" value={pe.email} />
           <Field label="Mobile" value={pe.mobile} />
           <Field label="Address" value={[pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ")} />
           <Field label="Qualification & profession" value={pe.qualificationProfession} />
           {(parishFields || pe.motherParish) && <Field label="Previous church" value={pe.motherParish} />}
-          <Field label="Marital status" value={pe.maritalStatus} />
+          <Field label="Marital status" value={maritalLabel(pe.maritalStatus)} />
           <Field label={ol.homeAddress} value={pe.addressInIndia} />
-          <Field label={ol.arrivalDate} value={pe.dateOfArrivalNsw} />
+          <Field label={ol.arrivalDate} value={formatPayloadDate(pe.dateOfArrivalNsw)} />
         </div>
       </section>
 
@@ -102,8 +102,8 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
           <h3 className="font-semibold mb-2">Spouse</h3>
           <div className="grid gap-x-6 sm:grid-cols-2">
             <Field label="Name" value={p.spouse.name} />
-            <Field label="Date of birth" value={p.spouse.dateOfBirth} />
-            <Field label="Date of marriage" value={p.spouse.dateOfMarriage} />
+            <Field label="Date of birth" value={formatPayloadDate(p.spouse.dateOfBirth)} />
+            <Field label="Date of marriage" value={formatPayloadDate(p.spouse.dateOfMarriage)} />
             <Field label="Email" value={p.spouse.email} />
             {(parishFields || p.spouse.parish) && <Field label="Spouse's church" value={p.spouse.parish} />}
           </div>
@@ -115,7 +115,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
           <h3 className="font-semibold mb-2">Children</h3>
           <ul className="text-sm list-disc pl-5">
             {p.children.map((c, i) => (
-              <li key={i}>{[c.name, c.sex, c.dateOfBirth].filter(Boolean).join(" · ")}</li>
+              <li key={i}>{[c.name, sexLabel(c.sex), formatPayloadDate(c.dateOfBirth)].filter(Boolean).join(" · ")}</li>
             ))}
           </ul>
         </section>
@@ -126,7 +126,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
           <h3 className="font-semibold mb-2">Other dependents</h3>
           <ul className="text-sm list-disc pl-5">
             {p.dependents.map((d, i) => (
-              <li key={i}>{[d.name, d.sex, d.dateOfBirth, d.relationship].filter(Boolean).join(" · ")}</li>
+              <li key={i}>{[d.name, sexLabel(d.sex), formatPayloadDate(d.dateOfBirth), d.relationship].filter(Boolean).join(" · ")}</li>
             ))}
           </ul>
         </section>
@@ -134,7 +134,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
 
       <section className="rounded-md border p-4">
         <h3 className="font-semibold mb-2">Subscription & declaration</h3>
-        <Field label="Monthly subscription" value={app.monthlyDues ? `$${app.monthlyDues.toString()}` : null} />
+        <Field label="Monthly subscription" value={formatMonthlyDues(app.monthlyDues)} />
         <Field label="Signed at" value={[app.placeSigned, app.signedDate?.toLocaleDateString(APP_LOCALE)].filter(Boolean).join(" · ")} />
         <div className="mt-2">
           <span className="text-xs text-muted-foreground">Signature</span>
