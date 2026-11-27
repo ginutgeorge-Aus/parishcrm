@@ -374,7 +374,10 @@ export async function updateTransaction(
   redirect(transactionListHref(typeof back === "string" ? back : null))
 }
 
-/** Delete a transaction. ADMIN only. */
+/**
+ * Delete a transaction. ADMIN only. Deleting an imported petty-cash deposit also clears
+ * the session-transfer link it claimed (AUD-3-12).
+ */
 export async function deleteTransaction(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -423,6 +426,14 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
       const deleted = await tx.transaction.deleteMany({
         where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null },
       })
+      // AUD-3-12: a deposit that bank import matched to a session transfer marked the transfer
+      // linkedDepositBankRef = the deposit's stored bankRef (the same hashed string, so exact match
+      // suffices). Clear it with the delete so the transfer is free for the next import again.
+      if (deleted.count > 0 && row?.bankRef && row.type === "INCOME" && row.account?.code === "XFER")
+        await tx.pettyCashTransfer.updateMany({
+          where: { linkedDepositBankRef: row.bankRef },
+          data: { linkedDepositBankRef: null },
+        })
       // Audit in the same tx so a failed audit write rolls the delete back.
       // Metadata is from the row read in this tx, not the pre-read, so it can't be stale.
       if (deleted.count > 0 && row)

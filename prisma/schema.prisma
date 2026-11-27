@@ -993,25 +993,30 @@ model PettyCashExpense {
 }
 
 model PettyCashTransfer {
-  id              Int              @id @default(autoincrement())
-  sessionId       Int
+  id                   Int              @id @default(autoincrement())
+  sessionId            Int
   // No onDelete: Cascade here (unlike Transaction.pettyCashTransfer) by design:
   // deleteSession blocks while entries > 0, so a session carrying transfers can
   // never be deleted — transfers must be removed first via deleteTransfer. No
   // orphan path exists, so the cascade would never fire.
-  session         PettyCashSession @relation(fields: [sessionId], references: [id])
-  date            DateTime
-  amount          Decimal          @db.Decimal(10, 2)
-  retainedFloat   Decimal          @default(0) @db.Decimal(10, 2)
-  depositSlipRef  String?
-  depositedByName String
-  notes           String?
-  createdAt       DateTime         @default(now())
+  session              PettyCashSession @relation(fields: [sessionId], references: [id])
+  date                 DateTime
+  amount               Decimal          @db.Decimal(10, 2)
+  retainedFloat        Decimal          @default(0) @db.Decimal(10, 2)
+  depositSlipRef       String?
+  depositedByName      String
+  notes                String?
+  createdAt            DateTime         @default(now())
   // Per-page-load form token (#491): a retried submit whose first attempt
   // committed but lost its response finds this row instead of booking twice.
   // Nullable — rows created before the column (and non-form callers) have none.
-  submissionToken String?          @unique
-  transaction     Transaction?
+  submissionToken      String?          @unique
+  // AUD-3-12: bankRef (hashed at-rest form, same as Transaction.bankRef) of the
+  // bank-import "from petty cash" deposit matched to this transfer. Set once a
+  // deposit claims the transfer, so a later import's different deposit of the
+  // same amount can't match it again. Nullable — unmatched and pre-column rows.
+  linkedDepositBankRef String?          @unique
+  transaction          Transaction?
 
   // FK index.
   @@index([sessionId])

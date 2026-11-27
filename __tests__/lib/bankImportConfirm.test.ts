@@ -28,6 +28,8 @@ jest.mock("@/lib/prisma", () => ({
       findMany: jest.fn().mockResolvedValue([{ id: 1, name: "ANZ Church", kind: "BANK", isActive: true }]),
     },
     transaction: { findMany: jest.fn(), findFirst: jest.fn(), createMany: jest.fn(), create: jest.fn() },
+    // update links a matched session transfer to its deposit (AUD-3-12).
+    pettyCashTransfer: { update: jest.fn() },
     $transaction: jest.fn(),
   },
 }))
@@ -35,6 +37,7 @@ jest.mock("@/lib/prisma", () => ({
 import { prisma } from "@/lib/prisma"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { confirmBankImport } from "@/lib/bankImportConfirm"
+import { XFER_WINDOW_MS } from "@/lib/xferRefs"
 
 const mockAccountFindMany = prisma.account.findMany as jest.Mock
 const mockFamilyFindMany = prisma.family.findMany as jest.Mock
@@ -352,6 +355,127 @@ describe("confirmBankImport — session-transfer mirror lookup", () => {
     const call = mockTxFindMany.mock.calls.find((c) => c[0]?.where?.pettyCashTransferId)
     expect(call?.[0].where.OR).toEqual([{ bankRef: null }, { NOT: { bankRef: { startsWith: "XFER_OUT_" } } }])
     expect(call?.[0].where.NOT).toBeUndefined()
+  })
+})
+
+describe("confirmBankImport — transfer match persists across imports (AUD-3-12)", () => {
+  const pcRow = { ...baseRow, accountId: null, fromPettyCash: true, paymentAccountId: 1 }
+  const mockLinkUpdate = prisma.pettyCashTransfer.update as jest.Mock
+  /** Session-transfer CASH mirror row as the mirror read selects it. */
+  const mirror = (id: number, transferId: number, linked: string | null) => ({
+    id,
+    amount: "100.00",
+    date: new Date("2026-05-10"),
+    pettyCashTransferId: transferId,
+    pettyCashTransfer: { linkedDepositBankRef: linked },
+  })
+  // What the DB returns for the mirror read, per call; the SQL filter itself is
+  // asserted via the exact `where` below, not re-implemented here.
+  let mirrorRows: ReturnType<typeof mirror>[]
+
+  /** The exact mirror-read `where` for a deposit dated `date` whose bankRef forms are `refs`. */
+  const expectedMirrorWhere = (date: string, refs: string[]) => {
+    const t = new Date(date).getTime()
+    return {
+      pettyCashTransferId: { not: null },
+      pettyCashTransfer: { is: { OR: [{ linkedDepositBankRef: null }, { linkedDepositBankRef: { in: refs } }] } },
+      OR: [{ bankRef: null }, { NOT: { bankRef: { startsWith: "XFER_OUT_" } } }],
+      paymentAccountId: 2,
+      date: { gte: new Date(t - XFER_WINDOW_MS), lte: new Date(t + XFER_WINDOW_MS) },
+    }
+  }
+  /** `where` of every mirror read (the findMany calls filtered on pettyCashTransferId). */
+  const mirrorWheres = () =>
+    mockTxFindMany.mock.calls.filter((c) => c[0]?.where?.pettyCashTransferId).map((c) => c[0].where)
+
+  /** Stored (hashed) bankRef of `bankRef` as the deposit insert writes it. */
+  const storedRef = async (bankRef: string) => {
+    mirrorRows = []
+    await confirmBankImport([{ ...pcRow, bankRef }])
+    const ref = mockCreate.mock.calls[0][0].data.bankRef as string
+    jest.clearAllMocks()
+    return ref
+  }
+
+  beforeEach(() => {
+    mirrorRows = []
+    mockGetXferAccountId.mockResolvedValue(99)
+    mockTxFindMany.mockImplementation(async (args: { where?: { pettyCashTransferId?: unknown } }) =>
+      args?.where?.pettyCashTransferId ? mirrorRows : []
+    )
+    mockLinkUpdate.mockResolvedValue({})
+  })
+
+  it("reads only unlinked or own-linked mirrors and links the match inside the pair transaction", async () => {
+    mirrorRows = [mirror(50, 42, null)]
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1 }))
+    const depositRef = mockCreate.mock.calls[0][0].data.bankRef
+    expect(mirrorWheres()).toEqual([expectedMirrorWhere(pcRow.date, [depositRef])])
+    expect(mockLinkUpdate).toHaveBeenCalledWith({ where: { id: 42 }, data: { linkedDepositBankRef: depositRef } })
+    // Deposit only — the transfer already booked the cash-out.
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it("a later import's different same-amount deposit cannot re-match a linked transfer", async () => {
+    const ref2 = await storedRef("REF-2")
+    // Transfer 42 is linked to REF-1's deposit; the second import's read asks only
+    // for unlinked or REF-2-linked transfers, so the DB returns nothing.
+    const row2 = { ...pcRow, bankRef: "REF-2", date: "2026-05-13" }
+    const result = await confirmBankImport([row2])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1 }))
+    expect(mirrorWheres()).toEqual([expectedMirrorWhere(row2.date, [ref2])])
+    // Deposit AND its own XFER_OUT cash-out: the linked transfer is not reused.
+    expect(mockCreate).toHaveBeenCalledTimes(2)
+    expect(mockCreate.mock.calls[1][0].data).toEqual(
+      expect.objectContaining({ type: "EXPENSE", bankRef: expect.stringMatching(/^XFER_OUT_/) })
+    )
+    expect(mockLinkUpdate).not.toHaveBeenCalled()
+  })
+
+  it("prefers the transfer already linked to this deposit over another unlinked candidate", async () => {
+    const ref1 = await storedRef("REF-1")
+    // Re-import after the deposit was deleted: an unlinked same-amount transfer (43)
+    // comes back first, but 42 is already linked to this deposit's bankRef.
+    mirrorRows = [mirror(51, 43, null), mirror(50, 42, ref1)]
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1, duplicates: 0 }))
+    expect(mockLinkUpdate).toHaveBeenCalledTimes(1)
+    expect(mockLinkUpdate).toHaveBeenCalledWith({ where: { id: 42 }, data: { linkedDepositBankRef: ref1 } })
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+    expect(mockCreate.mock.calls[0][0].data.type).toBe("INCOME")
+  })
+
+  it("reports a unique clash on the transfer link as a DB fault, not a duplicate", async () => {
+    mirrorRows = [mirror(50, 42, null)]
+    mockLinkUpdate.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed on the fields: (`linkedDepositBankRef`)"), { code: "P2002" })
+    )
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await confirmBankImport([pcRow])
+    spy.mockRestore()
+    expect(result).toEqual(expect.objectContaining({ ok: false, status: 500, code: "DB_ERROR" }))
+  })
+
+  it("retries a P2034 and then books its own leg when the retry reads the transfer as linked", async () => {
+    let attempt = 0
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      attempt++
+      // First attempt: SSI aborts us because a concurrent import linked transfer 42.
+      if (attempt === 1) throw Object.assign(new Error("conflict"), { code: "P2034" })
+      // Retry: 42 is now linked to the other deposit, so the read excludes it.
+      mirrorRows = []
+      return fn(prisma)
+    })
+    mirrorRows = [mirror(50, 42, null)]
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1 }))
+    expect(attempt).toBe(2)
+    expect(mockLinkUpdate).not.toHaveBeenCalled()
+    expect(mockCreate).toHaveBeenCalledTimes(2)
+    expect(mockCreate.mock.calls[1][0].data).toEqual(
+      expect.objectContaining({ type: "EXPENSE", bankRef: expect.stringMatching(/^XFER_OUT_/) })
+    )
   })
 })
 
