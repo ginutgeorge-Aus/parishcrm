@@ -106,9 +106,13 @@ export default async function FamilyDirectoryPrintPage() {
         .family-name { font-weight: 700; font-size: 12px; border-bottom: 1px solid var(--c-rule); padding-bottom: 2px; margin-bottom: 4px; }
         .family-name span { font-weight: 400; color: var(--c-dim); font-size: 10px; margin-left: 6px; }
         .address { color: var(--c-address); margin-bottom: 3px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 4px; table-layout: fixed; }
+        th:nth-child(1) { width: 50%; }
+        th:nth-child(2) { width: 25%; }
+        th:nth-child(3) { width: 25%; }
         th { font-size: 9px; text-transform: uppercase; color: var(--c-th); font-weight: 600; border-bottom: 1px solid var(--c-rule-light); padding: 2px 4px; text-align: left; }
-        td { padding: 2px 4px; font-size: 10px; }
+        td { padding: 2px 4px; font-size: 10px; overflow-wrap: anywhere; }
+        @page { size: A4; }
         @media print { body { margin: 0; } }
       `}</style>
 
@@ -121,6 +125,8 @@ export default async function FamilyDirectoryPrintPage() {
           More active families exist — this print is capped.
         </p>
       )}
+
+      {decrypted.length === 0 && <p>No active families.</p>}
 
       {decrypted.map((f) => {
         const addressParts = [f.address, f.suburb, f.state, f.postcode].filter(Boolean)

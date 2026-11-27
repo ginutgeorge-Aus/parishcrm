@@ -272,7 +272,7 @@ describe("createDgrReceipt", () => {
       Object.assign(new Error("serialization failure"), { code: "P2034" })
     )
     const res = await createDgrReceipt(undefined, formDataWithLines())
-    expect(res).toEqual({ error: expect.stringMatching(/receipt for this donor and year was just created/i) })
+    expect(res).toEqual({ error: expect.stringMatching(/another receipt was being saved at the same moment/i) })
     expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
@@ -647,7 +647,8 @@ describe("sendDgrReceipt", () => {
     // Claimed the row (DRAFT/FAILED → SENDING) before rendering…
     expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 5, status: "DRAFT" },
+        // Matches the content as read too (#914): the ciphertext changes on every edit.
+        where: { id: 5, status: "DRAFT", donorEmail: "enc:g@x.com", donorName: "Alex Sample", totalAmount: "100.00" },
         data: expect.objectContaining({ status: "SENDING", sentAt: expect.any(Date) }),
       })
     )
@@ -933,13 +934,43 @@ describe("sendDgrReceipt", () => {
   })
 
   it("rejects a concurrent send whose claim loses the race, without emailing", async () => {
-    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    ;(prisma.dgrReceipt.findUnique as jest.Mock)
+      .mockResolvedValueOnce(draftReceipt) // initial read
+      .mockResolvedValueOnce({ status: "SENDING" }) // re-read after the lost claim: another sender holds it
     ;(prisma.dgrReceipt.updateMany as jest.Mock).mockResolvedValue({ count: 0 }) // no claimable row
     const res = await sendDgrReceipt(5)
     expect(res).toEqual({ error: expect.stringMatching(/already being sent|already been sent/i) })
     expect(mockRenderPdf).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
     expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  // #914: a DRAFT edited between the read and the claim keeps its status but gets a new
+  // donorEmail ciphertext, so the content-matched claim misses and the stale copy is never sent.
+  it("rejects the send when the DRAFT was edited between the read and the claim", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock)
+      .mockResolvedValueOnce(draftReceipt)
+      .mockResolvedValueOnce({ status: "DRAFT" }) // still DRAFT: only the content moved
+    ;(prisma.dgrReceipt.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const res = await sendDgrReceipt(5)
+    expect(res).toEqual({ error: expect.stringMatching(/edited while it was being prepared/i) })
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ donorEmail: "enc:g@x.com" }) })
+    )
+    expect(mockRenderPdf).not.toHaveBeenCalled()
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("reports the claim lost to another sender, not a stale edit, when the status moved", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock)
+      .mockResolvedValueOnce(draftReceipt)
+      .mockResolvedValueOnce({ status: "SENT" })
+    ;(prisma.dgrReceipt.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const res = await sendDgrReceipt(5)
+    expect(res).toEqual({ error: "This receipt is already being sent or has already been sent." })
+    expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
   it("returns not-found for a missing receipt", async () => {

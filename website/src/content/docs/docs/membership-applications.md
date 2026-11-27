@@ -10,7 +10,7 @@ A public, unauthenticated form (`/membershipform`) lets a visitor apply to join 
 ### Public applicant
 
 1. Open `/membershipform` (linked from the parish website, not from the app's nav — it needs no login).
-2. Fill in Section A (personal particulars — name, sex, date of birth, email, mobile, residential address, profession, marital status), Section B (spouse, optional), Sections C–E (children, other dependents, other relatives in Australia — each a repeatable row, up to 4/4/3 rows), and Section F (monthly subscription amount + declaration + a drawn signature).
+2. Fill in Section A (personal particulars — name, sex, date of birth, email, mobile, residential address, profession, marital status), Section B (spouse, optional), Sections C–E (children, other dependents, other relatives in Australia — each a repeatable row, up to 8/8/6 rows; rows with details but no name are flagged before submit), and Section F (monthly subscription amount + declaration + a drawn signature).
 3. If the parish has enabled "previous church" questions, extra fields appear for previous church, transfer-letter status, and spouse's church. If the parish has set an overseas-address label or an arrival-date label, those fields appear too — with whatever wording the parish chose (e.g. "Address overseas" / "Date of arrival"). Blank labels mean the field is hidden entirely.
 4. A minimum monthly subscription may be enforced; the form shows it inline ("minimum $X") if configured.
 5. If Cloudflare Turnstile is configured, a verification widget appears before submitting; if it fails to load, an inline message with the parish's contact email is shown instead of silently blocking the applicant.

@@ -156,6 +156,22 @@ describe("getMaintenanceState", () => {
     expect((await getMaintenanceState()).enabled).toBe(true)
   })
 
+  it("maintenance flag auto-expires after backAt + grace", async () => {
+    const backAt = "2026-01-01T00:00:00.000Z"
+    const value = JSON.stringify({ enabled: true, backAt, message: null })
+    const now = jest.spyOn(Date, "now")
+    try {
+      findMany.mockResolvedValue([{ key: "maintenance", value }])
+      now.mockReturnValue(new Date(backAt).getTime() + 14 * 60_000)
+      expect((await getMaintenanceState()).enabled).toBe(true)
+      _resetMaintenanceCache()
+      now.mockReturnValue(new Date(backAt).getTime() + 16 * 60_000)
+      expect((await getMaintenanceState()).enabled).toBe(false)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it("fails open (disabled) when the DB throws", async () => {
     findMany.mockRejectedValue(new Error("db down"))
     expect(await getMaintenanceState()).toEqual({ enabled: false, backAt: null, message: null })
