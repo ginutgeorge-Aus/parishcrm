@@ -26,7 +26,7 @@ export default async function MyGroupsPage() {
   const groups = links.map((l) => l.group)
 
   return (
-    <div>
+    <div className="max-w-3xl">
       <h1 className="mb-6 text-2xl font-bold text-foreground">My Groups</h1>
       {groups.length === 0 ? (
         <p className="text-sm text-muted-foreground">

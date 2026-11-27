@@ -105,6 +105,10 @@ it("notes block falls back to generic overseas labels when unconfigured", () => 
   expect(n).toContain("Date of arrival: 2015-03-01")
   expect(n).not.toMatch(/in India|arrival in Australia/)
 })
+it("notes block is empty when the form has no note-worthy fields", () => {
+  const p = { ...base, personal: { ...base.personal, qualificationProfession: null, addressInIndia: null, dateOfArrivalNsw: null, transferCertFurnished: null }, spouse: null, relativesInAustralia: [] }
+  expect(buildNotesBlock(p as never, { homeAddressLabel: "", arrivalDateLabel: "" })).toBe("")
+})
 it("derives family name from surname", () => {
   expect(deriveFamilyName(base as never)).toBe("Miller")
 })

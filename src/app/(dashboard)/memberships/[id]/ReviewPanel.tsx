@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { approveMembershipApplication, rejectMembershipApplication, type MatchCandidate } from "@/lib/actions/membership"
@@ -35,6 +35,15 @@ export function ReviewPanel({
   const [rejecting, setRejecting] = useState(false)
   const [note, setNote] = useState("")
   const [mergeTarget, setMergeTarget] = useState<MatchCandidate | null>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+
+  // Opening the reject note scrolls it into view and focuses it (below the fold at 375px).
+  useEffect(() => {
+    if (rejecting) {
+      noteRef.current?.scrollIntoView({ block: "center" })
+      noteRef.current?.focus({ preventScroll: true })
+    }
+  }, [rejecting])
 
   if (status !== "PENDING") {
     return <p className="text-sm text-muted-foreground">This application has been {status.toLowerCase()}.</p>
@@ -116,6 +125,7 @@ export function ReviewPanel({
           <Label htmlFor="reject-note" className="sr-only">Rejection reason</Label>
           <Textarea
             id="reject-note"
+            ref={noteRef}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Reason (optional)"

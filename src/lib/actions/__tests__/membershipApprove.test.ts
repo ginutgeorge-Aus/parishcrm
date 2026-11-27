@@ -68,6 +68,7 @@ describe("approveMembershipApplication — create", () => {
     expect(fam.address).toBe("enc:1 Example St") // encrypted
     expect(fam.notes).toContain("enc:") // notes block encrypted
     expect(fam.monthlyDues).toBe("80")
+    expect(fam.joinedDate).toBeInstanceOf(Date) // approval date = membership start
 
     expect(tx.person.createMany).toHaveBeenCalledTimes(1)   // one batched insert
     const persons = tx.person.createMany.mock.calls[0][0].data

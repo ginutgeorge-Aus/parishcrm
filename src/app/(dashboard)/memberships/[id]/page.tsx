@@ -10,6 +10,7 @@ import { findMembershipMatches } from "@/lib/actions/membership"
 import { MEMBERSHIP_STATUS_LABELS, sexLabel, maritalLabel, formatPayloadDate, formatMonthlyDues } from "@/lib/membershipLabels"
 import { ReviewPanel } from "./ReviewPanel"
 import { APP_LOCALE } from "@/lib/appConfig"
+import { formatSydneyDate } from "@/lib/dates"
 import { parseRouteId } from "@/lib/validation"
 
 function Field({ label, value }: Readonly<{ label: string; value: string | null | undefined }>) {
@@ -31,7 +32,10 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
   const id = parseRouteId(idStr)
   if (id === null) notFound()
 
-  const app = await prisma.membershipApplication.findUnique({ where: { id } })
+  const app = await prisma.membershipApplication.findUnique({
+    where: { id },
+    include: { reviewedBy: { select: { name: true } }, linkedFamily: { select: { id: true, name: true } } },
+  })
   if (!app) notFound()
 
   // Retention purge: the PII purge sets payload/signature to "" and
@@ -61,6 +65,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
   const { parishFields } = membershipSettings
   const ol = overseasFieldLabels(p, membershipSettings)
   const pe = p.personal
+  const notesBlock = buildNotesBlock(p, membershipSettings)
   // Names only (already shown on this page): lets the merge confirm list who will be added.
   const incoming = [
     { name: pe.name, role: "Head" },
@@ -143,10 +148,31 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
         </div>
       </section>
 
-      <section className="rounded-md border p-4">
-        <h3 className="font-semibold mb-2">Other details</h3>
-        <pre className="whitespace-pre-wrap text-sm text-muted-foreground">{buildNotesBlock(p, membershipSettings)}</pre>
-      </section>
+      {notesBlock && (
+        <section className="rounded-md border p-4">
+          <h3 className="font-semibold mb-2">Other details</h3>
+          <pre className="whitespace-pre-wrap text-sm text-muted-foreground">{notesBlock}</pre>
+        </section>
+      )}
+
+      {app.status !== "PENDING" && app.reviewedAt && (
+        <section className="rounded-md border p-4 text-sm" aria-label="Review outcome">
+          <p>
+            {app.status === "APPROVED" ? "Approved" : "Rejected"}
+            {app.status === "APPROVED" && app.linkedFamily && (
+              <>
+                {" into "}
+                <Link href={`/families/${app.linkedFamily.id}`} className="inline-flex min-h-11 items-center text-primary underline">
+                  {app.linkedFamily.name}
+                </Link>
+              </>
+            )}
+            {app.reviewedBy?.name ? ` by ${app.reviewedBy.name}` : ""}
+            {` on ${formatSydneyDate(app.reviewedAt)}`}
+          </p>
+          {app.reviewNote && <p className="mt-1 text-muted-foreground">Note: {decrypt(app.reviewNote)}</p>}
+        </section>
+      )}
 
       <ReviewPanel applicationId={id} matches={matches} incoming={incoming} status={app.status} />
     </div>

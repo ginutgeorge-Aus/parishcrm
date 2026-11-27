@@ -162,8 +162,15 @@ function formatRelativeLine(r: { name: string; place: string | null; relationshi
   return line
 }
 
+/**
+ * Build the intake notes block stored on the family and shown on the review page.
+ * Returns "" when the form supplied none of the note-worthy fields, so callers
+ * can skip the empty "--- Membership form (intake) ---" header.
+ * @param p validated membership payload
+ * @param labels configured overseas-field labels
+ */
 export function buildNotesBlock(p: MembershipPayload, labels: OverseasLabels): string {
-  const L: string[] = ["--- Membership form (intake) ---"]
+  const L: string[] = []
   const pe = p.personal
   const ol = overseasFieldLabels(p, labels)
   if (pe.qualificationProfession) L.push(`Qualification/Profession: ${pe.qualificationProfession}`)
@@ -175,7 +182,7 @@ export function buildNotesBlock(p: MembershipPayload, labels: OverseasLabels): s
     L.push("Relatives in Australia:")
     for (const r of p.relativesInAustralia) L.push(formatRelativeLine(r))
   }
-  return L.join("\n")
+  return L.length ? ["--- Membership form (intake) ---", ...L].join("\n") : ""
 }
 
 // Office-use signature line on the membership PDF + print page. Uses the

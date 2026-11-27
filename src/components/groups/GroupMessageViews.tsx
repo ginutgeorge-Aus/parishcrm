@@ -4,7 +4,7 @@ import { loadGroupMessageHistory, STATUS_LABELS } from "@/lib/groupMessageHistor
 import { sendGroupMessage } from "@/lib/actions/groupMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { formatSydneyDateTime } from "@/lib/dates"
+import { formatSydneyDate, formatSydneyTime } from "@/lib/dates"
 import { GroupMessageForm } from "@/components/groups/GroupMessageForm"
 
 /**
@@ -67,7 +67,7 @@ export async function GroupHistoryView({
           <summary className="cursor-pointer space-y-1">
             <span className="font-medium text-foreground">{m.subject}</span>
             <span className="block text-xs text-muted-foreground">
-              {formatSydneyDateTime(m.createdAt)} · {m.sentBy} ·{" "}
+              {formatSydneyDate(m.createdAt)}, {formatSydneyTime(m.createdAt)} · {m.sentBy} ·{" "}
               {Object.entries(m.counts).map(([k, n]) => `${n} ${(STATUS_LABELS[k] ?? k).toLowerCase()}`).join(", ") || "no recipients"}
             </span>
           </summary>

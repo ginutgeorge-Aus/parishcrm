@@ -44,13 +44,15 @@ export async function renderGroupMessagePage(
   const group = await prisma.group.findFirst({ where: { id, archivedAt: null }, select: { id: true, name: true } })
   if (!group) notFound()
 
+  // Organiser portal: 44px breadcrumb tap targets and a readable column width (dashboard unchanged).
+  const crumb = scope === "organiser" ? "inline-flex min-h-11 items-center hover:underline" : "hover:underline"
   return (
-    <div className="space-y-4">
+    <div className={scope === "organiser" ? "max-w-3xl space-y-4" : "space-y-4"}>
       <div>
         <p className="mb-1 text-sm text-muted-foreground">
-          <Link href={base} className="hover:underline">{rootLabel}</Link>
+          <Link href={base} className={crumb}>{rootLabel}</Link>
           {" / "}
-          <Link href={`${base}/${group.id}`} className="hover:underline">{group.name}</Link>
+          <Link href={`${base}/${group.id}`} className={crumb}>{group.name}</Link>
         </p>
         <h1 className="text-2xl font-bold text-foreground">{view === "compose" ? "Email group" : "Sent messages"}</h1>
       </div>

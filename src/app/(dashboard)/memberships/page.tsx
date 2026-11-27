@@ -60,7 +60,7 @@ export default async function MembershipsInbox({
                 {a.applicantName}{" "}
                 <span className="text-muted-foreground text-sm">· submitted {a.createdAt.toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE })}</span>
               </span>
-              <Link href={`/memberships/${a.id}`} className="text-success underline text-sm font-medium">
+              <Link href={`/memberships/${a.id}`} className="inline-flex min-h-11 items-center text-success underline text-sm font-medium">
                 {active === "PENDING" ? "Review" : "View"}
               </Link>
             </li>

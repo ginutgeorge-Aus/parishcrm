@@ -30,10 +30,10 @@ export default async function MyGroupPage(props: Readonly<{ params: Promise<{ id
   const members = await loadMemberRows(id)
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-3xl space-y-4">
       <div>
         <p className="mb-1 text-sm text-muted-foreground">
-          <Link href="/my-groups" className="hover:underline">My Groups</Link>
+          <Link href="/my-groups" className="inline-flex min-h-11 items-center hover:underline">My Groups</Link>
           {` / ${group.name}`}
         </p>
         <h1 className="text-2xl font-bold text-foreground">{group.name}</h1>
