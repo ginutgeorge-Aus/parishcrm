@@ -20,7 +20,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `backfill-email-hash` | Populate `Person.emailHash` / `Registration.emailHash` blind index for pre-existing rows |
 | `backfill-mobile-hash` | Populate `Person.mobileHash` / `MembershipApplication.mobileHash` blind index; also encrypts pre-existing plaintext `MembershipApplication.mobile` rows |
 | `backfill-suburb-hash` | Populate the `Family.suburbHash` blind index (OSS-39) for families written before it existed; see [Upgrading: suburb search index](#upgrading-suburb-search-index) |
-| `rehash-mobile` | Unconditionally recompute the mobile blind index after `hmacMobile` gained prefix normalisation |
+| `rehash-mobile` | Unconditionally recompute the mobile blind index. Run it on every deployed DB after a release that changes `hmacMobile` (latest: `+61 0412...` / `0061...` forms, AUD-1-12); the operator needs PO approval before running it on prod |
 | `audit-data-integrity` | **Read-only** diagnostic — scans encrypted-at-rest fields for plaintext leaks (incl. bank account numbers left in `Transaction.bankRef`), checks `emailHash` completeness, verifies invariants FKs can't enforce. Exits non-zero on any finding; run against prod / a restored dump |
 | `purge-registration-pii` | Retention purge — anonymises event-registration PII 6 months after the event ends, preserving financial aggregates. Also covers `Waitlist` and `CheckoutSession.payload`. Idempotent via each table's `anonymizedAt`; runs monthly via CI |
 | `purge-membership-application-pii` | Retention purge — anonymises DECIDED `MembershipApplication` payload/signature/email/mobile/applicantName reviewed >24 months ago; PENDING untouched. Idempotent via `anonymizedAt`; runs monthly via CI |

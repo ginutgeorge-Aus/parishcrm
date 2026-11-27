@@ -494,6 +494,7 @@ describe("hmacMobile ( mobile blind index)", () => {
     expect(hmacMobile("+61 0412 345 678")).toBe(local)
     expect(hmacMobile("0061 412 345 678")).toBe(local)
     expect(hmacMobile("+61 (0)412 345 678")).toBe(local)
+    expect(hmacMobile("(+61) 0412 345 678")).toBe(local)
     expect(hmacMobile("0412345679")).not.toBe(local)
   })
 

@@ -453,6 +453,7 @@ describe("authorizeCredentials", () => {
       ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash })
       const result = await authorizeCredentials({ email: "admin@example.com", password: "correctpassword" })
       expect(result).toMatchObject({ email: "admin@example.com" })
+      expect(logAudit).toHaveBeenCalledWith(baseUser.id, "USER_LOGIN", "User", baseUser.id, { via: "otp_disabled" }, undefined)
     } finally {
       process.env.DISABLE_OTP = prevDisable
       ;(process.env as { NODE_ENV: string }).NODE_ENV = prevNodeEnv as string
@@ -572,6 +573,7 @@ describe("authorizeCredentials — email normalisation", () => {
     const result = await authorizeCredentials({ email: "  admin@EXAMPLE.com ", mode: "otp", password: "correctpassword", otp: "654321" })
     expect(queryRaw).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ id: "5", role: "VIEWER" })
+    expect(logAudit).toHaveBeenCalledWith(5, "USER_LOGIN", "User", 5, { via: "otp" }, undefined)
     expect(prisma.user.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ id: 5 }),

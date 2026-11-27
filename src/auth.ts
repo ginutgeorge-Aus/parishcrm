@@ -16,7 +16,7 @@ import { resolveClientIp } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
-import { REMEMBERED_IDLE_MINUTES, REMEMBERED_MAX_DAYS } from "@/lib/sessionWindows"
+import { REMEMBERED_IDLE_MINUTES, REMEMBERED_MAX_DAYS, SESSION_MAX_AGE_SECONDS } from "@/lib/sessionWindows"
 import { verifyAuthenticationResponse, type AuthenticationResponseJSON } from "@simplewebauthn/server"
 import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 
@@ -831,7 +831,7 @@ const nextAuth = NextAuth({
   // in jwtCallback by the `remember` claim: non-remembered tokens still die at
   // 4h hard cap + 60min idle; remembered tokens get 7-day sliding idle. The
   // hard cap now lives in jwtCallback (non-remember branch), not in maxAge.
-  session: { strategy: "jwt", maxAge: 604800 },
+  session: { strategy: "jwt", maxAge: SESSION_MAX_AGE_SECONDS },
 })
 
 export const { auth, handlers, signOut } = nextAuth
