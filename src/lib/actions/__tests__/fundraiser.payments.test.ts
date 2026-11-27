@@ -191,6 +191,13 @@ describe("deletePayment", () => {
     expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(11)
   })
 
+  it("locks the entry row before deleting; missing entry fails without deleting", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([])
+    expect(await deletePayment(4)).toEqual({ error: "Entry not found" })
+    expect(prismaMock.fundraiserPayment.deleteMany).not.toHaveBeenCalled()
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
+  })
+
   it("deletes and audits amount + method in one transaction", async () => {
     expect(await deletePayment(4)).toBeUndefined()
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)

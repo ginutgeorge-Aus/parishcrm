@@ -631,6 +631,8 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
   // desync the ledger and let a webhook replay re-insert it.
   if (payment.method === FundraiserPaymentMethod.ONLINE) return { error: "Online payments must be refunded in Stripe" }
   const deleted = await prisma.$transaction(async (tx) => {
+    // Same row lock as recordPayment/checkout creation: a checkout cannot be priced between this delete and the expiry below.
+    if (!(await lockEntry(tx, payment.entryId))) return { error: "Entry not found" }
     // deleteMany: a concurrent double-delete gets "not found" instead of a P2025 throw.
     const { count } = await tx.fundraiserPayment.deleteMany({ where: { id: paymentId } })
     if (count === 0) return false

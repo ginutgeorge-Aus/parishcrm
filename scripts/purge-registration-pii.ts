@@ -111,6 +111,18 @@ async function main() {
     `${regs} registration(s) and ${attendees} attendee(s) ${APPLY ? "anonymised" : "would be anonymised"}.`,
   )
 
+  // AUD-4-07 one-time cleanup: earlier purge runs anonymised registrations but left their
+  // reminder rows (encrypted recipient address). The loop above skips those registrations.
+  const orphanReminders = await prisma.paymentReminderSend.count({
+    where: { registration: { anonymizedAt: { not: null } } },
+  })
+  if (APPLY && orphanReminders > 0) {
+    await prisma.paymentReminderSend.deleteMany({ where: { registration: { anonymizedAt: { not: null } } } })
+  }
+  console.log(
+    `${orphanReminders} reminder row(s) of already-anonymised registrations ${APPLY ? "deleted" : "would be deleted"}.`,
+  )
+
   // Waitlist rows for the same past-retention events — same cursor-
   // pagination shape as the registration loop above.
   let waitlistAfterId = 0
