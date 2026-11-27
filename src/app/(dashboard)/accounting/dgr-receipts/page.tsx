@@ -5,7 +5,7 @@ import { actorId } from "@/lib/actor"
 import { canViewAccounting, canAccessAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { fmtAUD } from "@/lib/formatting"
-import { fyLabel, currentFyEndYear } from "@/lib/dgr"
+import { fyLabel, currentFyEndYear, dgrStatusBadgeVariant, dgrShowsSentAt } from "@/lib/dgr"
 import { listDgrReceipts } from "@/lib/actions/dgrReceipt"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -104,20 +104,10 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
                     <td className="px-4 py-2">{r.donorName}</td>
                     <td className="px-4 py-2 font-medium whitespace-nowrap">{fmtAUD(r.total)}</td>
                     <td className="px-4 py-2">
-                      <Badge
-                        variant={
-                          r.status === "SENT"
-                            ? "default"
-                            : r.status === "FAILED"
-                              ? "destructive"
-                              : "secondary"
-                        }
-                      >
-                        {r.status}
-                      </Badge>
+                      <Badge variant={dgrStatusBadgeVariant(r.status)}>{r.status}</Badge>
                     </td>
                     <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                      {r.sentAt ? r.sentAt.toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE }) : "—"}
+                      {r.sentAt && dgrShowsSentAt(r.status) ? r.sentAt.toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE }) : "—"}
                     </td>
                     <td className="px-4 py-2">
                       <DgrReceiptRowActions
@@ -151,19 +141,9 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
                   </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-2">
-                  <Badge
-                    variant={
-                      r.status === "SENT"
-                        ? "default"
-                        : r.status === "FAILED"
-                          ? "destructive"
-                          : "secondary"
-                    }
-                  >
-                    {r.status}
-                  </Badge>
+                  <Badge variant={dgrStatusBadgeVariant(r.status)}>{r.status}</Badge>
                   <span className="text-xs text-muted-foreground">
-                    {r.sentAt ? r.sentAt.toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE }) : "—"}
+                    {r.sentAt && dgrShowsSentAt(r.status) ? r.sentAt.toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE }) : "—"}
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">

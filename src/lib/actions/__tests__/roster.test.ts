@@ -229,6 +229,10 @@ describe("slots", () => {
     p.rosterSlot.create.mockRejectedValueOnce({ code: "P2002" })
     await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "This service already has that role" })
   })
+  it("addRosterSlot reports a service deleted after the pre-check (FK error)", async () => {
+    p.rosterSlot.create.mockRejectedValueOnce({ code: "P2003" })
+    await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "Service not found" })
+  })
   it("addRosterSlot refuses a role or group archived after the pre-check", async () => {
     p.$queryRaw.mockResolvedValueOnce([])
     await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "Roster role not found" })
@@ -256,9 +260,18 @@ describe("slots", () => {
 
 describe("deleteRosterService", () => {
   it("records how many assignments went with it", async () => {
-    p.rosterAssignment.count.mockResolvedValue(4)
+    p.rosterAssignment.count.mockResolvedValueOnce(4).mockResolvedValueOnce(0)
     await deleteRosterService(2)
+    expect(p.rosterAssignment.count).toHaveBeenNthCalledWith(1, { where: { serviceId: 2 } })
+    expect(p.rosterAssignment.count).toHaveBeenNthCalledWith(2, { where: { serviceId: 2, status: "CONFIRMED" } })
     expect(audit).toHaveBeenCalledWith(prisma, 9, "ROSTER_SERVICE_DELETED", "RosterService", 2, { assignments: 4 })
+  })
+  it("refuses while someone has confirmed, and deletes nothing", async () => {
+    p.rosterAssignment.count.mockResolvedValueOnce(3).mockResolvedValueOnce(1)
+    await expect(deleteRosterService(2)).resolves.toEqual({ error: expect.stringContaining("confirmed") })
+    expect(p.rosterAssignment.count).toHaveBeenNthCalledWith(2, { where: { serviceId: 2, status: "CONFIRMED" } })
+    expect(p.rosterService.deleteMany).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
   })
   it("reports a missing service", async () => {
     p.rosterService.deleteMany.mockResolvedValue({ count: 0 })
@@ -360,9 +373,9 @@ describe("assignToRosterSlot", () => {
     p.rosterAssignment.findMany.mockResolvedValue([{ status: "PENDING" }])
     await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: "This slot is already full" })
   })
-  it("maps a slot deleted mid-assign (FK error) to slot not found", async () => {
+  it("maps a row deleted mid-assign (FK error) to a neutral refresh message", async () => {
     p.rosterAssignment.create.mockRejectedValue({ code: "P2003" })
-    await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: "Slot not found" })
+    await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: expect.stringContaining("no longer exists") })
   })
   it("refuses someone unavailable that day", async () => {
     p.personUnavailability.findMany.mockResolvedValue([
@@ -437,7 +450,7 @@ describe("suggestRosterAssignees", () => {
     })
     // History is scoped to this role, earlier services, and places held.
     expect(p.rosterAssignment.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { personId: { in: [1, 2, 3, 4] }, status: { not: "DECLINED" }, slot: { roleId: 3, service: { date: { lt: SERVICE_DATE } } } },
+      where: { personId: { in: [1, 2, 3, 4] }, status: "CONFIRMED", slot: { roleId: 3, service: { date: { lt: SERVICE_DATE } } } },
       distinct: ["personId"],
     }))
   })

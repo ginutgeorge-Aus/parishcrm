@@ -8,6 +8,8 @@ import {
   buildDgrPdfModel,
   currentFyEndYear,
   isDgrReceiptEditable,
+  dgrStatusBadgeVariant,
+  dgrShowsSentAt,
   isDgrReceiptDeletable,
   DGR_SEND_STALE_MS,
 } from "@/lib/dgr"
@@ -131,6 +133,26 @@ describe("DGR receipt edit/delete guards", () => {
     ["SENDING", null, true],
   ] as const)("isDgrReceiptEditable(%s, %s) = %s", (status, sentAt, expected) => {
     expect(isDgrReceiptEditable(status, sentAt, now)).toBe(expected)
+  })
+
+  it.each([
+    ["SENT", "default"],
+    ["FAILED", "destructive"],
+    ["UNKNOWN", "outline"],
+    ["DRAFT", "secondary"],
+    ["SENDING", "secondary"],
+  ] as const)("dgrStatusBadgeVariant(%s) = %s", (status, expected) => {
+    expect(dgrStatusBadgeVariant(status)).toBe(expected)
+  })
+
+  it.each([
+    ["SENT", true],
+    ["SENDING", false],
+    ["UNKNOWN", false],
+    ["DRAFT", false],
+    ["FAILED", false],
+  ])("dgrShowsSentAt(%s) = %s", (status, expected) => {
+    expect(dgrShowsSentAt(status)).toBe(expected)
   })
 
   it.each([

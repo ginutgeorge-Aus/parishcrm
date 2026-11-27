@@ -11,6 +11,7 @@ import {
   decryptTransactionForExport,
   decryptRegistrationForExport,
   decryptClearanceForExport,
+  decryptSacramentForExport,
 } from "@/lib/personExport"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromRequest } from "@/lib/clientIp"
@@ -70,6 +71,40 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
         orderBy: { startDate: "desc" },
         select: { startDate: true, endDate: true, createdAt: true },
       },
+      // Register entries where this person is the subject (the CRM-spouse side
+      // is merged in below: it needs a separate relation, "SacramentSpouse").
+      sacramentRecords: {
+        orderBy: { date: "asc" },
+        select: {
+          type: true,
+          registerNo: true,
+          personId: true,
+          spouseId: true,
+          date: true,
+          place: true,
+          ministerName: true,
+          spouseName: true,
+          godparents: true,
+          notes: true,
+          createdAt: true,
+        },
+      },
+      sacramentSpouseRecords: {
+        orderBy: { date: "asc" },
+        select: {
+          type: true,
+          registerNo: true,
+          personId: true,
+          spouseId: true,
+          date: true,
+          place: true,
+          ministerName: true,
+          spouseName: true,
+          godparents: true,
+          notes: true,
+          createdAt: true,
+        },
+      },
       transactions: {
         orderBy: { date: "desc" },
         include: {
@@ -102,7 +137,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   // `clearances` and `transactions` are exported via their own decrypted
   // sections; keep the raw (encrypted) rows out of the spread person object.
-  const { clearances, transactions, rosterAssignments, unavailability, ...personRest } = person
+  const { clearances, transactions, rosterAssignments, unavailability, sacramentRecords, sacramentSpouseRecords, ...personRest } = person
   const data = {
     person: {
       ...decryptPersonScalars(personRest),
@@ -112,6 +147,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     transactions: transactions.map(decryptTransactionForExport),
     registrations: registrations.map(decryptRegistrationForExport),
     clearances: clearances.map(decryptClearanceForExport),
+    sacraments: [...sacramentRecords, ...sacramentSpouseRecords].map((r) => decryptSacramentForExport(r, id)),
     rosterAssignments,
     unavailability,
     exportedAt: new Date().toISOString(),
@@ -123,7 +159,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     "PERSON_EXPORTED",
     "Person",
     id,
-    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "transactionNotes", "receiptSentTo", "registrationCustomAnswers", "clearances", "rosterAssignments", "unavailability"] },
+    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "transactionNotes", "receiptSentTo", "registrationCustomAnswers", "clearances", "rosterAssignments", "unavailability", "sacraments", "sacramentSpouseName", "sacramentGodparents", "sacramentNotes"] },
     ip
   )
 

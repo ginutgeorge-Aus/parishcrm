@@ -147,3 +147,41 @@ export function decryptClearanceForExport(c: {
     updatedAt: c.updatedAt,
   }
 }
+
+/**
+ * Decrypt-on-read for a SacramentRecord row, for the data-portability export.
+ * Builds the output field by field; `role` says whether the exported person is
+ * the subject of the entry or its CRM spouse. `date` becomes `YYYY-MM-DD`.
+ * @param r register row selected explicitly
+ * @param personId the person being exported
+ */
+export function decryptSacramentForExport(
+  r: {
+    type: string
+    registerNo: string
+    personId: number
+    spouseId: number | null
+    date: Date
+    place: string
+    ministerName: string | null
+    spouseName: string | null
+    godparents: string | null
+    notes: string | null
+    createdAt: Date
+  },
+  personId: number,
+) {
+  return {
+    registerNo: r.registerNo,
+    type: r.type,
+    role: r.personId === personId ? "person" : "spouse",
+    date: r.date.toISOString().slice(0, 10),
+    place: r.place,
+    ministerName: r.ministerName,
+    spouseId: r.spouseId,
+    spouseName: r.spouseName ? safeDecrypt(r.spouseName) : null,
+    godparents: r.godparents ? safeDecrypt(r.godparents) : null,
+    notes: r.notes ? safeDecrypt(r.notes) : null,
+    createdAt: r.createdAt,
+  }
+}

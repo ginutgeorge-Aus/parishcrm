@@ -44,7 +44,7 @@ const LIST_ALL_YEARS_CAP = 1000
 // A single financial year is naturally small; this ceiling only bounds a runaway query, far above real use.
 const LIST_ONE_YEAR_CAP = 10000
 
-const DUP_RACE_ERROR = "A receipt for this donor and year was just created. Refresh the list and check before trying again."
+const DUP_RACE_ERROR = "Another receipt was being saved at the same moment. Refresh the list to check whether this donor already has one for the year, then try again."
 const EDIT_RACE_ERROR = "This receipt is being sent or was sent"
 
 const LineSchema = z.object({
@@ -350,17 +350,23 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
   return { success: "Receipt deleted." }
 }
 
+const SEND_RACE_ERROR = "This receipt is already being sent or has already been sent."
+const SEND_STALE_ERROR = "This receipt was edited while it was being prepared. Review the changes and send it again."
+
 /**
- * Message for a send whose claim matched no row: the row either left the status the
- * document was built from (another send claimed it) or was edited after the read (#914).
+ * Explain why a send's claim matched no row, by re-reading the receipt's current status.
+ *
  * @param id Receipt id.
  * @param readStatus Status the send read before building its document.
+ * @returns The stale-content error when the status is unchanged or is now DRAFT (an edit after
+ *   our read; editing a FAILED row resets it to DRAFT), not-found when the row is gone, else the
+ *   "already being sent" error.
  */
-async function claimLostError(id: number, readStatus: string): Promise<string> {
+async function claimLostError(id: number, readStatus: string): Promise<{ error: string }> {
   const now = await prisma.dgrReceipt.findUnique({ where: { id }, select: { status: true } })
-  if (now?.status === readStatus)
-    return "This receipt was edited while it was being prepared for sending. Refresh and send it again."
-  return "This receipt is already being sent or has already been sent."
+  if (!now) return { error: "Receipt not found." }
+  if (now.status === readStatus || now.status === DGR_STATUS.DRAFT) return { error: SEND_STALE_ERROR }
+  return { error: SEND_RACE_ERROR }
 }
 
 /**
@@ -450,18 +456,17 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   // Claim only the status this document was built from: if a parallel send moved the row
   // (e.g. DRAFT to UNKNOWN with its own stored PDF) after our read, we must not email a different document.
   const claimable: string[] = [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN]
-  if (!claimable.includes(row.status))
-    return { error: "This receipt is already being sent or has already been sent." }
-  // The claim also matches the content the document was built from (#914). Every edit
-  // re-encrypts donorEmail with a fresh random IV, so the stored ciphertext changes on
-  // any edit and works as a version token without a schema column; donorName and
-  // totalAmount are matched too as a plain-value backstop. A DRAFT edited after our
-  // read is therefore not claimed, and the stale document is never emailed or frozen.
+  if (!claimable.includes(row.status)) return { error: SEND_RACE_ERROR }
+  // Claim only the content this document was built from (#914): an edit landing between the
+  // read and the claim must not let us freeze and email the old copy. updateDgrReceipt is the
+  // only content writer and always re-encrypts donorEmail with a fresh random IV, so the stored
+  // ciphertext changes on every edit and works as a version token without a schema column.
+  // donorName and totalAmount are matched too, as a cheap guard should a future writer skip the email.
   const claim = await prisma.dgrReceipt.updateMany({
     where: { id, status: row.status, donorEmail: row.donorEmail, donorName: row.donorName, totalAmount: row.totalAmount },
     data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: claimAt },
   })
-  if (claim.count === 0) return { error: await claimLostError(id, row.status) }
+  if (claim.count === 0) return claimLostError(id, row.status)
 
   let frozenPdf: ReturnType<typeof encryptBytes> | undefined
   try {
