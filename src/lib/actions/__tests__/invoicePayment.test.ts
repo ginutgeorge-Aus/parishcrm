@@ -11,7 +11,7 @@ import { logger } from "@/lib/logger"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), assertUnlocked: jest.fn(async () => null), getAccountingLockDate: jest.fn(async () => null) }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), holdAccountingLock: jest.fn(async () => undefined), assertUnlocked: jest.fn(async () => null), getAccountingLockDate: jest.fn(async () => null) }))
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn(async () => undefined) }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 jest.mock("@/lib/churchSettings", () => ({ getChurchSettingsFresh: jest.fn(async () => ({ name: "Live Church" })) }))

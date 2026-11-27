@@ -82,6 +82,13 @@ export async function assertUnlocked(date: Date): Promise<string | null> {
  * The lock date is read through the shared client, not `tx`: under Serializable
  * the transaction's snapshot predates the wait for the advisory lock and could
  * miss a lock change committed while it waited (see holdAccountingLock).
+ * Cost: that read needs a second pooled connection while `tx` holds its own
+ * (pg Pool default max 10), so many concurrent writers could briefly queue for
+ * one. Same pattern as the statement save (reconciliation.ts) and the opening
+ * balance save (accountingSettings.ts).
+ * Lock order: take the advisory lock before any row lock (FOR UPDATE, session-row
+ * write), via this helper or holdAccountingLock as the transaction's first
+ * statement. It is re-entrant, so a later call in the same transaction is free.
  * Call it before the transaction's first write, so returning the error (rather
  * than throwing) never commits a partial write.
  * @param tx the write's transaction client

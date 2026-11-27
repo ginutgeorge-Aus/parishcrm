@@ -407,7 +407,8 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
     // session id yields the safe import error instead of an unhandled throw.
     const userId = actorId(session)
     await prisma.$transaction(async (tx) => {
-      // Period-lock re-check inside the write (AUD-3-08), on the earliest row date (the lock is inclusive).
+      // First statement (AUD-3-08): takes the shared accounting advisory lock before the session upserts/row locks,
+      // so lock order matches the other writers. Re-checks the lock on the earliest row date (the lock is inclusive).
       const txLockError = await assertUnlockedTx(tx, minDate, lockedRowsMessage)
       if (txLockError) throw new SessionClosedError(txLockError)
       const sessionByTitle = await ensureImportSessions(tx, dates, custodianId)

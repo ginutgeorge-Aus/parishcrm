@@ -12,7 +12,7 @@ import { toCents } from "@/lib/formatting"
 import { encrypt, decrypt } from "@/lib/crypto"
 import { splitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAuditTx } from "@/lib/audit"
-import { assertUnlocked, assertUnlockedTx, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, getAccountingLockDate, holdAccountingLock, isDateLocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem, legsByDepositRef } from "@/lib/pettyCashAdoption"
 import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, WINDOW_GUARD_TAG } from "@/lib/xferRefs"
@@ -551,6 +551,9 @@ export async function updateTransfer(
   let result: { error: string } | { sessionId: number }
   try {
     result = await serializableWrite<{ error: string } | { sessionId: number }>(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       const transfer = await tx.pettyCashTransfer.findUnique({
         where: { id },
         select: {
@@ -657,6 +660,9 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
   try {
     await prisma.$transaction(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       await assertSessionOpenTx(tx, transfer.session.id, "Cannot delete from closed session")
       // Concurrent delete: return a clean error instead of a P2025 from the delete below.
       const current = await tx.pettyCashTransfer.findUnique({ where: { id }, select: { id: true, date: true } })

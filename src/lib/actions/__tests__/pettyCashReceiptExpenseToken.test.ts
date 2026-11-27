@@ -29,7 +29,7 @@ jest.mock("@/lib/crypto", () => ({
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), assertUnlocked: jest.fn(async () => null) }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), holdAccountingLock: jest.fn(async () => undefined), assertUnlocked: jest.fn(async () => null) }))
 jest.mock("@/lib/actions/transaction", () => ({ validateAccount: jest.fn() }))
 jest.mock("@/lib/actions/fund", () => ({ validateFund: jest.fn() }))
 jest.mock("@/lib/accountMatches", () => ({ accountMatches: jest.fn(async () => ({ name: "Offering" })) }))

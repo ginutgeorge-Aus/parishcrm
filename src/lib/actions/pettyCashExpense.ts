@@ -10,7 +10,7 @@ import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
-import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, holdAccountingLock } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, isOversizeMoney, hasEncryptedFieldMatch, isP2034 } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -245,6 +245,9 @@ export async function createExpense(
     // concurrent retype can't land between them, and the entry can never commit
     // without its "created" audit row (so a replay never needs to backfill one, #563).
     const result = await serializableWrite<{ error: string } | { id: number } | { replay: true }>(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       // Token re-check inside the tx: a twin submit may have committed since the
       // pre-check (serializableWrite's P2034 retry lands here and sees it).
       if (token) {
@@ -350,6 +353,9 @@ export async function updateExpense(
   try {
     // Account re-check + write share one Serializable transaction (see createExpense).
     const result = await serializableWrite<{ error: string } | null>(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       // Re-assert OPEN inside the tx — a concurrent close must not let an edit
       // land in a now-closed session.
       await assertSessionOpenTx(tx, expense.sessionId, "Cannot edit in closed session")
@@ -428,6 +434,9 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
   try {
     await prisma.$transaction(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       await assertSessionOpenTx(tx, expense.session.id, "Cannot delete from closed session")
       // Period-lock re-check inside the delete (AUD-3-08): a lock set after the pre-check must still block it.
       const txLockError = await assertUnlockedTx(tx, expenseSessionDate)

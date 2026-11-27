@@ -417,6 +417,18 @@ describe("confirmBankImport — concurrent manual transfer (#493)", () => {
     expect(result).toEqual(expect.objectContaining({ ok: false, status: 500 }))
     expect(prisma.$transaction).toHaveBeenCalledTimes(3)
   })
+
+  it("a lock set after the pre-check rejects the pair with PERIOD_LOCKED and is not retried (AUD-3-08)", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma))
+    const LOCKED = "One or more transactions fall in a locked accounting period (on or before 2026-12-31). Adjust the lock date or exclude those rows."
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce(LOCKED)
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: false, status: 400, code: "PERIOD_LOCKED", error: LOCKED, imported: 0 }))
+    // ImportPeriodLockedError is not a P2034: the retry loop rethrows it on the first attempt.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
 })
 
 describe("confirmBankImport — partial write on mid-batch DB fault", () => {

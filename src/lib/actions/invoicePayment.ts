@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { sendEmail } from "@/lib/email"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { assertUnlocked, assertUnlockedTx, getAccountingLockDate } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, getAccountingLockDate, holdAccountingLock } from "@/lib/accountingLock"
 import { isRealCalendarDate, isValidPgId } from "@/lib/validation"
 import { toCents, fmtAUD, centsToNumber, formatLongDate } from "@/lib/formatting"
 import { getChurchSettingsFresh } from "@/lib/churchSettings"
@@ -108,6 +108,9 @@ async function linkExisting(inv: SentInvoice, transactionId: number, uid: number
   if (targetErr) return { error: targetErr }
   const moved = t.accountId !== inv.accountId || t.fundId !== inv.fundId ? { accountId: t.accountId, fundId: t.fundId } : null
   const res = await guarded(() => prisma.$transaction(async (tx) => {
+    // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+    // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+    await holdAccountingLock(tx, "shared")
     // Invoice lock first, so the reversed-row check below and the flip see one state.
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${inv.id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     if ((await reversedIds(tx, [t.id])).size > 0) return { error: "This transaction was reversed when an invoice was unmarked paid. Record a new payment instead." }
@@ -243,6 +246,9 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   const reversalDate = sydneyToday()
   const uid = actorId(session)
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
+    // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+    // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+    await holdAccountingLock(tx, "shared")
     // Lock the invoice first so the audit/row reads and the flip see one state (concurrent unmark + re-mark waits here).
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     // paidAt is re-read under the lock: the pre-transaction read can be stale if a concurrent unmark + re-mark changed it.

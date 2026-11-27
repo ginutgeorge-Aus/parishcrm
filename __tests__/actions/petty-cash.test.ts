@@ -98,10 +98,10 @@ jest.mock("@/lib/crypto", () => ({
   }),
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined), logAuditTx: jest.fn().mockResolvedValue(undefined) }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), assertUnlocked: jest.fn().mockResolvedValue(null), getAccountingLockDate: jest.fn().mockResolvedValue(null), isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), holdAccountingLock: jest.fn(async () => undefined), assertUnlocked: jest.fn().mockResolvedValue(null), getAccountingLockDate: jest.fn().mockResolvedValue(null), isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked }))
 
 import { auth } from "@/auth"
-import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, holdAccountingLock } from "@/lib/accountingLock"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
@@ -975,6 +975,16 @@ describe("updateReceipt", () => {
     expect(result).toEqual({ error: "This entry's ledger transaction is reconciled. Un-reconcile it on the Reconciliation page before editing." })
     expect(mockQueryRaw.mock.calls[0][1]).toBe(40)
     expect(mockUpdateReceipt).not.toHaveBeenCalled()
+  })
+
+  it("takes the shared accounting lock before the session-row lock (lock order, AUD-3-08)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue(openReceipt)
+    mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
+    await updateReceipt(1, undefined, fd(receiptFd))
+    const hold = holdAccountingLock as jest.Mock
+    expect(hold).toHaveBeenCalledWith(prisma, "shared")
+    expect(hold.mock.invocationCallOrder[0]).toBeLessThan(mockUpdateManySession.mock.invocationCallOrder[0])
   })
 
   it("rolls back when the mirror update matches no unreconciled row", async () => {
