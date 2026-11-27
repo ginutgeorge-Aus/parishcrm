@@ -90,7 +90,7 @@ export async function updateAccountGroup(
   try {
     guardError = await prisma.$transaction(async (tx) => {
       const current = await tx.accountGroup.findUnique({ where: { id }, select: { name: true, type: true, sortOrder: true } })
-      if (!current) return "Account group not found"
+      if (!current) return "Group not found"
       auditBefore = current
       if (parsed.data.type !== current.type) {
         const accountCount = await tx.account.count({ where: { groupId: id } })
@@ -105,7 +105,7 @@ export async function updateAccountGroup(
   }
   if (guardError) return { error: guardError }
   await logAudit(actorId(session), "ACCOUNT_GROUP_UPDATED", "AccountGroup", id, {
-    before: auditBefore ?? { name: existing.name, type: existing.type, sortOrder: existing.sortOrder },
+    before: auditBefore,
     after: { name: parsed.data.name, type: parsed.data.type, sortOrder: parsed.data.sortOrder },
   })
   revalidatePath("/accounting/accounts/groups")

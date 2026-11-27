@@ -159,7 +159,7 @@ export async function updateAccount(
   if (guardError) return { error: guardError }
 
   await logAudit(actorId(session), "ACCOUNT_UPDATED", "Account", id, {
-    before: auditBefore ?? { code: target.code, name: target.name, type: target.type, isActive: target.isActive, groupId: target.groupId },
+    before: auditBefore,
     after: { code: parsed.data.code, name: parsed.data.name, type: parsed.data.type, isActive: parsed.data.isActive, groupId: parsed.data.groupId },
   })
   revalidatePath("/accounting/accounts")
