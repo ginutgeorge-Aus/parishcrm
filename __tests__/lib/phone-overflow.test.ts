@@ -13,7 +13,9 @@
 // offending row, or a new file with one, fails. Fixing a row without lowering
 // its baseline count also fails, so the list only shrinks.
 //
-// Limits: only single-line `className="..."` literals are checked (not `cn()`,
+// Limits: the baseline is a per-file count, so fixing one row and adding another
+// in the same file cancels out; a `sm:flex-row` row with no base `flex-col` is
+// flagged; only single-line `className="..."` literals are checked (not `cn()`,
 // template strings or classes split over lines); the rule fires only when a
 // heading (h1/h2/CardTitle) sits within 5 lines below the row; it cannot see
 // content width, tables or fixed-width children. It is a tripwire for the known
@@ -67,7 +69,7 @@ const HEADING = /<h[12][\s>]|<CardTitle[\s>]/
 function isOverflowProneRow(classes: string[]): boolean {
   if (!classes.includes("flex") || !classes.includes("justify-between")) return false
   if (classes.includes("hidden")) return false
-  return !classes.some((c) => /^flex-wrap$|^flex-col$|^(sm|md|lg|xl):flex-row$/.test(c))
+  return !classes.some((c) => /^(flex-wrap|flex-col)$|^(sm|md|lg|xl):flex-wrap$/.test(c))
 }
 
 /**
@@ -78,9 +80,10 @@ function countOverflowRows(source: string): number {
   const lines = source.split("\n")
   let count = 0
   lines.forEach((line, i) => {
-    const m = line.match(/className="([^"]*)"/)
-    if (!m || !isOverflowProneRow(m[1].split(/\s+/))) return
-    if (HEADING.test(lines.slice(i + 1, i + 6).join(" "))) count++
+    for (const m of line.matchAll(/className="([^"]*)"/g)) {
+      if (!isOverflowProneRow(m[1].split(/\s+/))) continue
+      if (HEADING.test(lines.slice(i + 1, i + 6).join(" "))) count++
+    }
   })
   return count
 }
@@ -93,9 +96,10 @@ function listTsx(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) {
-      return ["__tests__", "ui", "generated"].includes(e.name) ? [] : listTsx(p)
+      const skip = e.name === "__tests__" || p === path.join(SRC, "components/ui") || p === path.join(SRC, "lib/generated")
+      return skip ? [] : listTsx(p)
     }
-    return e.name.endsWith(".tsx") ? [p] : []
+    return e.name.endsWith(".tsx") && !e.name.endsWith(".test.tsx") ? [p] : []
   })
 }
 
@@ -108,7 +112,8 @@ describe("countOverflowRows", () => {
   it.each([
     "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
     "flex flex-wrap items-center justify-between gap-2",
-    "hidden sm:flex justify-between",
+    "flex hidden justify-between",
+    "flex items-center justify-between sm:flex-wrap",
   ])("ignores a safe row: %s", (cls) => {
     expect(countOverflowRows(`<div className="${cls}">\n<h1>T</h1>\n</div>`)).toBe(0)
   })
