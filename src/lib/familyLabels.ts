@@ -8,7 +8,7 @@ export const FAMILY_STATUS_LABELS: Record<FamilyStatus, string> = {
 }
 
 /** Display labels for the `Gender` enum (AUD-8-15). */
-export const GENDER_LABELS: Record<string, string> = {
+const GENDER_LABELS: Record<string, string> = {
   MALE: "Male",
   FEMALE: "Female",
   OTHER: "Other",
