@@ -26,6 +26,9 @@ const config: KnipConfig = {
     // Runtime dep of the Prisma-generated client (src/lib/generated/prisma,
     // gitignored so knip never scans it) — not imported by app code directly.
     "@prisma/client",
+    // The TS parser eslint-config-next configures for `npm run lint`; the server-action
+    // wrapper rule test resolves it through eslint-config-next so both use one version.
+    "@typescript-eslint/parser",
   ],
   ignore: [
     // shadcn/ui generated components — intentional re-export surface, not consumed internally

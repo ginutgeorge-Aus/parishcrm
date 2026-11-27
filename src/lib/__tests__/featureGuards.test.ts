@@ -304,6 +304,8 @@ it.each(Object.entries(GUARDED_ACTIONS))("%s: every exported action guards %s", 
  */
 function guards(body: string, key: string, file?: string): boolean {
   return body.includes(`featureGuard("${key}")`)
+    // guardedAction (src/lib/guardedAction.ts) checks `feature` itself, after auth + role.
+    || new RegExp(`return guardedAction\\(\\s*\\{[^}]*\\bfeature: "${key}"`).test(body)
     || body.includes(`assertFeature("${key}")`)
     || new RegExp(`featureGuardAny\\(\\[[^\\]]*"${key}"`).test(body)
     || (file !== undefined && (GUARD_HELPERS[file] ?? []).some((h) => new RegExp(`(?:await|return) ${h}\\(`).test(body)))

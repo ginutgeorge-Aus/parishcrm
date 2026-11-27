@@ -1,6 +1,7 @@
 // @ts-check
 import coreWebVitals from "eslint-config-next/core-web-vitals"
 import { buildNoRestrictedSyntaxOptions } from "./eslint-rules/rawPalette.cjs"
+import { rule as serverActionWrapperRule, allowlist as serverActionAllowlist } from "./eslint-rules/serverActionWrapper.cjs"
 
 const eslintConfig = [
   { ignores: ["next-env.d.ts", ".next/**", "node_modules/**", "src/lib/generated/**", "website/**"] },
@@ -17,6 +18,15 @@ const eslintConfig = [
       // its test (__tests__/lib/eslint-raw-palette-rule.test.ts) can't drift apart.
       "no-restricted-syntax": buildNoRestrictedSyntaxOptions("warn"),
     },
+  },
+  {
+    // Every exported Server Action goes through guardedAction (role guard + zod
+    // argument check). Pre-wrapper actions sit on a shrink-only allowlist; see
+    // eslint-rules/serverActionWrapper.cjs.
+    files: ["src/lib/actions/**/*.ts"],
+    ignores: ["src/lib/actions/**/__tests__/**"],
+    plugins: { crm: { rules: { "server-action-wrapper": serverActionWrapperRule } } },
+    rules: { "crm/server-action-wrapper": ["error", { allowlist: serverActionAllowlist }] },
   },
 ]
 

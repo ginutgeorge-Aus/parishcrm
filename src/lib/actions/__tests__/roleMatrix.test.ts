@@ -223,8 +223,34 @@ function stripCommentsAndStrings(src: string): string {
  * @param body source of one exported function
  */
 function leadingGuards(body: string): string[] {
+  const wrapped = wrapperGuard(body)
+  if (wrapped) return [wrapped]
   const head = headBeforeDb(body)
   return HELPERS.filter((h) => hasRefusal(head, h)).sort()
+}
+
+/**
+ * The roleGuard helper an exported action passes as `guard:` to `guardedAction`
+ * (src/lib/guardedAction.ts) when its only statement is `return guardedAction({ guard: canX, ... }, ...)`;
+ * else null. The wrapper refuses before running the handler, so it is the same leading refusal the
+ * matrix checks. Parsed with the TypeScript AST, so comments, strings and signature braces cannot fool it.
+ * @param body source of one exported function
+ */
+function wrapperGuard(body: string): string | null {
+  const sf = ts.createSourceFile("x.ts", body, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const fn = sf.statements[0]
+  if (!fn || !ts.isFunctionDeclaration(fn) || fn.body?.statements.length !== 1) return null
+  const ret = fn.body.statements[0]
+  if (!ts.isReturnStatement(ret) || !ret.expression || !ts.isCallExpression(ret.expression)) return null
+  const call = ret.expression
+  if (!ts.isIdentifier(call.expression) || call.expression.text !== "guardedAction") return null
+  const spec = call.arguments[0]
+  if (!spec || !ts.isObjectLiteralExpression(spec)) return null
+  const guard = spec.properties.find(
+    (p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "guard",
+  )
+  if (!guard || !ts.isIdentifier(guard.initializer)) return null
+  return HELPERS.includes(guard.initializer.text) ? guard.initializer.text : null
 }
 
 /**
@@ -763,6 +789,16 @@ describe("role matrix: generated from src/lib/actions", () => {
     expect(leadingGuards("if (x && (!isAdmin(r))) return\nawait prisma.x.create()")).toEqual([])
     expect(leadingGuards("if (flag && isAdmin(r) === false) return\nawait prisma.x.create()")).toEqual([])
     expect(leadingGuards("if (isAdmin(r) === false || flag) return\nawait prisma.x.create()")).toEqual(["isAdmin"])
+  })
+
+  it("leadingGuards reads the guard of a guardedAction-wrapped export, and only as its sole statement", () => {
+    const wrapped = (pre: string) =>
+      `export async function f(id: number, o?: { a?: boolean }): Promise<{ x: 1 }[]> {\n${pre}  return guardedAction({ args: z.tuple([]), guard: isAdmin }, [], async () => prisma.x.findMany())\n}`
+    expect(leadingGuards(wrapped(""))).toEqual(["isAdmin"])
+    // Code before the wrapper runs unguarded: not recognised as the wrapper shape.
+    expect(leadingGuards(wrapped("  await prisma.x.create()\n"))).toEqual([])
+    // A guard that is not a roleGuard helper is not a role refusal.
+    expect(leadingGuards("export async function f() {\n  return guardedAction({ guard: \"public\", args: z.tuple([]) }, [], async () => 1)\n}")).toEqual([])
   })
 
   it("bodyOf is not truncated by a column-0 brace inside a literal or comment", () => {
