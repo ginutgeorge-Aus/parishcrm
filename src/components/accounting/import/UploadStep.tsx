@@ -28,6 +28,19 @@ export type UploadResult = {
   errors: string[]
 }
 
+/**
+ * Fold the parse route's completeness data into one warning list for the review
+ * screen: the generic error summary, then the date + amount of every skipped
+ * block, then totals warnings (AUD-3-13).
+ *
+ * @param data - the parse route's JSON body
+ * @returns warning lines, empty when the parse was complete
+ */
+function parseWarnings(data: { errors?: string[]; skippedBlocks?: { date: string; amount: string | null }[]; warnings?: string[] }): string[] {
+  const skipped = (data.skippedBlocks ?? []).map((b) => `Skipped block: ${b.date}, amount ${b.amount ? `$${b.amount}` : "not readable"} - not imported`)
+  return [...(data.errors ?? []), ...skipped, ...(data.warnings ?? [])]
+}
+
 type Parsed = Omit<UploadResult, "paymentAccountId"> & { autoMatched: boolean }
 type DateOrder = "DMY" | "MDY"
 
@@ -118,7 +131,7 @@ export function UploadStep({
         accountSuffix: typeof data.accountSuffix === "string" && /^\d{4}$/.test(data.accountSuffix) ? data.accountSuffix : "",
         accountToken,
         accountFingerprint: isAccountFingerprint(data.accountFingerprint) ? data.accountFingerprint : undefined,
-        errors: data.errors ?? [],
+        errors: parseWarnings(data),
         autoMatched: typeof data.suggestedPaymentAccountId === "number",
       })
       // Sticky per file: a re-read with an explicit order reports not-ambiguous, but the user must still be able to switch back.
@@ -246,7 +259,11 @@ export function UploadStep({
                 {suffix && ` · acct ••• ${suffix}`}
               </span>
             </div>
-            {parsed.errors.length > 0 && <p className="text-warning">{parsed.errors[0]}</p>}
+            {parsed.errors.length > 0 && (
+              <ul className="text-warning">
+                {parsed.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
           </div>
         )}
 

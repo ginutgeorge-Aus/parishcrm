@@ -546,6 +546,87 @@ describe("confirmBankImport — direction-aware cross-format dedup", () => {
   })
 })
 
+// AUD-3-14: two genuine identical payments on one day share a content key, so the
+// second is auto-skipped as a duplicate; "import anyway" must be able to force it.
+describe("confirmBankImport — import anyway (AUD-3-14)", () => {
+  const dupRow = {
+    date: "2026-06-08",
+    description: "PAYMENT FROM BRUNO TAYLOR WILLIAMSON",
+    amount: "300.00",
+    type: "INCOME" as const,
+    bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_1060000",
+    accountId: 5,
+    skip: false,
+    paymentAccountId: 1,
+  }
+  const existing = [{ bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_1030000", type: "INCOME" }]
+
+  it("skips the row as a duplicate without the flag", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    const result = await confirmBankImport([dupRow])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.duplicates).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("imports the row with a suffixed bankRef when importAnyway is set", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    const result = await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.imported).toBe(1)
+    expect(result.duplicates).toBe(0)
+    const data = mockCreateMany.mock.calls[0][0].data as { bankRef: string }[]
+    expect(data[0].bankRef).toMatch(/#dup$/)
+    expect(data[0].bankRef).not.toBe(dupRow.bankRef)
+  })
+
+  it("imports two importAnyway rows with identical content but distinct refs, and drops a same-ref repeat as a duplicate", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    const second = { ...dupRow, bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_1090000" }
+    const result = await confirmBankImport([
+      { ...dupRow, importAnyway: true },
+      { ...second, importAnyway: true },
+      { ...second, importAnyway: true },
+    ])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.imported).toBe(2)
+    expect(result.duplicates).toBe(1)
+  })
+
+  it("still dedupes a forced row against a legacy full-number stored ref", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue([...existing, { bankRef: `${dupRow.bankRef}#dup`, type: "INCOME" }])
+    const result = await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.duplicates).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("ignores importAnyway on a skipped row", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    const result = await confirmBankImport([{ ...dupRow, skip: true, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.skipped).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("treats a repeat of the same forced row as already imported", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    const stored = (mockCreateMany.mock.calls[0][0].data as { bankRef: string }[])[0].bankRef
+    mockCreateMany.mockClear()
+    mockTxFindMany.mockResolvedValue([...existing, { bankRef: stored, type: "INCOME" }])
+    const result = await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.duplicates).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+})
+
 describe("confirmBankImport — amount bounds and payment account required", () => {
   it("rejects a zero amount", async () => {
     const result = await confirmBankImport([{ ...baseRow, accountId: 5, amount: "0.00" }])

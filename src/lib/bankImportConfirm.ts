@@ -101,6 +101,8 @@ const RowSchema = z.object({
   bankRef: z.string().min(1).max(200),
   accountId: z.number().int().positive().nullable(),
   skip: z.boolean(),
+  // Reviewer un-skipped a row flagged as a duplicate: "import anyway" (AUD-3-14).
+  importAnyway: z.boolean().optional(),
   paymentAccountId: z.number().int().positive(),
   familyId: z.number().int().positive().optional().nullable(),
   personId: z.number().int().positive().optional().nullable(),
@@ -202,6 +204,26 @@ function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
   }
 }
 
+/** Suffix appended to the stored bankRef of a row the reviewer chose to "import anyway". */
+const IMPORT_ANYWAY_SUFFIX = "#dup"
+
+/**
+ * Give every un-skipped "import anyway" row a distinct stored bankRef (so it can
+ * neither collide with the original it duplicates nor be re-imported twice) and
+ * return those rows. The suffix lives in the last ref segment, so
+ * `contentKeyFromBankRef` still recovers the same content key from them.
+ * Applied BEFORE hashing on purpose: the suffixed ref is then hashed and gets its
+ * legacy full-number variant like any other ref, so dual-format dedup covers it.
+ *
+ * @param rows - confirm rows with restored (full-number) refs
+ * @returns the suffixed rows, whose hashed refs skip the content-key duplicate check
+ */
+function suffixImportAnywayRefs(rows: ConfirmRow[]): ConfirmRow[] {
+  const forced = rows.filter((r) => !r.skip && r.importAnyway)
+  for (const r of forced) r.bankRef = `${r.bankRef}${IMPORT_ANYWAY_SUFFIX}`
+  return forced
+}
+
 /**
  * Core bank-statement confirm pipeline. `rawBody` is the already-parsed JSON body
  * (`{ rows, accountToken? }`, or a bare row array). Masked bankRefs are restored
@@ -222,6 +244,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
     return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again.", code: "SESSION_EXPIRED" }
   }
+  const forcedRows = suffixImportAnywayRefs(rows)
   let refVariants: (ref: string) => string[]
   try {
     refVariants = hashRowBankRefs(rows)
@@ -230,6 +253,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     // Fail closed: never insert unhashed refs, never throw past the result contract.
     return { ok: false, status: 500, error: BANKREF_HASH_ERROR, code: "BANKREF_HASH" }
   }
+  const forcedRefs = new Set(forcedRows.map((r) => r.bankRef))
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
 
@@ -480,6 +504,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   const isDuplicate = (bankRef: string, type: "INCOME" | "EXPENSE"): boolean =>
     refVariants(bankRef).some((ref) => {
       if (existingRefs.has(ref)) return true
+      // "Import anyway": the reviewer overrode the lossy content-key match.
+      if (forcedRefs.has(bankRef)) return false
       const key = contentKeyFromBankRef(ref)
       return key !== null && existingContentKeys.has(`${key}|${type}`)
     })

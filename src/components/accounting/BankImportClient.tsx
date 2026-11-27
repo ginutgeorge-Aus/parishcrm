@@ -202,7 +202,7 @@ export function BankImportClient({
       const res = await fetch("/api/import/bank-statement/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: rows.map((r) => ({ ...r, paymentAccountId })), accountToken }),
+        body: JSON.stringify({ rows: rows.map((r) => ({ ...r, paymentAccountId, importAnyway: r.isDuplicate && !r.skip })), accountToken }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))

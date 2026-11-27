@@ -155,4 +155,11 @@ ${trn}
     expect(r.rows).toHaveLength(0)
     expect(r.errors).toHaveLength(1)
   })
+
+  // AUD-3-22: documented behaviour, not a fix. Banks print the local posting date,
+  // so the printed calendar date wins over any timezone offset in the stamp.
+  it("uses the printed calendar date and ignores the timezone offset", () => {
+    const r = parseOfx(wrap("1", "<STMTTRN><DTPOSTED>20260902233000.000[0:GMT]<TRNAMT>-5.00<FITID>F1<NAME>X</STMTTRN>"))
+    expect(r.rows[0].date).toBe("2026-09-02")
+  })
 })
