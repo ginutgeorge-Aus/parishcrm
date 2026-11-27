@@ -303,8 +303,11 @@ function buildFamilyPatch(
   // concatenating, then re-encrypt the whole block — concatenating raw
   // ciphertext with the plaintext note (and storing it unencrypted) both
   // corrupts the existing note and leaks the new PII in cleartext.
-  const existingNotes = fam.notes ? safeDecrypt(fam.notes) : ""
-  patch.notes = encrypt(existingNotes ? `${existingNotes}\n\n${notes}` : notes)
+  // An empty intake block (no note-worthy fields) leaves the existing note untouched.
+  if (notes) {
+    const existingNotes = fam.notes ? safeDecrypt(fam.notes) : ""
+    patch.notes = encrypt(existingNotes ? `${existingNotes}\n\n${notes}` : notes)
+  }
   return patch
 }
 
@@ -340,7 +343,9 @@ async function createApprovedFamily(
   const name = await uniqueFamilyName(tx as never, deriveFamilyName(p), seeds[0].firstName)
   const famData: Record<string, unknown> = {
     name, address: p.personal.address, suburb: p.personal.suburb, state: p.personal.state, postcode: p.personal.postcode,
-    marriageDate, monthlyDues: dues, notes,
+    marriageDate, monthlyDues: dues, notes: notes || null,
+    // Approval date is the membership start (AUD-9-17).
+    joinedDate: new Date(),
   }
   encryptFamilyFields(famData as never)
   const fam = await tx.family.create({ data: famData as never })
