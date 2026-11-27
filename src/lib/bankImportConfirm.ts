@@ -79,6 +79,8 @@ const RowSchema = z.object({
   bankRef: z.string().min(1).max(200),
   accountId: z.number().int().positive().nullable(),
   skip: z.boolean(),
+  // Reviewer un-skipped a row flagged as a duplicate: "import anyway" (AUD-3-14).
+  importAnyway: z.boolean().optional(),
   paymentAccountId: z.number().int().positive(),
   familyId: z.number().int().positive().optional().nullable(),
   personId: z.number().int().positive().optional().nullable(),
@@ -180,6 +182,28 @@ function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
   }
 }
 
+/** Suffix appended to the stored bankRef of a row the reviewer chose to "import anyway". */
+const IMPORT_ANYWAY_SUFFIX = "#dup"
+
+/**
+ * Give every un-skipped "import anyway" row a distinct stored bankRef (so it can
+ * neither collide with the original it duplicates nor be re-imported twice) and
+ * return the set of those refs. The suffix lives in the last ref segment, so
+ * `contentKeyFromBankRef` still recovers the same content key from them.
+ *
+ * @param rows - confirm rows whose bankRefs are already hashed
+ * @returns the suffixed refs, for which the content-key duplicate check is waived
+ */
+function suffixImportAnywayRefs(rows: ConfirmRow[]): Set<string> {
+  const forced = new Set<string>()
+  for (const r of rows) {
+    if (r.skip || !r.importAnyway) continue
+    r.bankRef = `${r.bankRef}${IMPORT_ANYWAY_SUFFIX}`
+    forced.add(r.bankRef)
+  }
+  return forced
+}
+
 /**
  * Core bank-statement confirm pipeline. `rawBody` is the already-parsed JSON body
  * (`{ rows, accountToken? }`, or a bare row array). Masked bankRefs are restored
@@ -208,6 +232,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     // Fail closed: never insert unhashed refs, never throw past the result contract.
     return { ok: false, status: 500, error: BANKREF_HASH_ERROR, code: "BANKREF_HASH" }
   }
+  const forcedRefs = suffixImportAnywayRefs(rows)
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
 
@@ -462,6 +487,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   const isDuplicate = (bankRef: string, type: "INCOME" | "EXPENSE"): boolean =>
     refVariants(bankRef).some((ref) => {
       if (existingRefs.has(ref)) return true
+      // "Import anyway": the reviewer overrode the lossy content-key match.
+      if (forcedRefs.has(bankRef)) return false
       const key = contentKeyFromBankRef(ref)
       return key !== null && existingContentKeys.has(`${key}|${type}`)
     })

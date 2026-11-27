@@ -5,6 +5,7 @@ import { POST } from "@/app/api/import/bank-statement/route"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { parseAnzStatement } from "@/lib/anzParser"
+import { __resetRateLimit } from "@/lib/rateLimit"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
@@ -37,6 +38,7 @@ const mockRow = {
 describe("POST /api/import/bank-statement", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    __resetRateLimit() // parse route is rate-limited 10/min per user
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     ;(parseAnzStatement as jest.Mock).mockReturnValue({
       rows: [mockRow],
@@ -127,7 +129,7 @@ describe("POST /api/import/bank-statement", () => {
       errors: [],
     })
     ;(prisma.transaction.findMany as jest.Mock).mockResolvedValueOnce([
-      { bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNO_1030000" },
+      { bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNO_1030000", type: "INCOME" },
     ])
     const formData = new FormData()
     formData.append("file", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "test.pdf")
@@ -177,6 +179,46 @@ describe("POST /api/import/bank-statement", () => {
     expect(res.status).toBe(200)
     expect(JSON.stringify(body)).not.toContain("SECRET PAYEE")
     expect(body.errors).toEqual(["1 statement block could not be parsed and was skipped"])
+  })
+
+  test("passes skipped-block date/amount and totals warnings through to the review screen", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    ;(parseAnzStatement as jest.Mock).mockReturnValue({
+      rows: [mockRow],
+      period: { from: "2025-06-20", to: "2025-07-22" },
+      accountNumber: "987654321",
+      errors: ["Could not parse amounts for: X"],
+      skippedBlocks: [{ date: "2025-06-24", amount: "40.00" }],
+      warnings: ["totals differ"],
+    })
+    const formData = new FormData()
+    formData.append("file", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "test.pdf")
+    const res = await POST(new Request("http://localhost", { method: "POST", body: formData, headers: { "content-length": "1024" } }))
+    const body = await res.json()
+    expect(body.skippedBlocks).toEqual([{ date: "2025-06-24", amount: "40.00" }])
+    expect(body.warnings).toEqual(["totals differ"])
+  })
+
+  test("an opposite-direction existing transaction with the same content key is not flagged duplicate", async () => {
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValueOnce([
+      { bankRef: "ANZ_987654321_20250623_60.00_PAYMENTFROMJACK_5100000", type: "EXPENSE" },
+    ])
+    const formData = new FormData()
+    formData.append("file", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "test.pdf")
+    const res = await POST(new Request("http://localhost", { method: "POST", body: formData, headers: { "content-length": "1024" } }))
+    const body = await res.json()
+    expect(body.duplicateBankRefs).toEqual([])
+  })
+
+  test("a same-direction existing transaction with the same content key is flagged duplicate", async () => {
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValueOnce([
+      { bankRef: "ANZ_987654321_20250623_60.00_PAYMENTFROMJACK_5100000", type: "INCOME" },
+    ])
+    const formData = new FormData()
+    formData.append("file", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "test.pdf")
+    const res = await POST(new Request("http://localhost", { method: "POST", body: formData, headers: { "content-length": "1024" } }))
+    const body = await res.json()
+    expect(body.duplicateBankRefs).toHaveLength(1)
   })
 
   test("returns a generic 400 when nothing parses — no raw line detail", async () => {

@@ -273,9 +273,12 @@ export function BankReviewTable({
       <ReviewFilterTabs value={filter} stats={stats} onChange={changeFilter} />
 
       {parseErrors.length > 0 && (
-        <p className="text-sm text-warning">
-          {parseErrors.length} parse warning(s): {parseErrors[0]}
-        </p>
+        <div className="text-sm text-warning">
+          <p>{parseErrors.length} parse warning(s):</p>
+          <ul className="list-disc pl-5">
+            {parseErrors.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        </div>
       )}
 
       <div className="flex items-center gap-4 text-sm">
@@ -364,6 +367,11 @@ export function BankReviewTable({
                   {row.isDuplicate && (
                     <Badge variant="secondary" className="text-xs mt-0.5">
                       DUPLICATE
+                    </Badge>
+                  )}
+                  {row.balanceMismatch && (
+                    <Badge variant="outline" className="text-xs mt-0.5 border-warning text-warning">
+                      BALANCE MISMATCH
                     </Badge>
                   )}
                   {row.isPossibleDuplicate && !row.isDuplicate && (
@@ -646,6 +654,11 @@ export function BankReviewTable({
                   {row.isDuplicate && (
                     <Badge variant="secondary" className="text-xs mt-0.5">
                       DUPLICATE
+                    </Badge>
+                  )}
+                  {row.balanceMismatch && (
+                    <Badge variant="outline" className="text-xs mt-0.5 border-warning text-warning">
+                      BALANCE MISMATCH
                     </Badge>
                   )}
                   {row.isPossibleDuplicate && !row.isDuplicate && (
