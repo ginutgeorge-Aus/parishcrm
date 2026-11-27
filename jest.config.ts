@@ -44,10 +44,12 @@ const config: Config = {
     "!src/**/__mocks__/**", // Jest manual mocks — test infrastructure
     "!src/test-utils/**", // shared test helpers
   ],
-  // Floor set just under the 2026-06-23 baseline (stmts 63.2 / branches 57.8
-  // / funcs 53.6 / lines 64.5). Ratchet upward as coverage improves.
+  // Floor set just under the 2026-11-27 measurement (stmts 87.8 / branches
+  // 82.7 / funcs 83.6 / lines 89.5, taken on Node 22 where 19 PDF/ESM suites
+  // could not load, so CI on Node 26 measures at or above this). Ratchet
+  // upward as coverage improves; never lower.
   coverageThreshold: {
-    global: { statements: 62, branches: 56, functions: 52, lines: 63 },
+    global: { statements: 87, branches: 81, functions: 82, lines: 88 },
   },
   // Recycle a worker once its heap crosses this ceiling. The suite grew large
   // enough to OOM ("Ineffective mark-compacts near heap limit") the plain
