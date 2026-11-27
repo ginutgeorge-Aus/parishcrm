@@ -68,6 +68,29 @@ it("200 + EXPORT_FINANCIAL_REPORT audit for ADMIN", async () => {
   )
 })
 
+it("flags truncation past 10,000 rows with a header and a visible note (AUD-2-08)", async () => {
+  const row = { date: new Date(), description: "d", reference: null, type: "INCOME", amount: "1" }
+  ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue(Array.from({ length: 10001 }, () => row))
+  const res = await GET(req("?account=1&year=2026"))
+  expect(prisma.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 10001 }))
+  expect(res.headers.get("x-export-truncated")).toBe("true")
+  expect(await res.text()).toContain("Export truncated at 10000 rows")
+  expect((withRunningBalance as jest.Mock).mock.calls[0][0]).toHaveLength(10000)
+})
+
+it("no truncation header at exactly 10,000 rows", async () => {
+  const row = { date: new Date(), description: "d", reference: null, type: "INCOME", amount: "1" }
+  ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue(Array.from({ length: 10000 }, () => row))
+  const res = await GET(req("?account=1&year=2026"))
+  expect(res.headers.get("x-export-truncated")).toBeNull()
+})
+
+it("cleans an unsafe account code in the filename (AUD-2-11)", async () => {
+  ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ code: 'A"/é 1', name: "x" })
+  const res = await GET(req("?account=1&year=2026"))
+  expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="general-ledger-a-1-\d{4}-\d{2}-\d{2}\.csv"$/)
+})
+
 it("400 on a non-numeric ?account=, without querying the account", async () => {
   const res = await GET(req("?account=not-a-number"))
   expect(res.status).toBe(400)

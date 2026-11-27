@@ -8,7 +8,7 @@ import { createIssue, getIssue } from "@/lib/github"
 import { issueStateToStatus, MAX_LISTED_REPORTS } from "@/lib/reportStatus"
 import { logAudit } from "@/lib/audit"
 import { rateLimit } from "@/lib/rateLimit"
-import { escapeMarkdown, buildIssueTitle, buildIssueBody } from "@/lib/feedbackIssue"
+import { escapeMarkdown, escapeLine, buildIssueTitle, buildIssueBody } from "@/lib/feedbackIssue"
 import type { ReportType } from "@/lib/generated/prisma/enums"
 import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
@@ -102,14 +102,14 @@ export async function submitFeedback(input: FeedbackInput): Promise<FeedbackResu
   if (data.type === "BUG") {
     summary = data.whatHappened
     lead = [
-      `**What they were doing:** ${escapeMarkdown(data.whatDoing)}`,
-      `**What they expected:** ${escapeMarkdown(data.whatExpected)}`,
-      `**What happened:** ${escapeMarkdown(data.whatHappened)}`,
+      `**What they were doing:** ${escapeLine(data.whatDoing)}`,
+      `**What they expected:** ${escapeLine(data.whatExpected)}`,
+      `**What happened:** ${escapeLine(data.whatHappened)}`,
     ]
   } else {
     summary = data.what
-    lead = [`**Request:** ${escapeMarkdown(data.what)}`]
-    if (data.why) lead.push(`**Why it helps:** ${escapeMarkdown(data.why)}`)
+    lead = [`**Request:** ${escapeLine(data.what)}`]
+    if (data.why) lead.push(`**Why it helps:** ${escapeLine(data.why)}`)
   }
 
   const title = buildIssueTitle(TITLE_PREFIX[type], summary)

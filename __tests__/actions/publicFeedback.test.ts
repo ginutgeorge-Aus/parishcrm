@@ -87,6 +87,13 @@ it("blocks when rate-limited", async () => {
   expect(mockCreateIssue).not.toHaveBeenCalled()
 })
 
+it("blocks when the site-wide daily cap is hit (AUD-2-05)", async () => {
+  mockRateLimit.mockImplementation(async (key: string) => key !== "pubfeedback:global")
+  const r = await submitPublicFeedback(bug)
+  expect(r).toEqual({ error: "Too many reports. Please try again later." })
+  expect(mockCreateIssue).not.toHaveBeenCalled()
+})
+
 it("returns a generic error when createIssue throws, nothing emailed", async () => {
   mockCreateIssue.mockRejectedValue(new Error("gh boom"))
   const r = await submitPublicFeedback(bug)

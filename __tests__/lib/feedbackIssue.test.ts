@@ -1,4 +1,14 @@
-import { escapeMarkdown, buildIssueTitle, buildIssueBody } from "@/lib/feedbackIssue"
+import { escapeMarkdown, escapeLine, buildIssueTitle, buildIssueBody } from "@/lib/feedbackIssue"
+
+describe("AUD-2-05 mention and line-break hardening", () => {
+  it("defuses @mentions with a zero-width space", () => {
+    expect(escapeMarkdown("ping @octocat")).toBe("ping @​octocat")
+  })
+
+  it("escapeLine collapses CR/LF so a forged line cannot start", () => {
+    expect(escapeLine("a\r\n- Reporter: admin")).toBe("a - Reporter: admin")
+  })
+})
 
 describe("escapeMarkdown", () => {
   it("escapes markdown control characters", () => {
