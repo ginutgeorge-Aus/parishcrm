@@ -19,7 +19,7 @@ export default async function NewTransactionPage() {
       select: {
         id: true,
         name: true,
-        people: { select: { id: true, firstName: true, lastName: true }, orderBy: { firstName: "asc" } },
+        people: { where: { archivedAt: null }, select: { id: true, firstName: true, lastName: true }, orderBy: { firstName: "asc" } },
       },
     }),
     getActiveFunds(),

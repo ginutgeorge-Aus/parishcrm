@@ -53,20 +53,23 @@ export const TransactionSchema = z.object({
   confirmDuplicate: z.string().optional().transform((v) => v === "true"),
 })
 
-// Verify client-supplied family/person FKs exist (existence only — no archivedAt
-// filter, so editing a historical transaction whose family was later archived
-// still succeeds). Returns an error message, or null if valid/absent.
+/**
+ * Verify client-supplied family/person FKs exist and are not archived. On edit, pass the party already on
+ * the row as `keep` so a historical transaction whose family or person was later archived stays editable.
+ * Returns an error message, or null if valid/absent.
+ */
 export async function validateParties(
   familyId: number | null,
-  personId: number | null
+  personId: number | null,
+  keep?: { familyId: number | null; personId: number | null }
 ): Promise<string | null> {
   if (familyId !== null) {
-    const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true } })
-    if (!fam) return "Invalid family"
+    const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, archivedAt: true } })
+    if (!fam || (fam.archivedAt && familyId !== keep?.familyId)) return "Invalid family"
   }
   if (personId !== null) {
-    const per = await prisma.person.findUnique({ where: { id: personId }, select: { id: true, familyId: true } })
-    if (!per) return "Invalid person"
+    const per = await prisma.person.findUnique({ where: { id: personId }, select: { id: true, familyId: true, archivedAt: true } })
+    if (!per || (per.archivedAt && personId !== keep?.personId)) return "Invalid person"
     // Guard attribution: a person must belong to the linked family, else the
     // giving ledger credits family A from a member of family B.
     if (familyId !== null && per.familyId !== familyId) {

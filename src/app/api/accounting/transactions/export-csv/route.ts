@@ -16,6 +16,9 @@ import { featureNotFound } from "@/lib/featureFlags"
 
 const ID = /^\d+$/
 
+/** Most rows the export reads from the database (newest first). With a search term this is the scan window, not the match count. */
+const EXPORT_ROW_CAP = 10000
+
 // Tri-state: the parsed id, `null` when the param is present but malformed
 // (caller 400s), or `undefined` when absent (filter omitted). Rejecting a
 // malformed id instead of silently omitting it stops the export broadening to
@@ -44,7 +47,8 @@ function buildTransactionWhere(f: TransactionWhereInput) {
   return {
     date: {
       gte: f.from,
-      ...(f.to && { lte: endOfDayUTC(f.to) }),
+      // No end date: stop at the end of the current financial year, as the list page does.
+      ...(f.to ? { lte: endOfDayUTC(f.to) } : { lt: fyDateRange(currentFYYear()).end }),
     },
     ...(f.accountId !== undefined && { accountId: f.accountId }),
     ...(f.type && { type: f.type as TransactionType }),
@@ -143,7 +147,9 @@ export async function GET(req: NextRequest) {
   const transactions = await prisma.transaction.findMany({
     where,
     orderBy: { date: "desc" },
-    take: q ? undefined : 10000, // cap non-search exports to bound memory; skip when q is set so all text matches are found
+    // Bound memory on every path (a search scans the newest EXPORT_ROW_CAP rows, since descriptions are encrypted and
+    // cannot be filtered in SQL). One extra row tells us whether the cap cut the result short.
+    take: EXPORT_ROW_CAP + 1,
     include: {
       account: { select: { code: true, name: true } },
       family: { select: { name: true } },
@@ -152,7 +158,8 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  let rows = transactions.map((tx) => ({
+  const truncated = transactions.length > EXPORT_ROW_CAP
+  let rows = transactions.slice(0, EXPORT_ROW_CAP).map((tx) => ({
     ...tx,
     // safeDecrypt so one corrupt/legacy ciphertext degrades to a placeholder
     // instead of 500-ing the whole export.
@@ -172,11 +179,14 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  const csv = generateTransactionCsv(rows)
+  let csv = generateTransactionCsv(rows)
+  if (truncated) {
+    csv += `\r\nExport truncated at ${EXPORT_ROW_CAP} rows (newest first). Narrow the date range to export the rest.\r\n`
+  }
 
   const userId = actorId(session)
   const ip = auditIpFromRequest(req)
-  await logAudit(userId, "EXPORT_TRANSACTION_CSV", "Transaction", undefined, { rowCount: rows.length }, ip)
+  await logAudit(userId, "EXPORT_TRANSACTION_CSV", "Transaction", undefined, { rowCount: rows.length, truncated }, ip)
 
   const today = sydneyTodayYMD()
 
@@ -185,6 +195,7 @@ export async function GET(req: NextRequest) {
       "content-type": "text/csv",
       "content-disposition": `attachment; filename="transactions-${today}.csv"`,
       "cache-control": "no-store",
+      ...(truncated && { "x-export-truncated": "true" }),
     },
   })
 }

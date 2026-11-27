@@ -2,6 +2,9 @@
 
 import { auth } from "@/auth"
 import { logger } from "@/lib/logger"
+import { toCents } from "@/lib/formatting"
+import { logAudit } from "@/lib/audit"
+import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { isAdmin, canAccessAccounting } from "@/lib/roleGuard"
@@ -94,6 +97,10 @@ export async function upsertBudgets(
   if (existing.length !== ids.length)
     return { error: "One or more accounts are inactive or no longer exist" }
 
+  // Old amounts, for the audit trail (changed lines only are recorded).
+  const before = await prisma.budget.findMany({ where: { year, accountId: { in: ids } }, select: { accountId: true, amount: true } })
+  const oldByAccount = new Map(before.map((b) => [b.accountId, b.amount?.toString() ?? null]))
+
   try {
     await prisma.$transaction(
       entries.map(({ accountId, amount }) =>
@@ -110,6 +117,11 @@ export async function upsertBudgets(
     logger.error("Budget upsert error", { error: e instanceof Error ? e.message : String(e) })
     return { error: "Failed to save budget" }
   }
+
+  const changes = entries
+    .map((e) => ({ accountId: e.accountId, old: oldByAccount.get(e.accountId) ?? null, new: String(e.amount) }))
+    .filter((c) => c.old === null || toCents(c.old) !== toCents(c.new))
+  await logAudit(actorId(session), "BUDGET_UPDATED", "Budget", undefined, { year, changedCount: changes.length, changes })
 
   revalidatePath("/accounting/budget")
   revalidatePath("/accounting/reports/budget-vs-actual") // report queries budget data

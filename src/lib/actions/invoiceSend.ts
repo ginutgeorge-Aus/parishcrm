@@ -40,6 +40,8 @@ async function allocateFreezeAndSend(id: number, uid: number, settings: InvoiceS
         const row = await tx.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, lines: true, updatedAt: true } })
         if (!row || row.status !== InvoiceStatus.DRAFT) return CHANGED
         const t = computeInvoiceTotals(row.lines as InvoiceLine[], taxInvoice)
+        // A $0.00 invoice could be sent and "paid", posting a $0.00 ledger row.
+        if (t.totalCents <= 0) return { error: "Invoice total must be greater than $0.00 to send." }
         const frozen = {
           status: InvoiceStatus.SENT,
           sentAt: new Date(),

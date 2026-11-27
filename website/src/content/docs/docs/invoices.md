@@ -34,7 +34,7 @@ Whether an invoice is a tax invoice is fixed when it is sent — its GST and tot
 
 From an invoice's page, a draft can be:
 
-- **Send by email** — numbers the invoice, locks it, and emails the PDF to the recipient. If the email fails, the invoice still counts as sent (the email may have got through before the error), so use **Re-send** to try again or deliver it yourself.
+- **Send by email** — (An invoice with a total of $0.00 cannot be sent.) numbers the invoice, locks it, and emails the PDF to the recipient. If the email fails, the invoice still counts as sent (the email may have got through before the error), so use **Re-send** to try again or deliver it yourself.
 - **Mark as sent (I'll deliver it)** — numbers and locks the invoice without emailing, for invoices you print, post or hand over.
 
 A sent invoice can be **re-sent** by email at any time. Sent invoices can't be edited.

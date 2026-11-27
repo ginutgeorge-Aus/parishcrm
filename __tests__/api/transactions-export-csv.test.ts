@@ -25,13 +25,49 @@ const mockFindMany = prisma.transaction.findMany as jest.Mock
 
 beforeEach(() => jest.clearAllMocks())
 
-it("caps findMany at take: 10000", async () => {
+// One extra row is read so the route can tell whether the 10,000 cap cut the result short.
+it("caps findMany at 10,000 rows (+1 probe row)", async () => {
   mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
   mockFindMany.mockResolvedValue([])
   await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv"))
   expect(mockFindMany).toHaveBeenCalledWith(
-    expect.objectContaining({ take: 10000 })
+    expect.objectContaining({ take: 10001 })
   )
+})
+
+it("caps the search path too (AUD-3-11)", async () => {
+  mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+  mockFindMany.mockResolvedValue([])
+  await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?q=offering"))
+  expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 10001 }))
+})
+
+it("bounds an open-ended range to the end of the financial year (AUD-3-11)", async () => {
+  jest.useFakeTimers({ doNotFake: ["queueMicrotask", "setImmediate"] }).setSystemTime(new Date("2026-03-15T12:00:00"))
+  try {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([])
+    await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv"))
+    expect(mockFindMany.mock.calls[0][0].where.date.lt).toEqual(new Date("2026-07-01"))
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
+it("flags a truncated export with a header and a notice line (AUD-3-11)", async () => {
+  mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+  const row = { description: "enc:x", notes: null, reference: null, paymentAccountRel: null }
+  mockFindMany.mockResolvedValue(Array.from({ length: 10001 }, () => row))
+  const res = await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv"))
+  expect(res.headers.get("x-export-truncated")).toBe("true")
+  expect(await res.text()).toContain("Export truncated at 10000 rows")
+})
+
+it("does not flag an export under the cap", async () => {
+  mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+  mockFindMany.mockResolvedValue([])
+  const res = await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv"))
+  expect(res.headers.get("x-export-truncated")).toBeNull()
 })
 
 it("defaults from to FY start (1 July), not calendar year", async () => {

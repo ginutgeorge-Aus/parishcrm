@@ -102,3 +102,11 @@ it("passes footer totals as plain integer-cent sums, not 100× inflated", async 
   expect(totals.incomeBudgetCents).toBe(10000) // footer == account row, NOT 1_000_000
   expect(totals.netBudgetCents).toBe(10000)
 })
+
+// The CSV reuses the on-screen query, so an inactive account that only carries a budget
+// row (no transactions) is included, as on the screen.
+it("queries inactive accounts that only carry a budget for the year", async () => {
+  await GET(req("?year=2025"))
+  const where = (prisma.account.findMany as jest.Mock).mock.calls[0][0].where
+  expect(where.OR).toContainEqual({ budgets: { some: { year: 2025 } } })
+})

@@ -145,7 +145,7 @@ describe("GET /api/accounting/transactions/export-csv", () => {
       "EXPORT_TRANSACTION_CSV",
       "Transaction",
       undefined,
-      { rowCount: 2 },
+      { rowCount: 2, truncated: false },
       undefined
     )
   })

@@ -5,6 +5,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { isAdmin, canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
+import { logAudit } from "@/lib/audit"
+import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { isValidPgId, isP2034 } from "@/lib/validation"
@@ -32,7 +34,8 @@ export async function createFund(_prev: ActionResult, formData: FormData): Promi
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const existing = await prisma.fund.findUnique({ where: { name: parsed.data.name } })
   if (existing) return { error: "A fund with this name already exists" }
-  await prisma.fund.create({ data: parsed.data })
+  const created = await prisma.fund.create({ data: parsed.data })
+  await logAudit(actorId(session), "FUND_CREATED", "Fund", created?.id, { name: parsed.data.name, isActive: parsed.data.isActive })
   revalidateFunds()
   redirect("/accounting/settings/funds")
 }
@@ -59,6 +62,10 @@ export async function updateFund(
   const dup = await prisma.fund.findUnique({ where: { name: parsed.data.name } })
   if (dup && dup.id !== id) return { error: "A fund with this name already exists" }
   await prisma.fund.update({ where: { id }, data: parsed.data })
+  await logAudit(actorId(session), "FUND_UPDATED", "Fund", id, {
+    before: { name: existing.name, isActive: existing.isActive, sortOrder: existing.sortOrder },
+    after: { name: parsed.data.name, isActive: parsed.data.isActive, sortOrder: parsed.data.sortOrder },
+  })
   revalidateFunds()
   redirect("/accounting/settings/funds")
 }
@@ -103,6 +110,7 @@ export async function deleteFund(id: number): Promise<ActionResult> {
     throw e
   }
   if (result?.error) return result
+  await logAudit(actorId(session), "FUND_DELETED", "Fund", id, { name: fund.name })
   revalidateFunds()
 }
 

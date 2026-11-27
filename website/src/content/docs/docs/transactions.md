@@ -9,6 +9,8 @@ The transaction ledger (`/accounting/transactions`) is the single source of trut
 
 **List (`/accounting/transactions`)** — visible to anyone with `canViewAccounting` (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN). Filterable by date range (quick presets, a **Month** picker listing every month that has transactions, or custom from/to dates), category (account), family, payment account, fund, reconciled status, and free-text search; paginated with income/expense/net totals for the current filter. "Export CSV" downloads the filtered list. Viewing the list, and exporting it, are both written to the audit trail. Editing a transaction from the list keeps your filters — Save or Cancel returns you to the same filtered page.
 
+The CSV export reads at most 10,000 rows, newest first, and with a search term it searches only those newest 10,000. If the cap cuts the result short, the file ends with an "Export truncated" line and the download carries an `x-export-truncated` header — narrow the date range to get the rest. With no end date, the export stops at the end of the current financial year, as the list does. Archived families and people can no longer be linked to a new transaction (manual entry or bank import); a transaction that already points at one stays editable.
+
 **New transaction (`/accounting/transactions/new`)** — ADMIN/PASTOR only (`canAccessAccounting`). Fields:
 - Date, amount, type (income/expense), category (account — filtered to the matching type)
 - Payment account (which bank account it posted to or from — cash accounts are not selectable here; petty cash entries are created from the [Petty Cash](/parishcrm/docs/petty-cash/) pages instead)

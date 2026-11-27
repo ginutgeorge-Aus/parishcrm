@@ -6,6 +6,8 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
+import { logAudit } from "@/lib/audit"
+import { actorId } from "@/lib/actor"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { isValidPgId, isP2002, isP2003, isP2034 } from "@/lib/validation"
 import { XFER_CODE } from "@/lib/xferAccount"
@@ -73,7 +75,8 @@ export async function createAccount(
   // @unique code both pass it, so catch the P2002 and surface the same friendly
   // error instead of a raw 500 (matches createSession/ensureWeeklySession).
   try {
-    await prisma.account.create({ data: { ...parsed.data, code, isActive: true } })
+    const created = await prisma.account.create({ data: { ...parsed.data, code, isActive: true } })
+    await logAudit(actorId(session), "ACCOUNT_CREATED", "Account", created?.id, { code, type: parsed.data.type, groupId: parsed.data.groupId })
   } catch (e) {
     if (isP2002(e)) return { error: "Account code already exists" }
     throw e
@@ -152,6 +155,10 @@ export async function updateAccount(
   }
   if (guardError) return { error: guardError }
 
+  await logAudit(actorId(session), "ACCOUNT_UPDATED", "Account", id, {
+    before: { code: target.code, name: target.name, type: target.type, isActive: target.isActive, groupId: target.groupId },
+    after: { code: parsed.data.code, name: parsed.data.name, type: parsed.data.type, isActive: parsed.data.isActive, groupId: parsed.data.groupId },
+  })
   revalidatePath("/accounting/accounts")
   redirect("/accounting/accounts")
 }
@@ -201,5 +208,6 @@ export async function deleteAccount(id: number): Promise<ActionResult> {
     throw e
   }
   if (blocked) return blocked
+  await logAudit(actorId(session), "ACCOUNT_DELETED", "Account", id)
   revalidatePath("/accounting/accounts")
 }

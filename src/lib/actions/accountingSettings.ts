@@ -8,8 +8,8 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
-import { ACCOUNTING_LOCK_DATE_KEY, holdAccountingLock } from "@/lib/accountingLock"
-import { MONEY_DECIMAL_RE, isRealCalendarDate } from "@/lib/validation"
+import { ACCOUNTING_LOCK_DATE_KEY, getAccountingLockDate, holdAccountingLock } from "@/lib/accountingLock"
+import { SIGNED_MONEY_DECIMAL_RE, isOversizeMoney, isRealCalendarDate } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
@@ -24,8 +24,10 @@ const OpeningBalanceSchema = z.object({
     // Keep the validated string and pass it straight to the Decimal column —
     // parseFloat would round-trip through binary float. The opening balance
     // anchors every reconciliation/balance-sheet calc, so precision loss here
-    // cascades through all downstream reports. Negative rejected by the regex.
-    .regex(MONEY_DECIMAL_RE, "Amount must be 0 or greater"),
+    // cascades through all downstream reports. A leading "-" is allowed (overdrawn account).
+    .regex(SIGNED_MONEY_DECIMAL_RE, "Amount must be a dollar amount with up to 2 decimals")
+    // More than 8 integer digits overflows the Decimal(10,2) column.
+    .refine((v) => !isOversizeMoney(v), "Amount too large (max 99,999,999.99)"),
   asOfDate: z
     .string()
     .min(1, "As-of date is required")
@@ -59,15 +61,29 @@ export async function upsertOpeningBalance(
   const account = await prisma.paymentAccount.findUnique({ where: { id: paymentAccountId } })
   if (!account) return { error: "Account not found" }
 
+  // Changing an opening balance dated inside a locked period shifts every closed-period balance.
+  const lockDate = await getAccountingLockDate()
+  if (lockDate) {
+    const existing = await prisma.accountOpeningBalance.findUnique({ where: { paymentAccountId }, select: { asOfDate: true } })
+    if (asOfDate <= lockDate || (existing && existing.asOfDate <= lockDate)) {
+      return { error: "Opening balance date is in a locked period. Clear or move the lock date first." }
+    }
+  }
+
   const uid = actorId(session)
   try {
     await prisma.$transaction(async (tx) => {
+      const before = await tx.accountOpeningBalance.findUnique({ where: { paymentAccountId }, select: { amount: true, asOfDate: true } })
       await tx.accountOpeningBalance.upsert({
         where: { paymentAccountId },
         create: { paymentAccountId, amount, asOfDate },
         update: { amount, asOfDate },
       })
-      await logAuditGuardedTx(tx, uid, "SETTING_UPDATED", "AccountOpeningBalance", undefined, { paymentAccountId })
+      await logAuditGuardedTx(tx, uid, "SETTING_UPDATED", "AccountOpeningBalance", undefined, {
+        paymentAccountId,
+        before: before ? { amount: before.amount.toString(), asOfDate: before.asOfDate.toISOString().slice(0, 10) } : null,
+        after: { amount, asOfDate: asOfDate.toISOString().slice(0, 10) },
+      })
     })
   } catch (e) {
     return auditTxErrorResult(e, "upsertOpeningBalance", "Failed to save. Try again.") ?? { error: "Failed to save" }

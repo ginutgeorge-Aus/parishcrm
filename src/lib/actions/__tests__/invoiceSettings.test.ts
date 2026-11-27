@@ -40,9 +40,16 @@ describe("updateInvoiceSettings", () => {
     expect(await updateInvoiceSettings({ gstRegistered: true, paymentDetails: "" })).toEqual({ error: "Unauthorized" })
   })
   it("upserts both keys and audits", async () => {
+    ;(prisma.appSetting.findMany as jest.Mock).mockResolvedValue([])
     expect(await updateInvoiceSettings({ gstRegistered: true, paymentDetails: "BSB 000-000" })).toEqual({ ok: true })
     expect(prisma.appSetting.upsert).toHaveBeenCalledTimes(2)
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_SETTINGS_UPDATED", "AppSetting", undefined, { gstRegistered: true })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_SETTINGS_UPDATED", "AppSetting", undefined, expect.objectContaining({
+      gstRegistered: true,
+      previousGstRegistered: null,
+      paymentDetailsChanged: true,
+    }))
+    // Bank details themselves never reach the audit row.
+    expect(JSON.stringify((logAuditTx as jest.Mock).mock.calls[0])).not.toContain("BSB 000-000")
   })
   it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))

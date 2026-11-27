@@ -6,12 +6,14 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     accountOpeningBalance: {
       upsert: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue(null),
     },
     // Client-supplied FK existence check, ahead of the upsert.
     paymentAccount: {
       findUnique: jest.fn().mockResolvedValue({ id: 1 }),
     },
     appSetting: {
+      findUnique: jest.fn().mockResolvedValue(null),
       upsert: jest.fn(),
     },
     // Advisory lock (holdAccountingLock) runs on tx.
@@ -75,10 +77,25 @@ describe("upsertOpeningBalance", () => {
     expect(mockUpsert).not.toHaveBeenCalled()
   })
 
-  it("rejects negative amount", async () => {
+  it("accepts a negative amount (overdrawn account)", async () => {
     mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const result = await upsertOpeningBalance(undefined, fd({ ...validInput, amount: "-100" }))
-    expect(result).toEqual({ error: "Amount must be 0 or greater" })
+    expect(result).toEqual({ success: "Saved" })
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ amount: "-100" }) }))
+  })
+
+  it("rejects an amount with more than 8 integer digits", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    const result = await upsertOpeningBalance(undefined, fd({ ...validInput, amount: "123456789.00" }))
+    expect(result).toEqual({ error: expect.any(String) })
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+
+  it("blocks a date on or before the lock date", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    ;(prisma.appSetting.findUnique as jest.Mock).mockResolvedValueOnce({ value: "2026-01-01" })
+    const result = await upsertOpeningBalance(undefined, fd(validInput))
+    expect(result).toEqual({ error: expect.stringContaining("locked period") })
     expect(mockUpsert).not.toHaveBeenCalled()
   })
 
@@ -124,7 +141,7 @@ describe("upsertOpeningBalance", () => {
   it("rejects an amount with more than 2 decimal places", async () => {
     mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const result = await upsertOpeningBalance(undefined, fd({ ...validInput, amount: "100.123" }))
-    expect(result).toEqual({ error: "Amount must be 0 or greater" })
+    expect(result).toEqual({ error: "Amount must be a dollar amount with up to 2 decimals" })
     expect(mockUpsert).not.toHaveBeenCalled()
   })
 

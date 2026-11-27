@@ -16,7 +16,7 @@ import { assertUnlocked, getAccountingLockDate, isDateLocked } from "@/lib/accou
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem, legsByDepositRef } from "@/lib/pettyCashAdoption"
 import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, WINDOW_GUARD_TAG } from "@/lib/xferRefs"
-import { MONEY_DECIMAL_RE, isP2002, isP2034, isValidPgId, parseRouteId } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isOversizeMoney, isP2002, isP2034, isValidPgId, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
@@ -247,6 +247,7 @@ const TransferSchema = z.object({
     // mirrored to the Transaction ledger; silent truncation would corrupt
     // reconciliation (matches openingBalance).
     .refine((v) => MONEY_DECIMAL_RE.test(v), "Amount: max 2 decimal places")
+    .refine((v) => !isOversizeMoney(v), "Amount too large (max 99,999,999.99)")
     // Pass the validated string straight to Prisma's Decimal column — never
     // parseFloat into a JS number, which can lose precision on large amounts
     // before storage (matches transaction.ts policy).

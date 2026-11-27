@@ -279,7 +279,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     )
   )
   if (familyIds.length > 0) {
-    const valid = await prisma.family.findMany({ where: { id: { in: familyIds } }, select: { id: true } })
+    const valid = await prisma.family.findMany({ where: { id: { in: familyIds }, archivedAt: null }, select: { id: true } })
     const validSet = new Set(valid.map((f) => f.id))
     if (familyIds.some((id) => !validSet.has(id))) {
       return { ok: false, status: 400, error: "Invalid family reference", code: "FAMILY_INVALID" }
@@ -291,7 +291,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   const personFamily = new Map<number, number>()
   if (personIds.length > 0) {
     const valid = await prisma.person.findMany({
-      where: { id: { in: personIds } },
+      where: { id: { in: personIds }, archivedAt: null },
       select: { id: true, familyId: true },
     })
     const validSet = new Set(valid.map((p) => p.id))

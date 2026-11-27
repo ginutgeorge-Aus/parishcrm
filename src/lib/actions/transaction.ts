@@ -243,7 +243,7 @@ export async function updateTransaction(
   const existing = await prisma.transaction.findUnique({
     where: { id },
     select: {
-      id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true,
+      id: true, date: true, reconciled: true, familyId: true, personId: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true,
       invoiceId: true, amount: true, type: true, accountId: true, fundId: true, bankRef: true,
     },
   })
@@ -296,7 +296,7 @@ export async function updateTransaction(
   // must not be able to flip it via this path (see createTransaction above);
   // the row is guaranteed unreconciled here anyway (blocked above if reconciled).
   const { familyId, personId, confirmDuplicate: _confirmDuplicate, reconciled: _reconciled, ...rest } = parsed.data
-  const partyError = await validateParties(familyId, personId)
+  const partyError = await validateParties(familyId, personId, { familyId: existing.familyId, personId: existing.personId })
   if (partyError) return { error: partyError }
   const isGiving = !!familyId
 
@@ -383,7 +383,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
-    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true },
+    select: { id: true, date: true, reconciled: true, familyId: true, personId: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true },
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)

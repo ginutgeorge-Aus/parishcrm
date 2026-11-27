@@ -138,6 +138,15 @@ describe("confirmBankImport — createMany insert count", () => {
 })
 
 describe("confirmBankImport — member link backfill", () => {
+  it("looks up only non-archived families and people (AUD-3-09)", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockFamilyFindMany.mockResolvedValue([{ id: 42 }])
+    mockPersonFindMany.mockResolvedValue([{ id: 7, familyId: 42 }])
+    await confirmBankImport([{ ...baseRow, accountId: 5, familyId: 42, personId: 7 }])
+    expect(mockFamilyFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: [42] }, archivedAt: null } }))
+    expect(mockPersonFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: [7] }, archivedAt: null } }))
+  })
+
   it("fills familyId from the person's own family when a member is picked without one", async () => {
     mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
     mockFamilyFindMany.mockResolvedValue([{ id: 42 }])

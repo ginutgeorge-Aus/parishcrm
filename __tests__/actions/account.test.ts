@@ -2,6 +2,7 @@
 
 jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(true) }))
 jest.mock("@/lib/prisma", () => {
   const account = {
     findUnique: jest.fn(),
@@ -38,6 +39,7 @@ jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
+import { logAudit } from "@/lib/audit"
 import { redirect } from "next/navigation"
 import { createAccount, updateAccount, deleteAccount } from "@/lib/actions/account"
 
@@ -120,6 +122,16 @@ describe("createAccount", () => {
     expect(mockCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ code: "4019" }),
     })
+  })
+
+  it("writes an ACCOUNT_CREATED audit row (AUD-3-10)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindMany.mockResolvedValue([])
+    mockFindUnique.mockResolvedValue(null)
+    mockGroupFind.mockResolvedValue({ id: 1, type: "EXPENSE" })
+    mockCreate.mockResolvedValue({ id: 77 })
+    await createAccount(undefined, fd({ code: "", name: "Test", type: "EXPENSE", groupId: "1" }))
+    expect(logAudit).toHaveBeenCalledWith(999, "ACCOUNT_CREATED", "Account", 77, { code: "5001", type: "EXPENSE", groupId: 1 })
   })
 
   it("auto-generates 5001 for first EXPENSE account when code left blank", async () => {
