@@ -60,6 +60,17 @@ own home page. See [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions
 page-level and action-level permissions are enforced deeper in the app (layouts, Server
 Actions), not in middleware.
 
+**Server Action guard.** Any exported Server Action can be called directly by a browser, with
+arguments of any shape: the TypeScript types in the source are not checked at runtime. New
+Server Actions therefore run through one wrapper, `guardedAction` (`src/lib/guardedAction.ts`).
+In a fixed order it checks the live-demo block (when asked), the signed-in user's role, and the
+feature switch, and then checks every argument against a schema. Only after that does the
+action's own code run, and only with the checked values. A lint rule
+(`crm/server-action-wrapper`, run by `npm run lint` in CI's static check) fails for any new action
+in `src/lib/actions/` that skips the wrapper, or that passes the wrapper without checking every
+argument. Actions written before the wrapper existed are on a list that may only shrink (CI fails a
+change that adds an entry), and they keep their own hand-written checks until they are converted.
+
 **Security headers**, applied to every dynamic response (`src/lib/csp.ts`,
 `SECURITY_HEADERS`):
 

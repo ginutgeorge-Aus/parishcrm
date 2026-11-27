@@ -208,3 +208,37 @@ test("updateFund records before and after (AUD-3-10)", async () => {
     after: { name: "Hall", isActive: true, sortOrder: 3 },
   })
 })
+
+// guardedAction migration (audit idea 83): client-controlled argument shapes never reach Prisma.
+describe("argument shapes (guardedAction)", () => {
+  beforeEach(() => mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } }))
+
+  test("deleteFund rejects an object id before any lookup", async () => {
+    expect(await deleteFund({ gt: 0 } as unknown as number)).toEqual({ error: "Invalid ID" })
+    expect(prisma.fund.findUnique).not.toHaveBeenCalled()
+    expect(mockPrismaTransaction).not.toHaveBeenCalled()
+  })
+
+  test("updateFund rejects a non-FormData body", async () => {
+    const r = await updateFund(2, undefined, { name: "Hall" } as unknown as FormData)
+    expect(r).toEqual({ error: "Invalid form data" })
+    expect(prisma.fund.update).not.toHaveBeenCalled()
+  })
+
+  test("createFund still refuses a non-admin before reading the form", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "2", role: "OFFICE_ADMIN" } })
+    expect(await createFund(undefined, "junk" as unknown as FormData)).toEqual({ error: "Unauthorized" })
+  })
+
+  test("validateFund is false for an object id or unknown option keys, with no query", async () => {
+    expect(await validateFund({ not: 0 } as unknown as number)).toBe(false)
+    expect(await validateFund(5, { allowInactive: true, where: {} } as unknown as { allowInactive: boolean })).toBe(false)
+    expect(prisma.fund.findUnique).not.toHaveBeenCalled()
+  })
+
+  test("validateFund refuses a non-accounting role with false", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "3", role: "VIEWER" } })
+    expect(await validateFund(5)).toBe(false)
+    expect(prisma.fund.findUnique).not.toHaveBeenCalled()
+  })
+})
