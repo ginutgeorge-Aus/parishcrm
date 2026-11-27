@@ -116,6 +116,7 @@ beforeEach(() => {
         // from the same findUnique mock the test primed.
         $queryRaw: jest.fn(async (sql: TemplateStringsArray, ...params: unknown[]) => {
           // archiveFamily's member lock is observed on the shared prisma.$queryRaw mock.
+          // nosemgrep: crm-no-raw-sql — jest mock forwarding the observed lock call, not DB access
           if (!sql.join("?").includes('FROM "Family"')) return (prisma.$queryRaw as jest.Mock)(sql, ...params)
           const row = await (prisma.family.findUnique as jest.Mock)()
           return row ? [{ archivedAt: row.archivedAt ?? null, name: row.name ?? "Smith Family" }] : []

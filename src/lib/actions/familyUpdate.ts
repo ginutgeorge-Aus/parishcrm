@@ -95,10 +95,11 @@ export async function sendFamilyUpdateInvite(
     return { error: "The invite email could not be sent. The previous link (if any) is still valid. Please try again." }
   }
 
-  // One live invite per family: supersede any other outstanding SENT invites so an old
-  // forwarded link can't coexist with the new one.
+  // One live invite per family: supersede only OLDER outstanding SENT invites so an old
+  // forwarded link can't coexist with the new one, and overlapping resends can't revoke
+  // each other (the newest invite always stays SENT).
   await prisma.familyUpdateInvite.updateMany({
-    where: { familyId, status: "SENT", id: { not: created.id } }, data: { status: "REVOKED" },
+    where: { familyId, status: "SENT", id: { lt: created.id } }, data: { status: "REVOKED" },
   })
 
   await logAudit(actorId(session), "FAMILY_INVITE_SENT", "Family", familyId)

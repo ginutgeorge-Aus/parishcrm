@@ -73,7 +73,7 @@ describe("sendFamilyUpdateInvite", () => {
     ;(prisma.familyUpdateInvite.create as jest.Mock).mockResolvedValue({ id: 7 })
     const res = await sendFamilyUpdateInvite(1, "f@x.com")
     expect(prisma.familyUpdateInvite.updateMany).toHaveBeenCalledWith({
-      where: { familyId: 1, status: "SENT", id: { not: 7 } }, data: { status: "REVOKED" },
+      where: { familyId: 1, status: "SENT", id: { lt: 7 } }, data: { status: "REVOKED" },
     })
     const createArg = (prisma.familyUpdateInvite.create as jest.Mock).mock.calls[0][0]
     expect(createArg.data.email).toBe("enc:f@x.com")
