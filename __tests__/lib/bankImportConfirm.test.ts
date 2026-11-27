@@ -28,6 +28,8 @@ jest.mock("@/lib/prisma", () => ({
       findMany: jest.fn().mockResolvedValue([{ id: 1, name: "ANZ Church", kind: "BANK", isActive: true }]),
     },
     transaction: { findMany: jest.fn(), findFirst: jest.fn(), createMany: jest.fn(), create: jest.fn() },
+    // update links a matched session transfer to its deposit (AUD-3-12).
+    pettyCashTransfer: { update: jest.fn() },
     $transaction: jest.fn(),
   },
 }))
@@ -352,6 +354,78 @@ describe("confirmBankImport — session-transfer mirror lookup", () => {
     const call = mockTxFindMany.mock.calls.find((c) => c[0]?.where?.pettyCashTransferId)
     expect(call?.[0].where.OR).toEqual([{ bankRef: null }, { NOT: { bankRef: { startsWith: "XFER_OUT_" } } }])
     expect(call?.[0].where.NOT).toBeUndefined()
+  })
+})
+
+describe("confirmBankImport — transfer match persists across imports (AUD-3-12)", () => {
+  const pcRow = { ...baseRow, accountId: null, fromPettyCash: true, paymentAccountId: 1 }
+  // One session transfer (id 42) with its CASH mirror row (id 50). `linked`
+  // stands in for PettyCashTransfer.linkedDepositBankRef in the DB.
+  let linked: string | null
+
+  /** Stateful mirror read: honours the linkedDepositBankRef filter like Postgres would. */
+  const mirrorRead = async (args: {
+    where?: {
+      pettyCashTransferId?: unknown
+      pettyCashTransfer?: { is: { OR: [{ linkedDepositBankRef: null }, { linkedDepositBankRef: { in: string[] } }] } }
+    }
+  }) => {
+    if (!args?.where?.pettyCashTransferId) return []
+    const allowed = args.where.pettyCashTransfer?.is.OR[1].linkedDepositBankRef.in ?? []
+    if (linked !== null && !allowed.includes(linked)) return []
+    return [{ id: 50, amount: "100.00", date: new Date("2026-05-10"), pettyCashTransferId: 42 }]
+  }
+
+  beforeEach(() => {
+    linked = null
+    mockGetXferAccountId.mockResolvedValue(99)
+    mockTxFindMany.mockImplementation(mirrorRead)
+    ;(prisma.pettyCashTransfer.update as jest.Mock).mockImplementation(
+      async (args: { data: { linkedDepositBankRef: string } }) => {
+        linked = args.data.linkedDepositBankRef
+        return {}
+      }
+    )
+  })
+
+  it("links the matched transfer to the deposit's bankRef inside the pair transaction", async () => {
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1 }))
+    const depositRef = mockCreate.mock.calls[0][0].data.bankRef
+    expect(prisma.pettyCashTransfer.update).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: { linkedDepositBankRef: depositRef },
+    })
+    // Deposit only — the transfer already booked the cash-out.
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it("a later import's different same-amount deposit cannot re-match a linked transfer", async () => {
+    await confirmBankImport([pcRow])
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+    mockCreate.mockClear()
+    ;(prisma.pettyCashTransfer.update as jest.Mock).mockClear()
+
+    // Second import (fresh call, so no in-memory consumed set): new deposit,
+    // same amount, 3 days later — inside the ±7-day window.
+    const result = await confirmBankImport([{ ...pcRow, bankRef: "REF-2", date: "2026-05-13" }])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1 }))
+    // Deposit AND its own XFER_OUT cash-out: the linked transfer is not reused.
+    expect(mockCreate).toHaveBeenCalledTimes(2)
+    expect(mockCreate.mock.calls[1][0].data).toEqual(
+      expect.objectContaining({ type: "EXPENSE", bankRef: expect.stringMatching(/^XFER_OUT_/) })
+    )
+    expect(prisma.pettyCashTransfer.update).not.toHaveBeenCalled()
+  })
+
+  it("re-importing the same deposit (row deleted since) re-matches its own linked transfer", async () => {
+    await confirmBankImport([pcRow])
+    mockCreate.mockClear()
+    // Same bankRef again; bankRef dedup misses because the deposit row was deleted.
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1 }))
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+    expect(mockCreate.mock.calls[0][0].data.type).toBe("INCOME")
   })
 })
 

@@ -473,13 +473,23 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   // failure = skip the duplicate cash-out (the transfer already booked it),
   // never a silent double-reduction. Read per row INSIDE the pair's write
   // transaction (see the petty-cash branch below), not from an earlier
-  // snapshot (#493).
+  // snapshot (#493). AUD-3-12: a match is also persisted on the transfer
+  // (`linkedDepositBankRef`), so a later import's different deposit can't
+  // claim the same transfer again.
   const consumedMirrorIds = new Set<number>()
-  /** Session-transfer mirrors within ±XFER_WINDOW_MS of `rowTime`, read through `tx`. */
-  const readTransferMirrors = (tx: Prisma.TransactionClient, rowTime: number) =>
+  /**
+   * Session-transfer mirrors within ±XFER_WINDOW_MS of `rowTime`, read through `tx`.
+   * Skips mirrors whose transfer is already linked to another deposit; one linked
+   * to `rowRefs` (this deposit's bankRef forms) stays eligible, so re-importing a
+   * deleted deposit re-matches its own transfer instead of booking a second cash-out.
+   */
+  const readTransferMirrors = (tx: Prisma.TransactionClient, rowTime: number, rowRefs: string[]) =>
     tx.transaction.findMany({
       where: {
         pettyCashTransferId: { not: null },
+        pettyCashTransfer: {
+          is: { OR: [{ linkedDepositBankRef: null }, { linkedDepositBankRef: { in: rowRefs } }] },
+        },
         // Exclude XFER_OUT legs adopted by a picked session transfer — they are
         // another deposit's cash-out, not an independent session-transfer mirror.
         // SQL `NOT startsWith` drops NULL bankRef rows, so allow them explicitly.
@@ -637,22 +647,26 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         "the selected bank account"
       // If a session transfer already booked this deposit's cash-out, skip the
       // XFER_OUT leg so petty cash isn't reduced twice.
-      // ACCEPTED RISK: matching on cents + ±7-day window can coincidentally
-      // pair an unrelated session transfer of the same amount, suppressing a legit
-      // cash-out leg → petty cash overstated by that amount. Tolerated at this
-      // church's volume (same-cent transfers within a week are rare); the correct
-      // fix is deposit-slip/reference correlation or an operator-confirm step, out
-      // of scope here. Revisit if amount collisions become common.
+      // The match is persisted on the transfer (AUD-3-12), so each transfer is
+      // claimed by at most one deposit across all imports, not just this one.
+      // ACCEPTED RISK: matching on cents + ±7-day window can still pair the
+      // first deposit with an unrelated, not-yet-claimed session transfer of the
+      // same amount, suppressing a legit cash-out leg → petty cash overstated by
+      // that amount. Tolerated at this church's volume (same-cent transfers
+      // within a week are rare); the correct fix is deposit-slip/reference
+      // correlation or an operator-confirm step, out of scope here.
       const rowCents = toCents(row.amount)
       const rowTime = new Date(row.date).getTime()
       const legRefs = refVariants(row.bankRef).map((ref) => xferOutRef(ref))
       const legKnown = legRefs.some((ref) => existingRefs.has(ref))
+      const rowRefs = refVariants(row.bankRef)
       /**
        * Writes the deposit and (unless a session transfer already booked it) its
-       * XFER_OUT cash-out leg. Returns the consumed mirror id, if any.
+       * XFER_OUT cash-out leg. A matched transfer is linked to this deposit's
+       * bankRef in the same transaction (AUD-3-12). Returns the consumed mirror id, if any.
        */
       const writePair = async (tx: Prisma.TransactionClient): Promise<number | null> => {
-        const mirrorMatch = (await readTransferMirrors(tx, rowTime)).find(
+        const mirrorMatch = (await readTransferMirrors(tx, rowTime, rowRefs)).find(
           (m) =>
             m.pettyCashTransferId != null &&
             m.amount != null &&
@@ -679,6 +693,13 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
             notes: row.details ? encrypt(row.details) : null,
           },
         })
+        if (mirrorMatch?.pettyCashTransferId != null) {
+          // Same hashed bankRef the deposit row stores — no new PII at rest.
+          await tx.pettyCashTransfer.update({
+            where: { id: mirrorMatch.pettyCashTransferId },
+            data: { linkedDepositBankRef: row.bankRef },
+          })
+        }
         // Re-check the XFER_OUT leg through tx: the pre-read set above is from
         // before this transaction, so a retry after a conflict (or a concurrent
         // import of the same line) must not insert a second leg.
