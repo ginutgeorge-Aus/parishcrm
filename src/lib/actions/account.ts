@@ -130,12 +130,15 @@ export async function updateAccount(
   // reads what the other writes (this one reads invoices and writes the account; the invoice write reads the account
   // and inserts an invoice), so Postgres aborts one with P2034. The retype loses safely ("invoices use it").
   let guardError: string | null
+  // Prior values for the audit row, captured from the in-transaction read (not the stale pre-tx `target`).
+  let auditBefore: { code: string; name: string; type: string; isActive: boolean; groupId: number | null } | null = null
   try {
     guardError = await prisma.$transaction(async (tx) => {
-      // Re-read the type inside the transaction: `target` was read before it, so a concurrent retype in between
-      // would make the stale comparison skip the guards below.
-      const current = await tx.account.findUnique({ where: { id }, select: { type: true } })
+      // Re-read the account inside the transaction: `target` was read before it, so a concurrent edit in between
+      // would make the stale comparison skip the guards below and the audit "before" values wrong.
+      const current = await tx.account.findUnique({ where: { id }, select: { code: true, name: true, type: true, isActive: true, groupId: true } })
       if (!current) return "Account not found"
+      auditBefore = current
       if (parsed.data.type !== current.type) {
         const txCount = await tx.transaction.count({ where: { accountId: id } })
         if (txCount > 0) return "Cannot change account type while transactions exist"
@@ -156,7 +159,7 @@ export async function updateAccount(
   if (guardError) return { error: guardError }
 
   await logAudit(actorId(session), "ACCOUNT_UPDATED", "Account", id, {
-    before: { code: target.code, name: target.name, type: target.type, isActive: target.isActive, groupId: target.groupId },
+    before: auditBefore ?? { code: target.code, name: target.name, type: target.type, isActive: target.isActive, groupId: target.groupId },
     after: { code: parsed.data.code, name: parsed.data.name, type: parsed.data.type, isActive: parsed.data.isActive, groupId: parsed.data.groupId },
   })
   revalidatePath("/accounting/accounts")

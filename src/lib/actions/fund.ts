@@ -61,9 +61,14 @@ export async function updateFund(
     return { error: "The General fund cannot be renamed." }
   const dup = await prisma.fund.findUnique({ where: { name: parsed.data.name } })
   if (dup && dup.id !== id) return { error: "A fund with this name already exists" }
-  await prisma.fund.update({ where: { id }, data: parsed.data })
+  // Read the prior values in the same transaction as the write so the audit "before" can't be stale.
+  const before = await prisma.$transaction(async (tx) => {
+    const current = await tx.fund.findUnique({ where: { id }, select: { name: true, isActive: true, sortOrder: true } })
+    await tx.fund.update({ where: { id }, data: parsed.data })
+    return current
+  })
   await logAudit(actorId(session), "FUND_UPDATED", "Fund", id, {
-    before: { name: existing.name, isActive: existing.isActive, sortOrder: existing.sortOrder },
+    before: before ?? { name: existing.name, isActive: existing.isActive, sortOrder: existing.sortOrder },
     after: { name: parsed.data.name, isActive: parsed.data.isActive, sortOrder: parsed.data.sortOrder },
   })
   revalidateFunds()

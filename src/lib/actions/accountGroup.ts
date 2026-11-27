@@ -85,9 +85,14 @@ export async function updateAccountGroup(
   // account assigned between the check and the write can't slip past the guard.
   // Same TOCTOU-on-@unique catch as create — the concurrent-rename P2002.
   let guardError: string | null
+  // Prior values for the audit row, read inside the transaction (the pre-tx `existing` may be stale).
+  let auditBefore: { name: string; type: string; sortOrder: number } | null = null
   try {
     guardError = await prisma.$transaction(async (tx) => {
-      if (parsed.data.type !== existing.type) {
+      const current = await tx.accountGroup.findUnique({ where: { id }, select: { name: true, type: true, sortOrder: true } })
+      if (!current) return "Account group not found"
+      auditBefore = current
+      if (parsed.data.type !== current.type) {
         const accountCount = await tx.account.count({ where: { groupId: id } })
         if (accountCount > 0) return "Cannot change group type while accounts are assigned to it"
       }
@@ -100,7 +105,7 @@ export async function updateAccountGroup(
   }
   if (guardError) return { error: guardError }
   await logAudit(actorId(session), "ACCOUNT_GROUP_UPDATED", "AccountGroup", id, {
-    before: { name: existing.name, type: existing.type, sortOrder: existing.sortOrder },
+    before: auditBefore ?? { name: existing.name, type: existing.type, sortOrder: existing.sortOrder },
     after: { name: parsed.data.name, type: parsed.data.type, sortOrder: parsed.data.sortOrder },
   })
   revalidatePath("/accounting/accounts/groups")
