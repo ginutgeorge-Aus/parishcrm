@@ -59,8 +59,9 @@ function parseFormId(s: string): number | null {
   return n > 0 && n <= 2147483647 ? n : null
 }
 
-/** Optional positive int4 id from a form string: blank -> null. */
-const optionalId = z
+/** Optional positive int4 id from a form string: blank -> null; `label` names the field in the error. */
+const optionalId = (label: string) =>
+  z
   .string()
   .optional()
   .transform((v, ctx) => {
@@ -68,7 +69,7 @@ const optionalId = z
     if (!s) return null
     const n = parseFormId(s)
     if (n === null) {
-      ctx.addIssue({ code: "custom", message: "Invalid person." })
+      ctx.addIssue({ code: "custom", message: `Invalid ${label}.` })
       return z.NEVER
     }
     return n
@@ -89,7 +90,7 @@ export const SacramentFieldsSchema = z.object({
     .min(1, "Enter the place.")
     .max(MAX_PLACE_LEN, `Place must be ${MAX_PLACE_LEN} characters or fewer.`),
   ministerName: optionalText(MAX_NAME_LEN, "Minister"),
-  spouseId: optionalId,
+  spouseId: optionalId("spouse"),
   spouseName: optionalText(MAX_NAME_LEN, "Spouse name"),
   godparents: optionalText(MAX_GODPARENTS_LEN, "Godparents"),
   notes: optionalText(MAX_NOTES_LEN, "Notes"),
