@@ -44,7 +44,7 @@ const LIST_ALL_YEARS_CAP = 1000
 // A single financial year is naturally small; this ceiling only bounds a runaway query, far above real use.
 const LIST_ONE_YEAR_CAP = 10000
 
-const DUP_RACE_ERROR = "A receipt for this donor and year was just created. Refresh the list and check before trying again."
+const DUP_RACE_ERROR = "Another receipt was being saved at the same moment. Refresh the list to check whether this donor already has one for the year, then try again."
 const EDIT_RACE_ERROR = "This receipt is being sent or was sent"
 
 const LineSchema = z.object({

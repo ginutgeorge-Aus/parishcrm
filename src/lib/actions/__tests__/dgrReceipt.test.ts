@@ -272,7 +272,7 @@ describe("createDgrReceipt", () => {
       Object.assign(new Error("serialization failure"), { code: "P2034" })
     )
     const res = await createDgrReceipt(undefined, formDataWithLines())
-    expect(res).toEqual({ error: expect.stringMatching(/receipt for this donor and year was just created/i) })
+    expect(res).toEqual({ error: expect.stringMatching(/another receipt was being saved at the same moment/i) })
     expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
