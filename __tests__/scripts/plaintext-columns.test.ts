@@ -65,7 +65,7 @@ const PLAIN_ON_PURPOSE: Record<string, string[]> = {
   trustedDevice: ["label"],
   user: ["name", "passwordHash", "otpCode"],
   venueUsage: ["startTime", "endTime", "purpose", "notes"],
-  venueUsageRequest: ["sentTo", "status", "errorMessage"],
+  venueUsageRequest: ["status", "errorMessage"],
   waitlist: ["name", "emailHash"],
   webAuthnChallenge: ["challenge", "purpose"],
 }
