@@ -1,4 +1,5 @@
 import {
+  isOversizeMoney,
   MONEY_DECIMAL_RE,
   SIGNED_MONEY_DECIMAL_RE,
   hasEncryptedFieldMatch,
@@ -178,5 +179,21 @@ describe("non-string arguments (AUD-5-58)", () => {
   it.each([undefined, null, 5, {}, ["2025-01-01"]])("isRealCalendarDate and isValidEmail return false for %j", (v) => {
     expect(isRealCalendarDate(v as unknown as string)).toBe(false)
     expect(isValidEmail(v as unknown as string)).toBe(false)
+  })
+})
+
+describe("isOversizeMoney (AUD-3-20)", () => {
+  it("flags well-formed amounts with more than 8 integer digits", () => {
+    expect(isOversizeMoney("123456789")).toBe(true)
+    expect(isOversizeMoney("-123456789.50")).toBe(true)
+  })
+  it("accepts up to 8 integer digits and ignores malformed input", () => {
+    expect(isOversizeMoney("99999999.99")).toBe(false)
+    expect(isOversizeMoney("12abc")).toBe(false)
+  })
+  it("ignores leading zeros when counting digits", () => {
+    expect(isOversizeMoney("0000000001")).toBe(false)
+    expect(isOversizeMoney("-0000000001.50")).toBe(false)
+    expect(isOversizeMoney("000123456789")).toBe(true)
   })
 })

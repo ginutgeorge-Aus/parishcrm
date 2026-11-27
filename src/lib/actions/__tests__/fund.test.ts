@@ -4,6 +4,7 @@ jest.mock("@/lib/featureFlags")
 import { createFund, deleteFund, updateFund, validateFund } from "../fund"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(true) }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => {
     throw new Error("REDIRECT")
@@ -23,6 +24,7 @@ jest.mock("@/lib/prisma", () => ({
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { logAudit } from "@/lib/audit"
 const mockAuth = auth as jest.Mock
 const mockPrismaTransaction = prisma.$transaction as jest.Mock
 
@@ -45,14 +47,14 @@ test("createFund rejects non-admin", async () => {
 })
 
 test("createFund rejects duplicate name", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
   const r = await createFund(undefined, fd({ name: "General" }))
   expect(r).toEqual({ error: "A fund with this name already exists" })
 })
 
 test("deleteFund blocked when referenced", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
   ;(prisma.transaction.count as jest.Mock).mockResolvedValue(3)
   ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
@@ -62,7 +64,7 @@ test("deleteFund blocked when referenced", async () => {
 })
 
 test("deleteFund blocked when only invoices reference it", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
   ;(prisma.transaction.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
@@ -73,14 +75,14 @@ test("deleteFund blocked when only invoices reference it", async () => {
 })
 
 test("deleteFund blocks the General fund", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 1, name: "General" })
   const r = await deleteFund(1)
   expect(r).toEqual({ error: "The General fund cannot be deleted." })
 })
 
 test("deleteFund runs the count-and-delete inside one Serializable transaction", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
   ;(prisma.transaction.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
@@ -94,7 +96,7 @@ test("deleteFund runs the count-and-delete inside one Serializable transaction",
 })
 
 test("deleteFund translates a P2034 serialization conflict into the reassign message", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
   // A concurrent referencing insert aborts the Serializable transaction.
   mockPrismaTransaction.mockRejectedValueOnce(Object.assign(new Error("serialization failure"), { code: "P2034" }))
@@ -103,7 +105,7 @@ test("deleteFund translates a P2034 serialization conflict into the reassign mes
 })
 
 test("deleteFund does not delete when a reference is found inside the transaction", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
   ;(prisma.transaction.count as jest.Mock).mockResolvedValue(1)
   ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
@@ -114,7 +116,7 @@ test("deleteFund does not delete when a reference is found inside the transactio
 })
 
 test("deleteFund rethrows a non-P2034 transaction error instead of swallowing it", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
   // Anything other than a P2034 serialization conflict (e.g. a dropped
   // connection) must propagate — not be mistaken for "reassign first" and not
@@ -125,32 +127,52 @@ test("deleteFund rethrows a non-P2034 transaction error instead of swallowing it
 })
 
 test("updateFund blocks renaming the General fund", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 1, name: "General" })
   const r = await updateFund(1, undefined, fd({ name: "Building" }))
   expect(r).toEqual({ error: "The General fund cannot be renamed." })
 })
 
 test("validateFund true for existing active fund", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 5, isActive: true })
   expect(await validateFund(5)).toBe(true)
 })
 
 test("validateFund false for missing fund", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue(null)
   expect(await validateFund(999)).toBe(false)
 })
 
 test("validateFund rejects an inactive fund by default (create path)", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 6, isActive: false })
   expect(await validateFund(6)).toBe(false)
 })
 
 test("validateFund allows an inactive fund with allowInactive (update path)", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 6, isActive: false })
   expect(await validateFund(6, { allowInactive: true })).toBe(true)
+})
+
+test("deleteFund writes an audit row (AUD-3-10)", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
+  ;(prisma.transaction.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.pettyCashExpense.count as jest.Mock).mockResolvedValue(0)
+  await deleteFund(2)
+  expect(logAudit).toHaveBeenCalledWith(1, "FUND_DELETED", "Fund", 2, { name: "Building" })
+})
+
+test("updateFund records before and after (AUD-3-10)", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Building", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null)
+  await expect(updateFund(2, undefined, fd({ name: "Hall", isActive: "on", sortOrder: "3" }))).rejects.toThrow("REDIRECT")
+  expect(logAudit).toHaveBeenCalledWith(1, "FUND_UPDATED", "Fund", 2, {
+    before: { name: "Building", isActive: true, sortOrder: 0 },
+    after: { name: "Hall", isActive: true, sortOrder: 3 },
+  })
 })

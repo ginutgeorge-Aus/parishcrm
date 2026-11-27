@@ -237,6 +237,39 @@ describe("commitImport", () => {
     expect(mockTx).not.toHaveBeenCalled()
   })
 
+  it("keeps identical lines in one file as separate entries and skips them all on re-import (AUD-3-15)", async () => {
+    const makeTx = () => ({
+      pettyCashSession: {
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn(async ({ create }: any) => ({ id: 100, status: "OPEN", ...create })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pettyCashReceipt: { createManyAndReturn: jest.fn(async ({ data }: any) => data.map((d: any, i: number) => ({ id: i + 1, ...d }))) },
+      pettyCashExpense: { createManyAndReturn: jest.fn() },
+      transaction: { createMany: jest.fn(async (_args: any) => ({ count: 1 })) },
+    })
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
+    const line = "2025-09-07,receipt,Sunday Offertory,,5,Candles"
+    const csv = `${HEADER}\n${line}\n${line}\n${line}`
+
+    const first = makeTx()
+    mockTx.mockImplementation(async (cb: any) => cb(first))
+    await commitImport(commitFd(csv))
+    const data = first.pettyCashReceipt.createManyAndReturn.mock.calls[0][0].data
+    expect(data).toHaveLength(3)
+    const keys = data.map((d: any) => d.importKey)
+    expect(new Set(keys).size).toBe(3)
+    expect(keys[1]).toBe(`occurrence:2:${keys[0]}`)
+
+    // Re-import: all three keys already stored, so nothing is added.
+    mockRcptFind.mockResolvedValue(keys.map((k: string) => ({ date: new Date("2025-09-07T00:00:00.000Z"), accountId: 1, amount: 5, notes: "Candles", importKey: k })))
+    const second = makeTx()
+    mockTx.mockImplementation(async (cb: any) => cb(second))
+    const res = await commitImport(commitFd(csv))
+    expect(second.pettyCashReceipt.createManyAndReturn).not.toHaveBeenCalled()
+    expect(res).toMatchObject({ success: expect.stringMatching(/skipped 3 duplicate/) })
+  })
+
   it("is idempotent: skips a re-imported donor receipt already on file", async () => {
     // The donor name is stored in notes, so the dedupe key for a re-imported
     // donor receipt must match the existing row's stored notes.

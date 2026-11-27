@@ -5,6 +5,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { isAdmin } from "@/lib/roleGuard"
+import { logAudit } from "@/lib/audit"
+import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { isValidPgId, isP2002, isP2034 } from "@/lib/validation"
@@ -40,7 +42,8 @@ export async function createAccountGroup(
   // name_type both pass it, so catch the P2002 and surface the same friendly
   // error instead of a raw 500.
   try {
-    await prisma.accountGroup.create({ data: parsed.data })
+    const created = await prisma.accountGroup.create({ data: parsed.data })
+    await logAudit(actorId(session), "ACCOUNT_GROUP_CREATED", "AccountGroup", created?.id, { name: parsed.data.name, type: parsed.data.type })
   } catch (e) {
     if (isP2002(e)) return { error: "A group with this name already exists for this type" }
     throw e
@@ -96,6 +99,10 @@ export async function updateAccountGroup(
     throw e
   }
   if (guardError) return { error: guardError }
+  await logAudit(actorId(session), "ACCOUNT_GROUP_UPDATED", "AccountGroup", id, {
+    before: { name: existing.name, type: existing.type, sortOrder: existing.sortOrder },
+    after: { name: parsed.data.name, type: parsed.data.type, sortOrder: parsed.data.sortOrder },
+  })
   revalidatePath("/accounting/accounts/groups")
   revalidatePath("/accounting/accounts")
   // Reports render group names/order, so refresh them too.
@@ -135,6 +142,7 @@ export async function deleteAccountGroup(id: number): Promise<ActionResult> {
     throw e
   }
   if (blocked) return { error: "Reassign or delete accounts in this group first." }
+  await logAudit(actorId(session), "ACCOUNT_GROUP_DELETED", "AccountGroup", id)
 
   revalidatePath("/accounting/accounts/groups")
   revalidatePath("/accounting/accounts")

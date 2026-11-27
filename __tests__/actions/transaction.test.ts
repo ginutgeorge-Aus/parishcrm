@@ -219,6 +219,25 @@ describe("createTransaction", () => {
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
+  it("rejects an archived family on create (AUD-3-09)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
+    mockFamilyFindUnique.mockResolvedValue({ id: 3, archivedAt: new Date() })
+    const result = await createTransaction(undefined, fd({ ...validTx, familyId: "3" }))
+    expect(result).toEqual({ error: "Invalid family" })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("rejects an archived person on create (AUD-3-09)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
+    mockFamilyFindUnique.mockResolvedValue({ id: 3, archivedAt: null })
+    mockPersonFindUnique.mockResolvedValue({ id: 9, familyId: 3, archivedAt: new Date() })
+    const result = await createTransaction(undefined, fd({ ...validTx, familyId: "3", personId: "9" }))
+    expect(result).toEqual({ error: "Invalid person" })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
   it("rejects a non-existent personId", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
@@ -553,6 +572,26 @@ describe("updateTransaction", () => {
       where: { id: 1 },
       data: expect.objectContaining({ familyId: 5, isGiving: true }),
     })
+  })
+
+  it("rejects moving a row onto an archived family (AUD-3-09)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, familyId: null, personId: null })
+    mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
+    mockFamilyFindUnique.mockResolvedValue({ id: 5, archivedAt: new Date() })
+    const result = await updateTransaction(1, undefined, fd({ ...validTx, familyId: "5" }))
+    expect(result).toEqual({ error: "Invalid family" })
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("keeps the archived family already on the row editable (AUD-3-09)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, familyId: 5, personId: null })
+    mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
+    mockFamilyFindUnique.mockResolvedValue({ id: 5, archivedAt: new Date() })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    await updateTransaction(1, undefined, fd({ ...validTx, familyId: "5" }))
+    expect(mockUpdateMany).toHaveBeenCalled()
   })
 
   it("does not spread the form-only confirmDuplicate flag into the Prisma update", async () => {

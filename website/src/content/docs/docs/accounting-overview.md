@@ -20,6 +20,8 @@ All accounting screens live under **Accounting** in the sidebar, visible only to
 
 This maps to two helper checks used throughout the module: **`canViewAccounting`** (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN — read paths, reports, transaction list) and **`canAccessAccounting`** (ADMIN, PASTOR only — creating/editing/deleting transactions, petty cash entries, sending receipts). A smaller set of destructive or structural actions (deleting a transaction, editing the chart of accounts, opening balances, the period lock, payment accounts, funds, budgets) are **ADMIN only**.
 
+**Opening balances.** Balances count every transaction **on or after** the opening-balance date, so enter the balance as at the start of that day (not a statement closing balance for that day). An opening balance may be negative for an overdrawn account, and it cannot be set or changed while its date falls on or before the period lock date. Changes to categories, account groups, funds, budgets and opening balances (old and new values), and to invoice bank details (recorded only as a changed flag plus a hash, never the text), are written to the audit log.
+
 The Accounting landing page (`/accounting`) is a dashboard: current balance per payment account (bank/cash), a quick summary of the current financial year's income vs. expenses, and links into every sub-area below.
 
 Sub-areas, each documented on its own page:

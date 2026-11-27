@@ -16,7 +16,7 @@ import type { ReceiptData } from "@/lib/emails/ReceiptEmail"
 import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { isValidEmail } from "@/lib/validation"
 import { featureGuard } from "@/lib/featureFlags"
-import { NOT_XFER } from "@/lib/xferAccount"
+import { NOT_XFER, XFER_CODE } from "@/lib/xferAccount"
 
 // Double-click debounce window: a repeat send of the same receipt to the
 // same recipient inside this window is treated as a no-op so a donor never gets
@@ -25,6 +25,7 @@ const RECEIPT_DEBOUNCE_MS = 10_000
 
 const CONSENT_BLOCKED_MSG = "Recipient has not consented to email receipts"
 const ARCHIVED_BLOCKED_MSG = "Recipient is archived"
+const NOT_INCOME_MSG = "Receipts can only be sent for income transactions"
 
 const MAX_RECEIPT_BATCH_SIZE = 200
 const RECEIPT_FETCH_CAP = 500
@@ -46,7 +47,8 @@ export type TransactionForReceipt = {
   lastSentAt: Date | null
 }
 
-export type FetchResult = { transactions: TransactionForReceipt[] } | { error: string }
+/** `truncated` is true when more rows matched than the list shows (the first RECEIPT_FETCH_CAP, newest first). */
+export type FetchResult = { transactions: TransactionForReceipt[]; truncated?: boolean } | { error: string }
 
 function buildReceiptData(
   tx: {
@@ -74,9 +76,7 @@ function buildReceiptData(
     type: tx.type as "INCOME" | "EXPENSE",
     account: `${tx.account.code} — ${tx.account.name}`,
     reference: tx.reference ? safeDecrypt(tx.reference) : undefined,
-    // notes is unencrypted for manually-keyed rows but encrypted for
-    // bank-import rows — safeDecrypt is a no-op on plaintext.
-    notes: tx.notes ? safeDecrypt(tx.notes) : undefined,
+    // Internal notes are never put in a donor-facing email.
     familyName: tx.family?.name ?? undefined,
     personName: tx.person ? `${tx.person.firstName} ${tx.person.lastName}` : undefined,
     churchName: church.name,
@@ -84,6 +84,14 @@ function buildReceiptData(
     churchAbn: church.abn,
     churchEmail: church.email,
   }
+}
+
+/**
+ * An official receipt only makes sense for money received: INCOME, and never on the internal-transfer
+ * clearing account. Returns the block reason, or null to proceed.
+ */
+function checkReceiptable(tx: { type: string; account: { code: string } }): string | null {
+  return tx.type === "INCOME" && tx.account.code !== XFER_CODE ? null : NOT_INCOME_MSG
 }
 
 /** Transaction shape the recipient gate needs (person + family with members). */
@@ -186,6 +194,9 @@ export async function sendSingleReceipt(
   })
   if (!tx) return { error: "Transaction not found" }
 
+  const notReceiptable = checkReceiptable(tx)
+  if (notReceiptable) return { error: notReceiptable }
+
   const sentById = actorId(session)
 
   const blockReason = checkReceiptRecipient(tx, toEmail)
@@ -230,6 +241,8 @@ export async function sendSingleReceipt(
       error: err instanceof Error ? err.message : String(err),
     })
   }
+  // Recipient address deliberately not logged (PII); the ReceiptSend row holds it encrypted.
+  await logAudit(sentById, "RECEIPT_SENT", "Transaction", transactionId)
   revalidatePath(`/accounting/transactions/${transactionId}`)
   return { success: `Receipt sent to ${toEmail}` }
 }
@@ -294,6 +307,12 @@ export async function sendBatchReceipts(
     if (!tx) {
       failed++
       errors.push({ transactionId: row.transactionId, error: "Transaction not found" })
+      continue
+    }
+    const notReceiptable = checkReceiptable(tx)
+    if (notReceiptable) {
+      failed++
+      errors.push({ transactionId: row.transactionId, error: notReceiptable })
       continue
     }
     // Recipient gate. A block is reported (not silently dropped) so the operator
@@ -426,11 +445,13 @@ export async function fetchTransactionsForReceipt(
   const rows = await prisma.transaction.findMany({
     where: {
       date: { gte: fromDate, lte: endOfDayUTC(toDate) },
+      type: "INCOME",
       ...NOT_XFER,
       ...(accountId ? { accountId } : {}),
     },
     orderBy: { date: "desc" },
-    take: RECEIPT_FETCH_CAP,
+    // One extra row tells us whether the list was cut off.
+    take: RECEIPT_FETCH_CAP + 1,
     include: {
       account: { select: { code: true, name: true } },
       family: {
@@ -452,7 +473,8 @@ export async function fetchTransactionsForReceipt(
     },
   })
 
-  const transactions: TransactionForReceipt[] = rows.map((tx) => ({
+  const truncated = rows.length > RECEIPT_FETCH_CAP
+  const transactions: TransactionForReceipt[] = rows.slice(0, RECEIPT_FETCH_CAP).map((tx) => ({
     id: tx.id,
     date: tx.date,
     description: safeDecrypt(tx.description),
@@ -464,5 +486,5 @@ export async function fetchTransactionsForReceipt(
     lastSentAt: tx.receiptSends[0]?.sentAt ?? null,
   }))
 
-  return { transactions }
+  return { transactions, truncated }
 }

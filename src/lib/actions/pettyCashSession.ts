@@ -10,7 +10,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, centsToNumber, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
-import { MONEY_DECIMAL_RE, isP2002, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isOversizeMoney, isP2002, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
@@ -36,6 +36,7 @@ const CreateSessionSchema = z.object({
     // Validate format before parse — the column is Decimal(10,2); 3+ decimals
     // would otherwise reach Postgres and throw at runtime.
     .refine((v) => !v || MONEY_DECIMAL_RE.test(v), "Opening balance: max 2 decimal places")
+    .refine((v) => !v || !isOversizeMoney(v), "Opening balance too large (max 99,999,999.99)")
     // Keep the validated string — Prisma writes it to Decimal exactly; a
     // parseFloat round-trip through binary float is avoidable drift.
     .transform((v) => v || "0")
@@ -333,6 +334,7 @@ const CloseSessionSchema = z.object({
     .optional()
     .transform((v) => (v && v.trim() !== "" ? v.trim() : undefined))
     .refine((v) => v === undefined || MONEY_DECIMAL_RE.test(v), "Counted cash: max 2 decimal places")
+    .refine((v) => v === undefined || !isOversizeMoney(v), "Counted cash too large (max 99,999,999.99)")
     .refine((v) => v === undefined || toCents(v) >= 0, "Counted cash must be zero or more"),
 })
 

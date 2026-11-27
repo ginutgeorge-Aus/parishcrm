@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { guardAccountingExport } from "@/lib/reports/exportGuard"
-import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromRequest } from "@/lib/clientIp"
 import { generateBudgetVsActualCsv, type BudgetVsActualRow } from "@/lib/reports/budgetVsActualExport"
-import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
-import { toCents, type Money } from "@/lib/formatting"
+import { currentFYYear } from "@/lib/fiscalYear"
+import { getBudgetVsActualData } from "@/lib/reports/budgetVsActualQuery"
+import { toCents } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
-import { XFER_CODE } from "@/lib/xferAccount"
 
 /** GET /api/accounting/reports/budget-vs-actual/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
@@ -28,44 +27,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid year" }, { status: 400 })
   }
   const year = parsedYear
-  const { start: fyStart, end: fyEnd } = fyDateRange(year)
-
-  // Mirrors the Budget vs Actual page query exactly so the export never drifts from screen totals.
-  const [accounts, budgetRows, actualGroups] = await Promise.all([
-    prisma.account.findMany({
-      // Exclude XFER — see the on-screen Budget vs Actual query comment.
-      where: { code: { not: XFER_CODE }, OR: [{ isActive: true }, { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } }] },
-      orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],
-      include: { group: { select: { id: true, name: true, sortOrder: true } } },
-    }),
-    prisma.budget.findMany({ where: { year }, select: { accountId: true, amount: true } }),
-    prisma.transaction.groupBy({ by: ["accountId"], where: { date: { gte: fyStart, lt: fyEnd } }, _sum: { amount: true } }),
-  ])
-
-  const budgetMap = new Map<number, Money>(budgetRows.map((b) => [b.accountId, b.amount]))
-  const actualMap = new Map<number, Money>(actualGroups.map((g) => [g.accountId, g._sum.amount ?? 0]))
-
-  const rows: BudgetVsActualRow[] = accounts.map((a) => ({
-    code: a.code,
-    name: a.name,
-    groupName: a.group?.name ?? "Other",
-    type: a.type as "INCOME" | "EXPENSE",
-    budgetCents: budgetMap.has(a.id) ? toCents(budgetMap.get(a.id)) : null,
-    actualCents: toCents(actualMap.get(a.id) ?? 0),
-  }))
-
-  const incomeRows = rows.filter((r) => r.type === "INCOME")
-  const expenseRows = rows.filter((r) => r.type === "EXPENSE")
-  // `budgetCents`/`actualCents` are ALREADY integer cents (toCents above), so sum
-  // them with plain integer addition. Feeding them back through sumCents (which
-  // re-applies toCents, treating its input as dollars) inflated every footer
-  // total 100× and made the CSV inconsistent with its own account rows.
-  const sumCentsField = (rs: BudgetVsActualRow[], pick: (r: BudgetVsActualRow) => number | null) =>
-    rs.reduce((s, r) => s + (pick(r) ?? 0), 0)
-  const incomeBudgetCents = sumCentsField(incomeRows, (r) => r.budgetCents)
-  const incomeActualCents = sumCentsField(incomeRows, (r) => r.actualCents)
-  const expenseBudgetCents = sumCentsField(expenseRows, (r) => r.budgetCents)
-  const expenseActualCents = sumCentsField(expenseRows, (r) => r.actualCents)
+  // Same query as the on-screen report (incl. inactive accounts that only carry a budget), so the CSV cannot drift from it.
+  const data = await getBudgetVsActualData(year)
+  const toRows = (groups: typeof data.incomeGroups, type: "INCOME" | "EXPENSE"): BudgetVsActualRow[] =>
+    groups.flatMap((g) =>
+      g.accounts.map((a) => ({
+        code: a.code,
+        name: a.name,
+        groupName: g.groupName,
+        type,
+        budgetCents: a.budget === null ? null : toCents(a.budget),
+        actualCents: toCents(a.actual),
+      })),
+    )
+  const rows: BudgetVsActualRow[] = [...toRows(data.incomeGroups, "INCOME"), ...toRows(data.expenseGroups, "EXPENSE")]
+  const incomeBudgetCents = toCents(data.totalIncomeBudget)
+  const incomeActualCents = toCents(data.totalIncomeActual)
+  const expenseBudgetCents = toCents(data.totalExpenseBudget)
+  const expenseActualCents = toCents(data.totalExpenseActual)
 
   const csv = generateBudgetVsActualCsv(rows, {
     incomeBudgetCents,

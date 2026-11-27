@@ -19,6 +19,7 @@ jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
+import { logAudit } from "@/lib/audit"
 import { upsertBudgets, getPrevYearBudgets, saveBudgetVarianceNote } from "@/lib/actions/budget"
 
 const mockSession = auth as jest.Mock
@@ -35,7 +36,11 @@ function makeFormData(fields: Record<string, string>) {
   return fd
 }
 
-beforeEach(() => jest.clearAllMocks())
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(true) }))
+beforeEach(() => {
+  jest.clearAllMocks()
+  mockFindMany.mockResolvedValue([])
+})
 
 describe("upsertBudgets", () => {
   it("blocks PASTOR", async () => {
@@ -90,6 +95,8 @@ describe("upsertBudgets", () => {
     })
     expect(result).toEqual({ success: "Budget saved" })
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting/budget")
+    // Audit trail records old/new for each changed line (AUD-3-10).
+    expect(logAudit).toHaveBeenCalledWith(999, "BUDGET_UPDATED", "Budget", undefined, expect.objectContaining({ year: 2026, changedCount: 2 }))
   })
 
   it("returns success and skips upsert when all entries blank", async () => {

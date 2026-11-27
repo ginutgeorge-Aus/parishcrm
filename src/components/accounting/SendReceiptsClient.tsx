@@ -26,6 +26,7 @@ export function SendReceiptsClient({ accounts }: Readonly<{ accounts: Account[] 
   const [emails, setEmails] = useState<Record<number, string>>({})
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [truncated, setTruncated] = useState(false)
   const [result, setResult] = useState<{ sent: number; failed: number; errors: { transactionId: number; error: string }[] } | null>(null)
   const [isFetching, startFetch] = useTransition()
   const [isSending, startSend] = useTransition()
@@ -33,6 +34,7 @@ export function SendReceiptsClient({ accounts }: Readonly<{ accounts: Account[] 
   function handleLoad() {
     setFetchError(null)
     setRows([])
+    setTruncated(false)
     setSelected(new Set())
     setResult(null)
     startFetch(async () => {
@@ -40,6 +42,7 @@ export function SendReceiptsClient({ accounts }: Readonly<{ accounts: Account[] 
         const res = await fetchTransactionsForReceipt(from, to, accountId ? Number.parseInt(accountId) : undefined)
         if ("error" in res) { setFetchError(res.error); return }
         setRows(res.transactions)
+        setTruncated(res.truncated === true)
         const initialEmails: Record<number, string> = {}
         res.transactions.forEach((t) => { initialEmails[t.id] = t.defaultEmail ?? "" })
         setEmails(initialEmails)
@@ -131,6 +134,11 @@ export function SendReceiptsClient({ accounts }: Readonly<{ accounts: Account[] 
       </div>
 
       {fetchError && <p role="alert" className="text-sm text-destructive">{fetchError}</p>}
+      {truncated && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Showing the newest 500 income transactions. Narrow the date range to see the rest.
+        </p>
+      )}
 
       {result && (
         <div className={`p-3 rounded-md text-sm ${result.failed > 0 ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>

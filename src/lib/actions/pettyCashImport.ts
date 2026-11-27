@@ -165,14 +165,28 @@ type RowInputResult =
   | { kind: "receipt"; input: Prisma.PettyCashReceiptCreateManyInput }
   | { kind: "expense"; input: Prisma.PettyCashExpenseCreateManyInput }
 
-// Builds one row's insert payload, or reports it as a dedupe skip. `seen` is
-// mutated in place — every emitted row's key is added, exactly as the inline
-// version did, so a later duplicate row within the same CSV is still caught.
+/**
+ * Stored import key for the nth identical line of ONE csv file. The first keeps the plain key (so
+ * entries imported before this rule still dedupe); repeats get an "occurrence:n:" prefix (a base key always starts with a date, so it can never collide with a base key such as "...|candles#2"), so three identical $5 receipts in
+ * one file are three entries, yet re-importing the same file skips all three.
+ * @param base the plain dedupe key
+ * @param n 1-based position among identical lines in this file
+ */
+function occurrenceKey(base: string, n: number): string {
+  return n <= 1 ? base : `occurrence:${n}:${base}`
+}
+
+/**
+ * Builds one row's insert payload, or reports it as a dedupe skip. `seen` is mutated in place: every
+ * emitted row's key is added, so an existing entry (or a re-import) is still caught. `occurrences`
+ * counts identical lines within this file so genuine repeats are kept (see occurrenceKey).
+ */
 function buildRowInput(
   r: ResolvedRow,
   sessionByTitle: Map<string, ImportSession>,
   overrides: Record<string, number | null>,
-  seen: Set<string>
+  seen: Set<string>,
+  occurrences: Map<string, number>
 ): RowInputResult {
   const title = sessionTitle(r.date!)
   const sess = sessionByTitle.get(title)!
@@ -180,7 +194,10 @@ function buildRowInput(
   // Dedupe text must mirror what is stored, or re-import won't detect dupes:
   // receipts store notes = payeeOrDonor || notes; expenses store payee = payeeOrDonor.
   const text = r.type === "expense" ? r.payeeOrDonor : (r.payeeOrDonor || r.notes || "")
-  const key = dedupeKey({ date: r.date!, type: r.type!, accountId: r.accountId!, amount: r.amountRaw, text })
+  const base = dedupeKey({ date: r.date!, type: r.type!, accountId: r.accountId!, amount: r.amountRaw, text })
+  const n = (occurrences.get(base) ?? 0) + 1
+  occurrences.set(base, n)
+  const key = occurrenceKey(base, n)
   if (seen.has(key)) return { kind: "skip" }
   seen.add(key)
 
@@ -218,8 +235,9 @@ function buildImportInputs(
   const receiptInputs: Prisma.PettyCashReceiptCreateManyInput[] = []
   const expenseInputs: Prisma.PettyCashExpenseCreateManyInput[] = []
   let receipts = 0, expenses = 0, skipped = 0
+  const occurrences = new Map<string, number>()
   for (const r of rows) {
-    const result = buildRowInput(r, sessionByTitle, overrides, seen)
+    const result = buildRowInput(r, sessionByTitle, overrides, seen, occurrences)
     if (result.kind === "skip") { skipped++; continue }
     if (result.kind === "receipt") { receiptInputs.push(result.input); receipts++ }
     else { expenseInputs.push(result.input); expenses++ }

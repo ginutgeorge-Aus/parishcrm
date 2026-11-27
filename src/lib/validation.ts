@@ -7,6 +7,16 @@ export const MONEY_DECIMAL_RE = /^\d+(\.\d{1,2})?$/
 // (e.g. an overdrawn account balance).
 export const SIGNED_MONEY_DECIMAL_RE = /^-?\d+(\.\d{1,2})?$/
 
+/**
+ * True for a well-formed money string with more than 8 integer digits. The Decimal(10,2) columns hold at
+ * most 8, as bankParsers/amount.ts caps, so a typo with extra digits would otherwise reach Postgres as an
+ * overflow error (a 500). Callers refuse it with a clear "too large" message before any write.
+ */
+export function isOversizeMoney(s: string): boolean {
+  // Drop leading zeros first so "0000000001" (value 1) is not counted as 10 digits.
+  return /^-?\d{9,}(\.\d{1,2})?$/.test(s.replace(/^(-?)0+(?=\d)/, "$1"))
+}
+
 // Same 2-decimal-place restriction as MONEY_DECIMAL_RE, for money fields that
 // arrive already parsed to a JS number rather than a form-data string (e.g.
 // DGR receipt lines, JSON-parsed from the "lines" field). Without this,

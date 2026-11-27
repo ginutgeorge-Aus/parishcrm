@@ -10,7 +10,7 @@ import { computeRunningBalances } from "@/lib/reconcileRunning"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { sydneyToday, endOfDayUTC } from "@/lib/dates"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
-import { currentFYYear } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { fmtAUD, MONTH_ABBR_TITLE, toCents, centsToNumber } from "@/lib/formatting"
 import { fetchIf } from "@/lib/asyncOr"
 import { pickDefaultAccount } from "@/lib/reports/pickDefaultAccount"
@@ -144,7 +144,7 @@ export default async function ReconciliationPage(props: Readonly<{
 
   const today = sydneyToday()
   const fyYear = currentFYYear()
-  const fyStart = new Date(Date.UTC(fyYear, 6, 1)) // 1 July, UTC anchor
+  const fyStart = fyDateRange(fyYear).start // honours the configured FY start month
 
   // Reports show all accounts (incl. deactivated-with-history), not just active ones.
   const accounts = await getPaymentAccounts({ activeOnly: false })

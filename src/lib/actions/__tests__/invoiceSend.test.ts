@@ -64,6 +64,12 @@ describe("sendInvoice", () => {
     expect(loadInvoicePdf).toHaveBeenCalledWith(11, { gstRegistered: true, paymentDetails: "BSB 000-000" })
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_SENT", "Invoice", 11, { invoiceNo: "INV-0007" })
   })
+  it("refuses a $0.00 invoice and writes nothing", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...draft, lines: [{ description: "Freebie", qty: 1, unitPriceCents: 0, gst: false }] })
+    expect(await sendInvoice(11)).toEqual({ error: "Invoice total must be greater than $0.00 to send." })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
   it("never renders inside the transaction: the single post-commit load feeds the email", async () => {
     await sendInvoice(11)
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))

@@ -24,7 +24,7 @@ export default async function EditTransactionPage(
   const txId = parseRouteId(params.id)
   if (txId === null) notFound()
 
-  const [transaction, accounts, families, funds, paymentAccounts] = await Promise.all([
+  const [transaction, accounts, activeFamilies, funds, paymentAccounts] = await Promise.all([
     prisma.transaction.findUnique({
       where: { id: txId },
       include: {
@@ -40,7 +40,7 @@ export default async function EditTransactionPage(
       select: {
         id: true,
         name: true,
-        people: { select: { id: true, firstName: true, lastName: true }, orderBy: { firstName: "asc" } },
+        people: { where: { archivedAt: null }, select: { id: true, firstName: true, lastName: true }, orderBy: { firstName: "asc" } },
       },
     }),
     getActiveFunds(),
@@ -51,6 +51,24 @@ export default async function EditTransactionPage(
   ])
 
   if (!transaction) notFound()
+
+  // New links to archived families/people are refused, but the party already on this row must stay
+  // selectable so the historical transaction can still be edited.
+  const keepFamily = transaction.familyId
+  const keepPerson = transaction.personId
+  const needsFamily = keepFamily != null && !activeFamilies.some((f) => f.id === keepFamily && (keepPerson == null || f.people.some((p) => p.id === keepPerson)))
+  const ownFamily = needsFamily
+    ? await prisma.family.findUnique({
+        where: { id: keepFamily },
+        select: {
+          id: true, name: true,
+          people: { where: { OR: [{ archivedAt: null }, { id: keepPerson ?? -1 }] }, select: { id: true, firstName: true, lastName: true }, orderBy: { firstName: "asc" } },
+        },
+      })
+    : null
+  const families = ownFamily
+    ? [...activeFamilies.filter((f) => f.id !== ownFamily.id), ownFamily].sort((a, b) => a.name.localeCompare(b.name))
+    : activeFamilies
 
   // Include this row's own account even if it was later deactivated, so a
   // historical transaction still renders its category in the dropdown.

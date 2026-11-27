@@ -12,7 +12,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch, isP2034 } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isOversizeMoney, hasEncryptedFieldMatch, isP2034 } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
@@ -36,6 +36,7 @@ const ExpenseSchema = z.object({
     // mirrored to the Transaction ledger; silent truncation would corrupt
     // reconciliation (matches openingBalance).
     .refine((v) => MONEY_DECIMAL_RE.test(v), "Amount: max 2 decimal places")
+    .refine((v) => !isOversizeMoney(v), "Amount too large (max 99,999,999.99)")
     // Pass the validated string straight to Prisma's Decimal column — never
     // parseFloat into a JS number, which can lose precision on large amounts
     // before storage (matches transaction.ts policy).

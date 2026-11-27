@@ -59,7 +59,7 @@ export default async function AccountingSettingsPage() {
         </h2>
         <p className="text-sm text-muted-foreground mb-5">
           Set the starting balance and as-of date for each payment account.
-          The dashboard will show: opening balance + all income − all expenses recorded after that date.
+          The dashboard will show: opening balance + all income − all expenses recorded on or after that date (enter the balance as at the start of that day).
         </p>
         <div className="flex gap-3 text-xs font-medium text-muted-foreground mb-1 ml-24">
           <span className="w-36">Opening amount</span>

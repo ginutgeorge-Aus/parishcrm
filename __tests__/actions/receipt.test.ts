@@ -62,6 +62,29 @@ beforeEach(() => {
 
 // --- sendSingleReceipt ---
 describe("sendSingleReceipt", () => {
+  it("refuses an expense transaction (AUD-3-17)", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    mockFindUnique.mockResolvedValue({ ...mockTransaction, type: "EXPENSE" })
+    expect(await sendSingleReceipt(10, "test@example.com")).toEqual({ error: "Receipts can only be sent for income transactions" })
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it("refuses the internal-transfer account (AUD-3-17)", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    mockFindUnique.mockResolvedValue({ ...mockTransaction, account: { code: "XFER", name: "Transfer" } })
+    expect(await sendSingleReceipt(10, "test@example.com")).toEqual({ error: "Receipts can only be sent for income transactions" })
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it("never puts internal notes in the email (AUD-3-17)", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    mockFindUnique.mockResolvedValue({ ...mockTransaction, notes: "internal only" })
+    await sendSingleReceipt(10, "test@example.com")
+    const data = mockSendEmail.mock.calls[0]?.[1]
+    expect(data).toBeDefined()
+    expect(data.notes).toBeUndefined()
+  })
+
   it("blocks VIEWER", async () => {
     mockSession.mockResolvedValue(viewerSession)
     const result = await sendSingleReceipt(10, "test@example.com")
@@ -608,6 +631,17 @@ describe("fetchTransactionsForReceipt", () => {
       expect(result.transactions).toHaveLength(1)
       expect(result.transactions[0].defaultEmail).toBe("smith@example.com")
     }
+  })
+
+  it("lists income only and flags a list cut off at 500 (AUD-3-17)", async () => {
+    mockSession.mockResolvedValue(adminSession)
+    const row = { id: 1, date: new Date("2026-05-15"), description: "d", account: { code: "1", name: "A" }, amount: { toString: () => "1" }, receiptSends: [], person: null, family: null }
+    mockFindMany.mockResolvedValue(Array.from({ length: 501 }, (_, i) => ({ ...row, id: i + 1 })))
+    const result = await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
+    expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ type: "INCOME" }), take: 501 }))
+    if (!("transactions" in result!)) throw new Error("expected rows")
+    expect(result.transactions).toHaveLength(500)
+    expect(result.truncated).toBe(true)
   })
 
   it("excludes the internal-transfer account from the candidate list (AUD-3-02)", async () => {
