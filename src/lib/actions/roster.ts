@@ -574,11 +574,13 @@ export async function unassignRosterAssignment(assignmentId: number): Promise<Ac
   if (!isValidPgId(assignmentId)) return { error: "Invalid assignment" }
   const row = await prisma.rosterAssignment.findUnique({
     where: { id: assignmentId },
-    select: { serviceId: true, slotId: true, personId: true, status: true, slot: { select: { role: { select: { groupId: true } } } } },
+    select: { serviceId: true, slotId: true, personId: true, status: true, slot: { select: { role: { select: { groupId: true, group: { select: { archivedAt: true } } } } } } },
   })
   if (!row) return { error: ASSIGNMENT_GONE }
   // Same error as a missing row, so a caller cannot probe which assignment ids exist.
   if (!(await mayEditGroupRole(g.session, row.slot.role.groupId))) return { error: ASSIGNMENT_GONE }
+  // A group leader's access ends with the group: only staff may edit an archived group's roster.
+  if (row.slot.role.group.archivedAt && !canManageRoster(g.session?.user?.role)) return { error: ASSIGNMENT_GONE }
   // A decline keeps the person off this service until staff clear it: a group
   // leader must not remove it and then re-roster them over their refusal.
   if (row.status === "DECLINED" && !canManageRoster(g.session?.user?.role)) return { error: UNAUTHORIZED }

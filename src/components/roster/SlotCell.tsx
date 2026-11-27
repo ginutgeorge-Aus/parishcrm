@@ -19,10 +19,11 @@ const STATUS_LABEL: Record<RosterAssignmentStatus, string> = { PENDING: "Pending
  * many places are open, and an assign dropdown. The dropdown loads the
  * server's suggestions (no conflicts, longest since served first) on mount, so
  * it is already populated on first open and conflicting people are never offered.
+ * @param canRemoveDeclined false hides Remove on DECLINED rows (only staff may clear a decline)
  */
 export function SlotCell({
-  slotId, assignments, open,
-}: Readonly<{ slotId: number; assignments: SlotAssignment[]; open: number }>) {
+  slotId, assignments, open, canRemoveDeclined = true,
+}: Readonly<{ slotId: number; assignments: SlotAssignment[]; open: number; canRemoveDeclined?: boolean }>) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -87,12 +88,14 @@ export function SlotCell({
                 <span className="truncate">{a.name}</span>
                 <Badge variant={a.status === "CONFIRMED" ? "secondary" : "outline"}>{STATUS_LABEL[a.status]}</Badge>
               </span>
-              <Button
-                type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-0" disabled={pending}
-                aria-label={`Remove ${a.name}`} onClick={() => run(() => unassignRosterAssignment(a.id))}
-              >
-                Remove
-              </Button>
+              {(canRemoveDeclined || a.status !== "DECLINED") && (
+                <Button
+                  type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-0" disabled={pending}
+                  aria-label={`Remove ${a.name}`} onClick={() => run(() => unassignRosterAssignment(a.id))}
+                >
+                  Remove
+                </Button>
+              )}
             </li>
           ))}
         </ul>

@@ -70,6 +70,7 @@ export default async function MyRosterServicePage(props: Readonly<Props>) {
                 <SlotCell
                   slotId={sl.id}
                   open={open}
+                  canRemoveDeclined={false}
                   assignments={sl.assignments.map((a) => ({ id: a.id, name: `${a.person.firstName} ${a.person.lastName}`, status: a.status }))}
                 />
               </CardContent>

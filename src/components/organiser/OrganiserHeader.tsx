@@ -25,7 +25,7 @@ export function OrganiserHeader({ showEvents = true, showClasses = true, showGro
   // Groups pages are not under "My Events"/"My Classes": use a neutral brand title there.
   const onGroups = usePathname()?.startsWith("/my-groups") ?? false
   return (
-    <header className="flex items-center justify-between border-b bg-primary px-4 py-3 text-primary-foreground">
+    <header className="flex flex-wrap items-center justify-between border-b bg-primary px-4 py-3 text-primary-foreground">
       <Link href={onGroups ? "/my-groups" : home.href} className="flex min-h-11 items-center gap-2">
         {/* eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: crest artwork, must stay white in dark mode */}
         <span className="rounded bg-white p-0.5">
@@ -33,7 +33,7 @@ export function OrganiserHeader({ showEvents = true, showClasses = true, showGro
         </span>
         <span className="sr-only font-display text-lg font-semibold tracking-tight sm:not-sr-only">{onGroups ? "My Groups" : home.label}</span>
       </Link>
-      <nav className="flex items-center gap-1 text-sm">
+      <nav className="flex flex-wrap items-center gap-1 text-sm">
         {showEvents && (
           <Link href="/my-events" className="flex min-h-11 items-center rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
             Events

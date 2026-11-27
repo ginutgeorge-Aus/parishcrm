@@ -86,7 +86,7 @@ beforeEach(() => {
   p.rosterSlot.delete.mockResolvedValue({})
   p.rosterAssignment.findMany.mockResolvedValue([])
   p.rosterAssignment.findFirst.mockResolvedValue(null)
-  p.rosterAssignment.findUnique.mockResolvedValue({ serviceId: 2, slotId: 5, personId: 7, status: "PENDING", slot: { role: { groupId: 4 } } })
+  p.rosterAssignment.findUnique.mockResolvedValue({ serviceId: 2, slotId: 5, personId: 7, status: "PENDING", slot: { role: { groupId: 4, group: { archivedAt: null } } } })
   p.rosterAssignment.create.mockResolvedValue({ id: 11 })
   p.rosterAssignment.deleteMany.mockResolvedValue({ count: 1 })
   p.rosterAssignment.count.mockResolvedValue(0)
@@ -407,7 +407,7 @@ describe("unassignRosterAssignment", () => {
     expect(audit).toHaveBeenCalledWith(prisma, 9, "ROSTER_UNASSIGNED", "RosterAssignment", 11, { slotId: 5, serviceId: 2, personId: 7, status: "PENDING" })
   })
   it("lets only staff clear a DECLINED row, not a group leader", async () => {
-    const declined = { serviceId: 2, slotId: 5, personId: 7, status: "DECLINED", slot: { role: { groupId: 4 } } }
+    const declined = { serviceId: 2, slotId: 5, personId: 7, status: "DECLINED", slot: { role: { groupId: 4, group: { archivedAt: null } } } }
     as(UserRole.EVENT_ORGANISER)
     p.groupLeaderAccess.findUnique.mockResolvedValue({ id: 1 })
     p.rosterAssignment.findUnique.mockResolvedValueOnce(declined)
@@ -415,6 +415,17 @@ describe("unassignRosterAssignment", () => {
     expect(p.rosterAssignment.deleteMany).not.toHaveBeenCalled()
     as(UserRole.ADMIN)
     p.rosterAssignment.findUnique.mockResolvedValueOnce(declined)
+    await expect(unassignRosterAssignment(11)).resolves.toEqual({ success: "Person removed from the roster" })
+  })
+  it("refuses a group leader on an archived group but lets staff through", async () => {
+    const archived = { serviceId: 2, slotId: 5, personId: 7, status: "PENDING", slot: { role: { groupId: 4, group: { archivedAt: new Date() } } } }
+    as(UserRole.EVENT_ORGANISER)
+    p.groupLeaderAccess.findUnique.mockResolvedValue({ id: 1 })
+    p.rosterAssignment.findUnique.mockResolvedValueOnce(archived)
+    await expect(unassignRosterAssignment(11)).resolves.toEqual({ error: "Assignment not found" })
+    expect(p.rosterAssignment.deleteMany).not.toHaveBeenCalled()
+    as(UserRole.ADMIN)
+    p.rosterAssignment.findUnique.mockResolvedValueOnce(archived)
     await expect(unassignRosterAssignment(11)).resolves.toEqual({ success: "Person removed from the roster" })
   })
   it("reports a missing assignment", async () => {
