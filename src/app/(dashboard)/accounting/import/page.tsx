@@ -22,6 +22,7 @@ export default async function BankImportPage() {
         id: true,
         name: true,
         people: {
+          where: { archivedAt: null }, // confirmBankImport rejects archived people
           select: { id: true, firstName: true, lastName: true, bankingName: true },
           orderBy: { firstName: "asc" },
         },

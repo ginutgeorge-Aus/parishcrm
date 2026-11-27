@@ -18,6 +18,8 @@ const ID = /^\d+$/
 
 /** Most rows the export reads from the database (newest first). With a search term this is the scan window, not the match count. */
 const EXPORT_ROW_CAP = 10000
+/** Rows per page when a search scans the whole range (descriptions are encrypted, so SQL cannot filter). */
+const SEARCH_PAGE_SIZE = 2000
 
 // Tri-state: the parsed id, `null` when the param is present but malformed
 // (caller 400s), or `undefined` when absent (filter omitted). Rejecting a
@@ -48,7 +50,12 @@ function buildTransactionWhere(f: TransactionWhereInput) {
     date: {
       gte: f.from,
       // No end date: stop at the end of the current financial year, as the list page does.
-      ...(f.to ? { lte: endOfDayUTC(f.to) } : { lt: fyDateRange(currentFYYear()).end }),
+      // A `from` already past that end keeps the range open, so a later-FY export is not silently empty.
+      ...(f.to
+        ? { lte: endOfDayUTC(f.to) }
+        : f.from && f.from >= fyDateRange(currentFYYear()).end
+          ? {}
+          : { lt: fyDateRange(currentFYYear()).end }),
     },
     ...(f.accountId !== undefined && { accountId: f.accountId }),
     ...(f.type && { type: f.type as TransactionType }),
@@ -144,22 +151,13 @@ export async function GET(req: NextRequest) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const { where, q } = parsed
 
-  const transactions = await prisma.transaction.findMany({
-    where,
-    orderBy: { date: "desc" },
-    // Bound memory on every path (a search scans the newest EXPORT_ROW_CAP rows, since descriptions are encrypted and
-    // cannot be filtered in SQL). One extra row tells us whether the cap cut the result short.
-    take: EXPORT_ROW_CAP + 1,
-    include: {
-      account: { select: { code: true, name: true } },
-      family: { select: { name: true } },
-      person: { select: { firstName: true, lastName: true } },
-      paymentAccountRel: { select: { name: true } },
-    },
-  })
-
-  const truncated = transactions.length > EXPORT_ROW_CAP
-  let rows = transactions.slice(0, EXPORT_ROW_CAP).map((tx) => ({
+  const include = {
+    account: { select: { code: true, name: true } },
+    family: { select: { name: true } },
+    person: { select: { firstName: true, lastName: true } },
+    paymentAccountRel: { select: { name: true } },
+  } as const
+  const decryptRow = (tx: Awaited<ReturnType<typeof fetchPage>>[number]) => ({
     ...tx,
     // safeDecrypt so one corrupt/legacy ciphertext degrades to a placeholder
     // instead of 500-ing the whole export.
@@ -169,19 +167,50 @@ export async function GET(req: NextRequest) {
     notes: tx.notes ? safeDecrypt(tx.notes) : tx.notes,
     reference: tx.reference ? safeDecrypt(tx.reference) : tx.reference,
     paymentAccountName: tx.paymentAccountRel?.name ?? null,
-  }))
-
-  // description is AES-encrypted at rest, so substring search cannot run in
-  // the DB query — it must run app-side after decrypt.
-  if (q) {
-    rows = rows.filter((tx) =>
-      tx.description.toLowerCase().includes(q.toLowerCase())
-    )
+  })
+  function fetchPage(take: number, cursorId?: number) {
+    return prisma.transaction.findMany({
+      where,
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      take,
+      ...(cursorId !== undefined && { cursor: { id: cursorId }, skip: 1 }),
+      include,
+    })
   }
 
+  let rows: ReturnType<typeof decryptRow>[] = []
+  let truncated = false
+  if (q) {
+    // description is AES-encrypted at rest, so substring search cannot run in the DB. Scan the whole
+    // range in pages, decrypt app-side, and keep only matches (bounded by EXPORT_ROW_CAP + 1).
+    const needle = q.toLowerCase()
+    let cursorId: number | undefined
+    scan: for (;;) {
+      const page = await fetchPage(SEARCH_PAGE_SIZE, cursorId)
+      for (const tx of page) {
+        const row = decryptRow(tx)
+        if (!row.description.toLowerCase().includes(needle)) continue
+        if (rows.length === EXPORT_ROW_CAP) {
+          truncated = true
+          break scan
+        }
+        rows.push(row)
+      }
+      if (page.length < SEARCH_PAGE_SIZE) break
+      cursorId = page[page.length - 1].id
+    }
+  } else {
+    // One extra row tells us whether the cap cut the result short.
+    const fetched = await fetchPage(EXPORT_ROW_CAP + 1)
+    truncated = fetched.length > EXPORT_ROW_CAP
+    rows = fetched.slice(0, EXPORT_ROW_CAP).map(decryptRow)
+  }
+
+  // A browser download hides response headers, so a truncated file also ends with a visible note
+  // (the x-export-truncated header is for scripts).
   let csv = generateTransactionCsv(rows)
   if (truncated) {
-    csv += `\r\nExport truncated at ${EXPORT_ROW_CAP} rows (newest first). Narrow the date range to export the rest.\r\n`
+    csv += `\nExport truncated at ${EXPORT_ROW_CAP} rows (newest first). Narrow the date range or search to export the rest.\n`
   }
 
   const userId = actorId(session)

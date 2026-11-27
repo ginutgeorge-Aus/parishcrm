@@ -15,6 +15,7 @@ jest.mock("@/lib/transactionExport", () => ({
   generateTransactionCsv: jest.fn(() => "csv"),
 }))
 
+import { generateTransactionCsv } from "@/lib/transactionExport"
 import { GET } from "@/app/api/accounting/transactions/export-csv/route"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -35,11 +36,30 @@ it("caps findMany at 10,000 rows (+1 probe row)", async () => {
   )
 })
 
-it("caps the search path too (AUD-3-11)", async () => {
+it("search scans past the first page and keeps only matches (AUD-3-11)", async () => {
   mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-  mockFindMany.mockResolvedValue([])
-  await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?q=offering"))
-  expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 10001 }))
+  const mk = (id: number, d: string) => ({ id, description: `enc:${d}`, notes: null, reference: null, paymentAccountRel: null })
+  const page1 = Array.from({ length: 2000 }, (_, i) => mk(i + 1, "other"))
+  mockFindMany
+    .mockResolvedValueOnce(page1)
+    .mockResolvedValueOnce([mk(2001, "Offering"), mk(2002, "misc")])
+  const res = await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?q=offering"))
+  expect(mockFindMany).toHaveBeenCalledTimes(2)
+  expect(mockFindMany.mock.calls[1][0]).toMatchObject({ cursor: { id: 2000 }, skip: 1 })
+  expect(res.headers.get("x-export-truncated")).toBeNull()
+  expect(generateTransactionCsv).toHaveBeenCalledWith([expect.objectContaining({ id: 2001 })])
+})
+
+it("keeps an open range when from is already past the FY end", async () => {
+  jest.useFakeTimers({ doNotFake: ["queueMicrotask", "setImmediate"] }).setSystemTime(new Date("2026-03-15T12:00:00"))
+  try {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([])
+    await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?from=2027-08-01"))
+    expect(mockFindMany.mock.calls[0][0].where.date.lt).toBeUndefined()
+  } finally {
+    jest.useRealTimers()
+  }
 })
 
 it("bounds an open-ended range to the end of the financial year (AUD-3-11)", async () => {
