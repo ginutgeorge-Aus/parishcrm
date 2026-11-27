@@ -1,0 +1,43 @@
+name: Migration safety
+
+# Prod applies migrations before the new revision takes traffic, and the DB is
+# never auto-rolled-back, so new migrations must be expand-only (AUD-7-03 d).
+# Fails on DROP, RENAME, column TYPE change, TRUNCATE, DELETE, SET NOT NULL or
+# ADD COLUMN NOT NULL without DEFAULT in migration.sql files this PR adds or
+# edits (editing a shipped migration is itself forbidden, see CONTRIBUTING.md). A reviewed exception: add the
+# `destructive-migration` label (the run re-triggers on label changes).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches: [main]
+
+concurrency:
+  group: migration-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # PR merge commit: HEAD^1 is the base branch tip
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Lint new migrations
+        env:
+          ALLOW: ${{ contains(github.event.pull_request.labels.*.name, 'destructive-migration') }}
+        run: |
+          set -euo pipefail
+          # Its own command: a failing git diff must fail the job, never read as "no migrations".
+          git diff --name-only --no-renames --diff-filter=AM HEAD^1 HEAD -- 'prisma/migrations/*/migration.sql' > "$RUNNER_TEMP/new-migrations.txt"
+          mapfile -t files < "$RUNNER_TEMP/new-migrations.txt"
+          args=()
+          [ "$ALLOW" = "true" ] && args+=(--allow)
+          node --no-warnings scripts/check-migration-safety.ts "${args[@]}" "${files[@]}"
