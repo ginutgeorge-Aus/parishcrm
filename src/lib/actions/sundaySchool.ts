@@ -254,7 +254,7 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       // per-(person, year) advisory lock, in sorted order to avoid deadlocks.
       for (const personId of [...ids].sort((a, b) => a - b)) {
         // nosemgrep: crm-no-raw-sql — advisory lock; Prisma has no locking API
-        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(${enrolmentLockKey(personId, year)}::bigint)`
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(${enrolmentLockKey(personId, year)}::bigint)` // nosemgrep: crm-no-raw-sql
       }
       // Lock the existing enrolment rows so a concurrent move can't change them
       // between this read and our write (stale movedFrom in audit/revalidation).
