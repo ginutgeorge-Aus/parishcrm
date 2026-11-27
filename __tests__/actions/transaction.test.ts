@@ -51,7 +51,7 @@ jest.mock("@/lib/crypto", () => ({
 }))
 
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(null), logAuditTx: jest.fn().mockResolvedValue(null) }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), assertUnlocked: jest.fn().mockResolvedValue(null) }))
 
 import { auth } from "@/auth"
 import { logAudit, logAuditTx } from "@/lib/audit"
@@ -61,7 +61,7 @@ import { redirect } from "next/navigation"
 import { createTransaction, updateTransaction, deleteTransaction } from "@/lib/actions/transaction"
 import { toggleReconciled, reconcileMany } from "@/lib/actions/transactionReconcile"
 import { encrypt } from "@/lib/crypto"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
 import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const mockSession = auth as jest.Mock
@@ -556,7 +556,7 @@ describe("updateTransaction", () => {
     mockUpdateMany.mockResolvedValue({ count: 1 })
     await updateTransaction(1, undefined, fd({ ...validTx, familyId: "" }))
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, reconciled: false },
       data: expect.objectContaining({ familyId: null, isGiving: false }),
     })
   })
@@ -569,7 +569,7 @@ describe("updateTransaction", () => {
     mockUpdateMany.mockResolvedValue({ count: 1 })
     await updateTransaction(1, undefined, fd({ ...validTx, familyId: "5" }))
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, reconciled: false },
       data: expect.objectContaining({ familyId: 5, isGiving: true }),
     })
   })
@@ -647,7 +647,7 @@ describe("updateTransaction", () => {
     const seen = "2026-07-02T10:00:00.000Z"
     await updateTransaction(1, undefined, fd({ ...validTx, updatedAt: seen }))
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: 1, updatedAt: new Date(seen) },
+      where: { id: 1, reconciled: false, updatedAt: new Date(seen) },
       data: expect.any(Object),
     })
   })
@@ -668,7 +668,7 @@ describe("updateTransaction", () => {
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
     mockUpdateMany.mockResolvedValue({ count: 0 })
     const result = await updateTransaction(1, undefined, fd(validTx))
-    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null }, data: expect.any(Object) })
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, reconciled: false }, data: expect.any(Object) })
     expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
   })
 
@@ -679,7 +679,29 @@ describe("updateTransaction", () => {
     mockUpdateMany.mockResolvedValue({ count: 1 })
     const seen = "2026-07-02T10:00:00.000Z"
     await updateTransaction(1, undefined, fd({ ...validTx, updatedAt: seen }))
-    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, updatedAt: new Date(seen) }, data: expect.any(Object) })
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, reconciled: false, updatedAt: new Date(seen) }, data: expect.any(Object) })
+  })
+
+  // AUD-3-08: lock and reconciled are re-checked inside the write transaction.
+  it("refuses when the row was reconciled after the pre-check (in-tx read)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValueOnce({ id: 1, reconciled: false }).mockResolvedValueOnce({ id: 1, reconciled: true })
+    mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
+    const result = await updateTransaction(1, undefined, fd(validTx))
+    expect(result).toEqual({ error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before editing." })
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses when a lock set after the pre-check covers the row (in-tx lock check)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    const stored = new Date("2026-05-01")
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, date: stored })
+    mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("This date is in a locked accounting period (on or before 2026-05-31).")
+    const result = await updateTransaction(1, undefined, fd(validTx))
+    expect(result).toEqual({ error: expect.stringMatching(/locked accounting period/) })
+    expect(assertUnlockedTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), stored)
+    expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 
   it("falls back to an id-only update when no updatedAt token is submitted", async () => {
@@ -689,7 +711,7 @@ describe("updateTransaction", () => {
     mockUpdateMany.mockResolvedValue({ count: 1 })
     await updateTransaction(1, undefined, fd(validTx))
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, reconciled: false },
       data: expect.any(Object),
     })
   })
@@ -741,7 +763,7 @@ describe("deleteTransaction", () => {
     mockFindUnique.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce(importedDeposit).mockResolvedValueOnce({ pettyCashTransferId: null })
     await deleteTransaction(1)
     expect(mockFindUnique).toHaveBeenCalledTimes(3)
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, reconciled: false } })
     // Skipped (pre-read + in-tx row only): no bankRef, non-XFER account, or EXPENSE type.
     for (const row of [
       { id: 1, bankRef: null, type: "INCOME", account: { code: "XFER" } },
@@ -796,9 +818,29 @@ describe("deleteTransaction", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1 })
     await deleteTransaction(1)
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, reconciled: false } })
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting")
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting/transactions")
+  })
+
+  // AUD-3-08: reconciled and the period lock are re-checked inside the delete transaction.
+  it("refuses when the row was reconciled after the pre-check, deleting nothing", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValueOnce({ id: 1, reconciled: false }).mockResolvedValueOnce({ id: 1, reconciled: true })
+    const result = await deleteTransaction(1)
+    expect(result).toEqual({ error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before deleting." })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it("refuses when a lock set after the pre-check covers the row, deleting nothing", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    const date = new Date("2018-01-10")
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, date })
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("This date is in a locked accounting period (on or before 2018-12-31).")
+    const result = await deleteTransaction(1)
+    expect(result).toEqual({ error: expect.stringMatching(/locked accounting period/) })
+    expect(assertUnlockedTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), date)
+    expect(mockDelete).not.toHaveBeenCalled()
   })
 
   it("rejects deleting an invoice payment", async () => {
@@ -843,7 +885,7 @@ describe("deleteTransaction", () => {
     oldDate.setFullYear(oldDate.getFullYear() - 8) // 8 years ago, past the floor
     mockFindUnique.mockResolvedValue({ id: 1, date: oldDate, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null })
     await deleteTransaction(1)
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, reconciled: false } })
   })
 
   it("returns a conflict (and does not audit) when a payment link landed after the read (0 rows)", async () => {
@@ -852,7 +894,7 @@ describe("deleteTransaction", () => {
     mockDelete.mockResolvedValue({ count: 0 })
     const result = await deleteTransaction(1)
     expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, reconciled: false } })
     expect(mockLogAuditTx).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
@@ -878,25 +920,27 @@ describe("deleteTransaction", () => {
 
 // --- toggleReconciled ---
 describe("toggleReconciled", () => {
+  beforeEach(() => mockUpdateMany.mockResolvedValue({ count: 1 }))
+
   it("blocks unauthenticated", async () => {
     mockSession.mockResolvedValue(null)
     const result = await toggleReconciled(1, 1)
     expect(result).toEqual({ error: "Unauthorized" })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 
   it("blocks AUDITOR", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "AUDITOR" } })
     const result = await toggleReconciled(1, 1)
     expect(result).toEqual({ error: "Unauthorized" })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 
   it("blocks VIEWER", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "VIEWER" } })
     const result = await toggleReconciled(1, 1)
     expect(result).toEqual({ error: "Unauthorized" })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 
   it("returns not found for missing transaction", async () => {
@@ -904,7 +948,7 @@ describe("toggleReconciled", () => {
     mockFindUnique.mockResolvedValue(null)
     const result = await toggleReconciled(99, 1)
     expect(result).toEqual({ error: "Not found" })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 
   it("rejects a transaction belonging to a different payment account", async () => {
@@ -912,7 +956,7 @@ describe("toggleReconciled", () => {
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 2 })
     const result = await toggleReconciled(1, 1)
     expect(result).toEqual({ error: "Not found" })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 
   it("flips false to true for ADMIN", async () => {
@@ -920,7 +964,7 @@ describe("toggleReconciled", () => {
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
     const result = await toggleReconciled(1, 1)
     expect(result).toBeUndefined()
-    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 1 }, data: { reconciled: true } })
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 1, reconciled: false }, data: { reconciled: true } })
   })
 
   it("flips true to false for PASTOR", async () => {
@@ -928,7 +972,7 @@ describe("toggleReconciled", () => {
     mockFindUnique.mockResolvedValue({ id: 5, reconciled: true, paymentAccountId: 1 })
     const result = await toggleReconciled(5, 1)
     expect(result).toBeUndefined()
-    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 5 }, data: { reconciled: false } })
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 5, reconciled: true }, data: { reconciled: false } })
   })
 
   it("refuses to un-reconcile either half of an invoice-unmark reversal pair", async () => {
@@ -937,7 +981,7 @@ describe("toggleReconciled", () => {
     ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValueOnce({ id: 99 })
     const result = await toggleReconciled(5, 1)
     expect(result).toEqual({ error: "This transaction is part of an invoice reversal and must stay reconciled." })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalled()
     expect(prisma.auditLog.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ OR: [
         { resourceId: 5, metadata: { path: ["source"], equals: "invoice-unmark" } },
@@ -960,7 +1004,7 @@ describe("toggleReconciled", () => {
   it("rethrows an unrelated failure from the toggle transaction", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
-    mockUpdate.mockRejectedValueOnce(new Error("db down"))
+    mockUpdateMany.mockRejectedValueOnce(new Error("db down"))
     await expect(toggleReconciled(1, 1)).rejects.toThrow("db down")
   })
 
@@ -991,12 +1035,35 @@ describe("toggleReconciled", () => {
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting/transactions")
   })
 
+  // AUD-3-08: lock re-checked inside the write; the flip is guarded on the flag as read.
+  it("refuses when a lock set after the pre-check covers the row, writing nothing", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    const date = new Date("2026-05-01")
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1, date })
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("This date is in a locked accounting period (on or before 2026-05-31).")
+    const result = await toggleReconciled(1, 1)
+    expect(result).toEqual({ error: expect.stringMatching(/locked accounting period/) })
+    expect(assertUnlockedTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), date)
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("returns a reload error (no audit) when a concurrent toggle already flipped the row", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+    const result = await toggleReconciled(1, 1)
+    expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
   it("allows petty cash transactions (no petty cash guard)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue({ id: 7, reconciled: false, paymentAccountId: 3 })
     const result = await toggleReconciled(7, 3)
     expect(result).toBeUndefined()
-    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 7 }, data: { reconciled: true } })
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 7, reconciled: false }, data: { reconciled: true } })
   })
 })
 
@@ -1064,6 +1131,18 @@ describe("reconcileMany", () => {
     ])
     await reconcileMany([1, 2], 1)
     expect(mockAssertUnlocked).toHaveBeenCalledWith(new Date("2026-05-01"))
+    // AUD-3-08: and again inside the write transaction.
+    expect(assertUnlockedTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), new Date("2026-05-01"))
+  })
+
+  it("refuses, writing nothing, when a lock set after the pre-check covers the selection (AUD-3-08)", async () => {
+    const LOCK_ERR = "This date is in a locked accounting period (on or before 2026-06-30)."
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([{ id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false }])
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce(LOCK_ERR)
+    expect(await reconcileMany([1], 1)).toEqual({ error: LOCK_ERR })
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
   it("maps a failed audit write to AUDIT_FAILED_ERROR with no success message", async () => {

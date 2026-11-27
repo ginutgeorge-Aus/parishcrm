@@ -19,7 +19,7 @@ jest.mock("@/lib/crypto", () => ({
 }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: (...a: unknown[]) => unknown) => fn }))
-jest.mock("@/lib/accountingLock", () => ({
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null),
   getAccountingLockDate: jest.fn(async () => null),
   isDateLocked: jest.fn(() => false),
 }))

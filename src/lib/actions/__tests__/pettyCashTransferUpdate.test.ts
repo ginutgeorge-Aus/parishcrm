@@ -13,7 +13,7 @@ jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`), decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")) }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
-jest.mock("@/lib/accountingLock", () => ({
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), holdAccountingLock: jest.fn(async () => undefined),
   assertUnlocked: jest.fn().mockResolvedValue(null),
   getAccountingLockDate: jest.fn().mockResolvedValue(null),
   isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked,
@@ -23,7 +23,7 @@ jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolv
 jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: jest.fn() } }))
 
 import { auth } from "@/auth"
-import { getAccountingLockDate } from "@/lib/accountingLock"
+import { assertUnlockedTx, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { prisma } from "@/lib/prisma"
 import { logAuditTx } from "@/lib/audit"
 import { redirect } from "next/navigation"
@@ -55,6 +55,8 @@ function makeTx(over: { transfer?: Record<string, unknown>; sessionOpen?: boolea
         .mockResolvedValueOnce(over.deposits ?? []),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    // assertMirrorNotReconciledTx's FOR UPDATE read of the mirror row.
+    $queryRaw: jest.fn().mockResolvedValue([{ reconciled: false }]),
   }
 }
 let tx: ReturnType<typeof makeTx>
@@ -78,6 +80,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
   ;(getAccountingLockDate as jest.Mock).mockResolvedValue(null)
+  ;(assertUnlockedTx as jest.Mock).mockResolvedValue(null)
   useTx(makeTx())
 })
 
@@ -91,7 +94,7 @@ describe("updateTransfer", () => {
       data: { amount: "1050.00", date: newDate, notes: "enc:re-keyed" },
     })
     expect(tx.transaction.updateMany).toHaveBeenCalledWith({
-      where: { pettyCashTransferId: 5 },
+      where: { pettyCashTransferId: 5, reconciled: false },
       data: { amount: "1050.00", date: newDate },
     })
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "PETTY_CASH_TRANSFER_UPDATED", "PettyCashTransfer", 5,
@@ -143,11 +146,28 @@ describe("updateTransfer", () => {
     ["the new date", "2026-08-01", "2026-07-31", new Date("2026-07-31T00:00:00.000Z")],
   ])("updateTransfer is refused when %s is locked", async (_label, oldDate, newDate, lock) => {
     useTx(makeTx({ transfer: { date: new Date(`${oldDate}T00:00:00.000Z`) } }))
-    ;(getAccountingLockDate as jest.Mock).mockResolvedValue(lock)
+    ;(assertUnlockedTx as jest.Mock).mockImplementation(async (_tx: unknown, d: Date) =>
+      isDateLocked(d, lock) ? "This date is in a locked accounting period (on or before 2026-07-31)." : null)
     await expect(updateTransfer(5, undefined, form({ date: newDate, expectedDate: oldDate }))).resolves.toEqual({ error: expect.stringMatching(/locked accounting period/) })
-    // The lock is read through the transaction client, not the global client.
-    expect(getAccountingLockDate).toHaveBeenCalledWith(tx)
+    // The lock is checked inside the transaction (AUD-3-08), through the tx-scoped helper.
+    expect(assertUnlockedTx).toHaveBeenCalledWith(tx, new Date(`${oldDate}T00:00:00.000Z`))
     expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
+  })
+
+  it("updateTransfer is refused when the mirror was reconciled after the read (row-locked re-check)", async () => {
+    const t = makeTx()
+    t.$queryRaw.mockResolvedValue([{ reconciled: true }])
+    useTx(t)
+    await expect(updateTransfer(5, undefined, form())).resolves.toEqual({ error: RECONCILED_EDIT_ERROR })
+    expect(tx.pettyCashTransfer.update).not.toHaveBeenCalled()
+  })
+
+  it("rolls the edit back when the mirror update matches no unreconciled row", async () => {
+    const t = makeTx()
+    t.transaction.updateMany.mockResolvedValue({ count: 0 })
+    useTx(t)
+    await expect(updateTransfer(5, undefined, form())).resolves.toEqual({ error: RECONCILED_EDIT_ERROR })
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 
   it("updateTransfer is refused when the transfer adopted an imported bank cash-out", async () => {

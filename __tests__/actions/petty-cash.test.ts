@@ -98,10 +98,10 @@ jest.mock("@/lib/crypto", () => ({
   }),
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined), logAuditTx: jest.fn().mockResolvedValue(undefined) }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null), getAccountingLockDate: jest.fn().mockResolvedValue(null), isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), holdAccountingLock: jest.fn(async () => undefined), assertUnlocked: jest.fn().mockResolvedValue(null), getAccountingLockDate: jest.fn().mockResolvedValue(null), isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked }))
 
 import { auth } from "@/auth"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, holdAccountingLock } from "@/lib/accountingLock"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
@@ -944,7 +944,7 @@ describe("updateReceipt", () => {
       data: expect.objectContaining({ accountId: 3, amount: "75.00", personId: null, notes: null }),
     })
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
-      where: { pettyCashReceiptId: 1 },
+      where: { pettyCashReceiptId: 1, reconciled: false },
       data: expect.objectContaining({
         amount: "75.00",
         accountId: 3,
@@ -963,6 +963,49 @@ describe("updateReceipt", () => {
     await updateReceipt(1, undefined, fd({ ...receiptFd, confirmDuplicate: "true" }))
     // PettyCashReceipt has no confirmDuplicate column — it must never reach Prisma.
     expect(mockUpdateReceipt.mock.calls[0][0].data.confirmDuplicate).toBeUndefined()
+  })
+
+  // AUD-3-08: lock and mirror-reconciled are re-checked inside the edit transaction.
+  it("refuses when the mirror was reconciled after the pre-check (row-locked re-check)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue({ ...openReceipt, transaction: { id: 40, reconciled: false } })
+    mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
+    mockQueryRaw.mockResolvedValueOnce([{ reconciled: true }])
+    const result = await updateReceipt(1, undefined, fd(receiptFd))
+    expect(result).toEqual({ error: "This entry's ledger transaction is reconciled. Un-reconcile it on the Reconciliation page before editing." })
+    expect(mockQueryRaw.mock.calls[0][1]).toBe(40)
+    expect(mockUpdateReceipt).not.toHaveBeenCalled()
+  })
+
+  it("takes the shared accounting lock before the session-row lock (lock order, AUD-3-08)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue(openReceipt)
+    mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
+    await updateReceipt(1, undefined, fd(receiptFd))
+    const hold = holdAccountingLock as jest.Mock
+    expect(hold).toHaveBeenCalledWith(prisma, "shared")
+    expect(hold.mock.invocationCallOrder[0]).toBeLessThan(mockUpdateManySession.mock.invocationCallOrder[0])
+  })
+
+  it("rolls back when the mirror update matches no unreconciled row", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue({ ...openReceipt, transaction: { id: 40, reconciled: false } })
+    mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
+    mockUpdateManyTransaction.mockResolvedValueOnce({ count: 0 })
+    const result = await updateReceipt(1, undefined, fd(receiptFd))
+    expect(result).toEqual({ error: "This entry's ledger transaction is reconciled. Un-reconcile it on the Reconciliation page before editing." })
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it("refuses when a lock set after the pre-check covers the session date, writing nothing", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue(openReceipt)
+    mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("This date is in a locked accounting period (on or before 2026-05-31).")
+    const result = await updateReceipt(1, undefined, fd(receiptFd))
+    expect(result).toEqual({ error: expect.stringMatching(/locked accounting period/) })
+    expect(assertUnlockedTx).toHaveBeenCalledWith(prisma, new Date("2026-05-11T00:00:00.000Z"))
+    expect(mockUpdateReceipt).not.toHaveBeenCalled()
   })
 
   it("allows PASTOR to update (matches createReceipt)", async () => {
@@ -1025,7 +1068,7 @@ describe("updateReceipt", () => {
       data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
-      where: { pettyCashReceiptId: 1 },
+      where: { pettyCashReceiptId: 1, reconciled: false },
       data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
   })
@@ -1058,7 +1101,7 @@ describe("updateReceipt", () => {
     mockFindPerson.mockResolvedValue({ id: 9, familyId: 42 })
     await updateReceipt(1, undefined, fd({ ...receiptFd, personId: "9" }))
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
-      where: { pettyCashReceiptId: 1 },
+      where: { pettyCashReceiptId: 1, reconciled: false },
       data: expect.objectContaining({ personId: 9, familyId: 42, isGiving: true }),
     })
   })
@@ -1069,7 +1112,7 @@ describe("updateReceipt", () => {
     mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
     await updateReceipt(1, undefined, fd(receiptFd)) // no personId in the form
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
-      where: { pettyCashReceiptId: 1 },
+      where: { pettyCashReceiptId: 1, reconciled: false },
       data: expect.objectContaining({ personId: null, familyId: null, isGiving: false }),
     })
     expect(mockFindPerson).not.toHaveBeenCalled()
@@ -1082,7 +1125,7 @@ describe("updateReceipt", () => {
     mockFindPerson.mockResolvedValue({ id: 9, familyId: null })
     await updateReceipt(1, undefined, fd({ ...receiptFd, personId: "9" }))
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
-      where: { pettyCashReceiptId: 1 },
+      where: { pettyCashReceiptId: 1, reconciled: false },
       data: expect.objectContaining({ personId: 9, familyId: null, isGiving: false }),
     })
   })
@@ -1257,6 +1300,16 @@ describe("deleteExpense", () => {
     expect(mockDeleteExpense).not.toHaveBeenCalled()
   })
 
+  it("blocks the delete when a lock set after the pre-check covers the session date (AUD-3-08)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("This date is in a locked accounting period (on or before 2026-06-30).")
+    const result = await deleteExpense(1)
+    expect(result).toEqual({ error: "This date is in a locked accounting period (on or before 2026-06-30)." })
+    expect(assertUnlockedTx).toHaveBeenCalledWith(prisma, new Date("2026-06-15T00:00:00.000Z"))
+    expect(mockDeleteExpense).not.toHaveBeenCalled()
+  })
+
   it("blocks PASTOR from deleting", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     const result = await deleteExpense(1)
@@ -1378,7 +1431,7 @@ describe("updateExpense", () => {
       data: expect.objectContaining({ payee: "enc:Kmart", description: "enc:Printer paper", accountId: 4, amount: "30.00", receiptRef: null }),
     })
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
-      where: { pettyCashExpenseId: 3 },
+      where: { pettyCashExpenseId: 3, reconciled: false },
       data: expect.objectContaining({
         amount: "30.00",
         accountId: 4,
@@ -1432,7 +1485,7 @@ describe("updateExpense", () => {
       data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
-      where: { pettyCashExpenseId: 3 },
+      where: { pettyCashExpenseId: 3, reconciled: false },
       data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
   })

@@ -9,12 +9,13 @@ import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { sendEmail } from "@/lib/email"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { assertUnlocked, getAccountingLockDate } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, getAccountingLockDate, holdAccountingLock } from "@/lib/accountingLock"
 import { isRealCalendarDate, isValidPgId } from "@/lib/validation"
 import { toCents, fmtAUD, centsToNumber, formatLongDate } from "@/lib/formatting"
 import { getChurchSettingsFresh } from "@/lib/churchSettings"
 import { buildInvoicePaidEmail } from "@/lib/invoiceEmail"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { featureGuard } from "@/lib/featureFlags"
 import { NOT_XFER, XFER_CODE } from "@/lib/xferAccount"
 import { sydneyToday } from "@/lib/dates"
@@ -107,9 +108,15 @@ async function linkExisting(inv: SentInvoice, transactionId: number, uid: number
   if (targetErr) return { error: targetErr }
   const moved = t.accountId !== inv.accountId || t.fundId !== inv.fundId ? { accountId: t.accountId, fundId: t.fundId } : null
   const res = await guarded(() => prisma.$transaction(async (tx) => {
+    // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+    // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+    await holdAccountingLock(tx, "shared")
     // Invoice lock first, so the reversed-row check below and the flip see one state.
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${inv.id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     if ((await reversedIds(tx, [t.id])).size > 0) return { error: "This transaction was reversed when an invoice was unmarked paid. Record a new payment instead." }
+    // Period-lock re-check inside the write (AUD-3-08); reconciled is re-checked by the LINKABLE predicate below.
+    const txLockErr = await assertUnlockedTx(tx, t.date)
+    if (txLockErr) return { error: txLockErr }
     const flip = await tx.invoice.updateMany({ where: { id: inv.id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.PAID, paidAt: t.date } })
     if (flip.count === 0) throw new Conflict()
     const linked = await tx.transaction.updateMany({
@@ -145,6 +152,9 @@ async function createPayment(inv: SentInvoice, date: string, paymentAccountId: n
   // Encrypt before the transaction so the row locks aren't held during slow work.
   const description = encrypt(`Invoice ${inv.invoiceNo} — ${inv.recipientName}`)
   const created = await guarded(() => prisma.$transaction(async (tx) => {
+    // Period-lock re-check inside the write (AUD-3-08): a lock set after the pre-check must still block it.
+    const txLockErr = await assertUnlockedTx(tx, paidAt)
+    if (txLockErr) return { error: txLockErr }
     const flip = await tx.invoice.updateMany({ where: { id: inv.id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.PAID, paidAt } })
     if (flip.count === 0) throw new Conflict()
     const row = await tx.transaction.create({
@@ -202,10 +212,15 @@ export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise
   return warning ? { success, warning } : { success }
 }
 
-/** Lock check for a payment's own date during unmark; the message says why the unmark is refused. */
-async function lockedPaymentError(date: Date | null): Promise<string | null> {
+/**
+ * Lock check for a payment's own date during unmark; the message says why the unmark is refused.
+ * Runs inside the unmark transaction and holds the shared accounting lock until it commits (AUD-3-08).
+ * @param tx the unmark's transaction client
+ * @param date the payment date, or null (nothing to check)
+ */
+async function lockedPaymentError(tx: Prisma.TransactionClient, date: Date | null): Promise<string | null> {
   if (!date) return null
-  const lockErr = await assertUnlocked(date)
+  const lockErr = await assertUnlockedTx(tx, date)
   return lockErr ? `The payment is in a locked accounting period, so it can't be unmarked. ${lockErr}` : null
 }
 
@@ -231,6 +246,9 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
   const reversalDate = sydneyToday()
   const uid = actorId(session)
   const ok = await guarded(() => prisma.$transaction(async (tx) => {
+    // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+    // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+    await holdAccountingLock(tx, "shared")
     // Lock the invoice first so the audit/row reads and the flip see one state (concurrent unmark + re-mark waits here).
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${id} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     // paidAt is re-read under the lock: the pre-transaction read can be stale if a concurrent unmark + re-mark changed it.
@@ -251,8 +269,8 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     // must be open. A created payment also gets a reversal row dated today, so today's period must be open too, and so must the
     // payment row's own date (equal to paidAt for a created payment; checked so the original is never in a locked period below).
     const lockErr = createMode
-      ? await assertUnlocked(reversalDate) ?? (await lockedPaymentError(paidAt) ?? (row ? await lockedPaymentError(row.date) : null))
-      : paidAt ? await assertUnlocked(paidAt) : null
+      ? await assertUnlockedTx(tx, reversalDate) ?? (await lockedPaymentError(tx, paidAt) ?? (row ? await lockedPaymentError(tx, row.date) : null))
+      : paidAt ? await assertUnlockedTx(tx, paidAt) : null
     if (lockErr) return { error: lockErr }
     // The reversal posts to the payment's own account and fund: both must still be usable.
     if (row && createMode) {

@@ -18,7 +18,7 @@ jest.mock("@/lib/cryptoCore", () => {
   }
 })
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null),
   getAccountingLockDate: jest.fn().mockResolvedValue(null),
   isDateLocked: jest.fn(() => false),
 }))
@@ -30,7 +30,8 @@ jest.mock("@/lib/prisma", () => ({
     appSetting: { findUnique: jest.fn() },
     paymentAccount: { findFirst: jest.fn(), findMany: jest.fn() },
     transaction: { findMany: jest.fn(), createMany: jest.fn(), create: jest.fn() },
-    $transaction: jest.fn(),
+    // Interactive transaction (the plain-row insert re-checks the lock in one, AUD-3-08): run on the same mock.
+    $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(jest.requireMock("@/lib/prisma").prisma)),
   },
 }))
 jest.mock("unpdf", () => ({ extractText: jest.fn() }))

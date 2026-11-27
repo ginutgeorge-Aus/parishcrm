@@ -12,7 +12,7 @@ import { toCents } from "@/lib/formatting"
 import { encrypt, decrypt } from "@/lib/crypto"
 import { splitDecryptionPlaceholders } from "@/lib/cryptoCore"
 import { logAuditTx } from "@/lib/audit"
-import { assertUnlocked, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, getAccountingLockDate, holdAccountingLock, isDateLocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem, legsByDepositRef } from "@/lib/pettyCashAdoption"
 import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, WINDOW_GUARD_TAG } from "@/lib/xferRefs"
@@ -20,7 +20,7 @@ import { MONEY_DECIMAL_RE, isOversizeMoney, isP2002, isP2034, isValidPgId, parse
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
-import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, RECONCILED_EDIT_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
+import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, RECONCILED_EDIT_ERROR, assertSessionOpenTx, assertMirrorNotReconciledTx, SessionClosedError } from "./pettyCashEntry"
 import { makeReplayDone } from "./pettyCashWriteErrors"
 import { featureGuard } from "@/lib/featureFlags"
 import { serializableWrite } from "@/lib/serializableWrite"
@@ -370,6 +370,9 @@ export async function createTransfer(
       })
       if (!existing) throw new TransferError("Session not found")
       if (existing.status === "CLOSED") throw new TransferError("Session is closed")
+      // Period-lock re-check inside the write (AUD-3-08): a lock set after the pre-check must still block it.
+      const txLockError = await assertUnlockedTx(tx, parsed.data.date)
+      if (txLockError) throw new TransferError(txLockError)
       const balance = calcRunningBalance(
         existing.openingBalance,
         existing.receipts,
@@ -548,6 +551,9 @@ export async function updateTransfer(
   let result: { error: string } | { sessionId: number }
   try {
     result = await serializableWrite<{ error: string } | { sessionId: number }>(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       const transfer = await tx.pettyCashTransfer.findUnique({
         where: { id },
         select: {
@@ -566,11 +572,11 @@ export async function updateTransfer(
       if (transfer.transaction?.reconciled) return { error: RECONCILED_EDIT_ERROR }
       if (transfer.transaction?.bankRef?.startsWith(XFER_OUT_PREFIX)) return { error: ADOPTED_EDIT_ERROR }
       // Both dates: moving a transfer out of, or into, a locked period would change closed books.
-      const lockDate = await getAccountingLockDate(tx)
-      for (const d of [transfer.date, date]) {
-        if (isDateLocked(d, lockDate))
-          return { error: `This date is in a locked accounting period (on or before ${lockDate!.toISOString().slice(0, 10)}).` }
-      }
+      // assertUnlockedTx holds the shared accounting lock, so a lock change can't commit before this edit (AUD-3-08).
+      const txLockError = await assertUnlockedTx(tx, transfer.date) ?? await assertUnlockedTx(tx, date)
+      if (txLockError) return { error: txLockError }
+      // Row-locked re-check: a reconcile committed after the read above must still block the edit.
+      await assertMirrorNotReconciledTx(tx, transfer.transaction?.id, RECONCILED_EDIT_ERROR)
       // Delete is blocked for a transfer dated on/after the retention floor: a correction must not
       // move it before the floor and so make it deletable early.
       const floor = retentionFloor()
@@ -602,10 +608,12 @@ export async function updateTransfer(
         data: { amount, date, ...(keepNotes ? {} : { notes: notes ? encrypt(notes) : null }) },
       })
       // updateMany: a transfer recorded before mirroring existed has no ledger row.
+      // reconciled: false — never rewrite a reconciled mirror; a mirror read above that now matches nothing rolls the edit back.
       const { count } = await tx.transaction.updateMany({
-        where: { pettyCashTransferId: id },
+        where: { pettyCashTransferId: id, reconciled: false },
         data: { amount, date },
       })
+      if (transfer.transaction && count === 0) throw new SessionClosedError(RECONCILED_EDIT_ERROR)
       await logAuditGuardedTx(tx, userId, "PETTY_CASH_TRANSFER_UPDATED", "PettyCashTransfer", id, {
         sessionId: transfer.sessionId,
         oldAmount: (toCents(transfer.amount) / 100).toFixed(2),
@@ -652,10 +660,16 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
   try {
     await prisma.$transaction(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       await assertSessionOpenTx(tx, transfer.session.id, "Cannot delete from closed session")
       // Concurrent delete: return a clean error instead of a P2025 from the delete below.
-      if (!(await tx.pettyCashTransfer.findUnique({ where: { id }, select: { id: true } })))
-        throw new TransferError("Transfer not found")
+      const current = await tx.pettyCashTransfer.findUnique({ where: { id }, select: { id: true, date: true } })
+      if (!current) throw new TransferError("Transfer not found")
+      // Period-lock re-check inside the delete (AUD-3-08), on the date as read in this tx.
+      const txLockError = await assertUnlockedTx(tx, current.date)
+      if (txLockError) throw new TransferError(txLockError)
       // Derived inside the tx (not from the pre-read) so a concurrent change to the
       // mirror can't leave `adopted` stale.
       let isAdopted = false
