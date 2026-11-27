@@ -351,6 +351,19 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
 }
 
 /**
+ * Message for a send whose claim matched no row: the row either left the status the
+ * document was built from (another send claimed it) or was edited after the read (#914).
+ * @param id Receipt id.
+ * @param readStatus Status the send read before building its document.
+ */
+async function claimLostError(id: number, readStatus: string): Promise<string> {
+  const now = await prisma.dgrReceipt.findUnique({ where: { id }, select: { status: true } })
+  if (now?.status === readStatus)
+    return "This receipt was edited while it was being prepared for sending. Refresh and send it again."
+  return "This receipt is already being sent or has already been sent."
+}
+
+/**
  * Email a DGR receipt to the donor. ADMIN/PASTOR only.
  *
  * @param id Receipt id.
@@ -439,12 +452,16 @@ export async function sendDgrReceipt(id: number, confirmedEmail?: string | null)
   const claimable: string[] = [DGR_STATUS.DRAFT, DGR_STATUS.FAILED, DGR_STATUS.UNKNOWN]
   if (!claimable.includes(row.status))
     return { error: "This receipt is already being sent or has already been sent." }
+  // The claim also matches the content the document was built from (#914). Every edit
+  // re-encrypts donorEmail with a fresh random IV, so the stored ciphertext changes on
+  // any edit and works as a version token without a schema column; donorName and
+  // totalAmount are matched too as a plain-value backstop. A DRAFT edited after our
+  // read is therefore not claimed, and the stale document is never emailed or frozen.
   const claim = await prisma.dgrReceipt.updateMany({
-    where: { id, status: row.status },
+    where: { id, status: row.status, donorEmail: row.donorEmail, donorName: row.donorName, totalAmount: row.totalAmount },
     data: { status: DGR_STATUS.SENDING, errorMessage: null, sentAt: claimAt },
   })
-  if (claim.count === 0)
-    return { error: "This receipt is already being sent or has already been sent." }
+  if (claim.count === 0) return { error: await claimLostError(id, row.status) }
 
   let frozenPdf: ReturnType<typeof encryptBytes> | undefined
   try {

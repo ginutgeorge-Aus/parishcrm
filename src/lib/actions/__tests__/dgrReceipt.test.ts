@@ -933,10 +933,40 @@ describe("sendDgrReceipt", () => {
   })
 
   it("rejects a concurrent send whose claim loses the race, without emailing", async () => {
-    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    ;(prisma.dgrReceipt.findUnique as jest.Mock)
+      .mockResolvedValueOnce(draftReceipt)
+      .mockResolvedValueOnce({ status: "SENDING" }) // re-read: another send claimed it
     ;(prisma.dgrReceipt.updateMany as jest.Mock).mockResolvedValue({ count: 0 }) // no claimable row
     const res = await sendDgrReceipt(5)
     expect(res).toEqual({ error: expect.stringMatching(/already being sent|already been sent/i) })
+    expect(mockRenderPdf).not.toHaveBeenCalled()
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("claims only the content the document was built from (#914)", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock).mockResolvedValue(draftReceipt)
+    mockRenderPdf.mockResolvedValue(Buffer.from("pdf"))
+    mockSendEmail.mockResolvedValue(undefined)
+    await sendDgrReceipt(5)
+    const claim = (prisma.dgrReceipt.updateMany as jest.Mock).mock.calls[0][0]
+    expect(claim.where).toEqual({
+      id: 5,
+      status: "DRAFT",
+      donorEmail: draftReceipt.donorEmail,
+      donorName: draftReceipt.donorName,
+      totalAmount: draftReceipt.totalAmount,
+    })
+  })
+
+  it("refuses to send a DRAFT edited between the read and the claim, without emailing (#914)", async () => {
+    ;(prisma.dgrReceipt.findUnique as jest.Mock)
+      .mockResolvedValueOnce(draftReceipt)
+      .mockResolvedValueOnce({ status: "DRAFT" }) // still DRAFT, but content changed
+    ;(prisma.dgrReceipt.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const res = await sendDgrReceipt(5)
+    expect(res).toEqual({ error: expect.stringMatching(/edited while it was being prepared/i) })
+    expect(prisma.dgrReceipt.updateMany).toHaveBeenCalledTimes(1)
     expect(mockRenderPdf).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
     expect(mockLogAudit).not.toHaveBeenCalled()
