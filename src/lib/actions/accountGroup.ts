@@ -98,9 +98,10 @@ export async function updateAccountGroup(
       }
       await tx.accountGroup.update({ where: { id }, data: parsed.data })
       return null
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (isP2002(e)) return { error: "A group with this name already exists for this type" }
+    if (isP2034(e)) return { error: "This group was changed at the same time by someone else — try again." }
     throw e
   }
   if (guardError) return { error: guardError }

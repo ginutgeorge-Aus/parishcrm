@@ -169,7 +169,7 @@ test("deleteFund writes an audit row (AUD-3-10)", async () => {
 
 test("updateFund records before and after (AUD-3-10)", async () => {
   mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
-  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Building", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null).mockResolvedValueOnce({ name: "Building", isActive: true, sortOrder: 0 })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValueOnce({ id: 2, name: "Earlier", isActive: true, sortOrder: 0 }).mockResolvedValueOnce(null).mockResolvedValueOnce({ name: "Building", isActive: true, sortOrder: 0 })
   await expect(updateFund(2, undefined, fd({ name: "Hall", isActive: "on", sortOrder: "3" }))).rejects.toThrow("REDIRECT")
   expect(logAudit).toHaveBeenCalledWith(1, "FUND_UPDATED", "Fund", 2, {
     before: { name: "Building", isActive: true, sortOrder: 0 },
