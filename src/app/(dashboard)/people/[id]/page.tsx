@@ -383,10 +383,10 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground mb-1">
-            <Link href="/families" className="hover:underline">Families</Link>
+            <Link href="/families"className="hover:underline">Families</Link>
             {" / "}
             <Link href={`/families/${person.family.id}`} className="hover:underline">
               {person.family.name}

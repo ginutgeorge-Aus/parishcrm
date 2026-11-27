@@ -191,15 +191,15 @@ export function PersonForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="mobile">Mobile</Label>
-            <Input id="mobile" name="mobile" defaultValue={person?.mobile ?? ""} />
+            <Input id="mobile" name="mobile" type="tel" autoComplete="off"defaultValue={person?.mobile ?? ""} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="workPhone">Work phone</Label>
-            <Input id="workPhone" name="workPhone" defaultValue={person?.workPhone ?? ""} />
+            <Input id="workPhone" name="workPhone" type="tel" autoComplete="off"defaultValue={person?.workPhone ?? ""} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="homePhone">Home phone</Label>
-            <Input id="homePhone" name="homePhone" defaultValue={person?.homePhone ?? ""} />
+            <Input id="homePhone" name="homePhone" type="tel" autoComplete="off"defaultValue={person?.homePhone ?? ""} />
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -278,7 +278,7 @@ export function PersonForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="emergencyContactPhone">Emergency phone</Label>
-              <Input id="emergencyContactPhone" name="emergencyContactPhone" defaultValue={person?.emergencyContactPhone ?? ""} />
+              <Input id="emergencyContactPhone" name="emergencyContactPhone" type="tel" autoComplete="off"defaultValue={person?.emergencyContactPhone ?? ""} />
             </div>
           </div>
         </section>

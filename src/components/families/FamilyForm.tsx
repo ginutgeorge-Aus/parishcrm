@@ -91,13 +91,13 @@ export function FamilyForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="postcode">Postcode</Label>
-          <Input id="postcode" name="postcode" defaultValue={family?.postcode ?? ""} />
+          <Input id="postcode" name="postcode" autoComplete="postal-code" defaultValue={family?.postcode ?? ""} />
         </div>
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="homePhone">Home phone</Label>
-        <Input id="homePhone" name="homePhone" defaultValue={family?.homePhone ?? ""} />
+        <Input id="homePhone" name="homePhone" type="tel" autoComplete="off"defaultValue={family?.homePhone ?? ""} />
       </div>
 
       <div className="space-y-2">
