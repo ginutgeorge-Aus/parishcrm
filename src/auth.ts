@@ -217,7 +217,7 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
       void logAudit(user.id, "USER_LOGIN", "User", user.id, { deviceTrustGrant: "failed" }, ip)
     }
   }
-  void logAudit(user.id, "USER_LOGIN", "User", user.id, undefined, ip)
+  void logAudit(user.id, "USER_LOGIN", "User", user.id, { via: "otp" }, ip)
   return {
     ...(deviceTrustGrant ? { deviceTrustGrant } : {}),
     id: String(user.id),
@@ -595,7 +595,7 @@ export async function authorizeCredentials(
     process.env.DISABLE_OTP === "true" &&
     (process.env.NODE_ENV !== "production" || process.env.E2E_ALLOW_TEST_OVERRIDES === "true")
   ) {
-    void logAudit(user.id, "USER_LOGIN", "User", user.id, undefined, ip)
+    void logAudit(user.id, "USER_LOGIN", "User", user.id, { via: "otp_disabled" }, ip)
     return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: credentials.remember === "true" }
   }
 
@@ -611,7 +611,7 @@ export async function authorizeCredentials(
     })
     if (device) {
       await prisma.trustedDevice.update({ where: { id: device.id }, data: { lastUsedAt: new Date() } })
-      void logAudit(user.id, "USER_LOGIN", "User", user.id, undefined, ip)
+      void logAudit(user.id, "USER_LOGIN", "User", user.id, { via: "trusted_device" }, ip)
       // Trusted-device controls whether OTP is skipped; the submitted `remember`
       // flag independently controls session length. Honour it here like every
       // other success path — hardcoding remember:true would grant the

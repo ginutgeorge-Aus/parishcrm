@@ -488,6 +488,15 @@ describe("hmacMobile ( mobile blind index)", () => {
     expect(hmacMobile("61412345678")).toBe(local)
   })
 
+  it("drops the redundant trunk 0 after the country code and folds 0061 (AUD-1-12)", async () => {
+    const { hmacMobile } = await import("@/lib/crypto")
+    const local = hmacMobile("0412345678")
+    expect(hmacMobile("+61 0412 345 678")).toBe(local)
+    expect(hmacMobile("0061 412 345 678")).toBe(local)
+    expect(hmacMobile("+61 (0)412 345 678")).toBe(local)
+    expect(hmacMobile("0412345679")).not.toBe(local)
+  })
+
   it("normalises spaced and dashed formatting to the same digest", async () => {
     const { hmacMobile } = await import("@/lib/crypto")
     const base = hmacMobile("0412345678")

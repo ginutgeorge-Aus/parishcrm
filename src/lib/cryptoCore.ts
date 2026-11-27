@@ -272,9 +272,23 @@ export function hmacEmail(email: string): string {
 // reason for existing). Strips everything but digits (keeping a leading `+`
 // just long enough to detect the country code), then folds a `+61`/`61`
 // prefix down to the local `0` form.
+/**
+ * Canonical local form of a mobile number for the blind index (AUD-1-12). Strips non-digits, then
+ * folds an Australian country code (`+61`, `0061`, or a bare 11-digit `61...`) to the local `0`
+ * form, dropping a redundant trunk `0` after the code (`+61 0412...` is the same number as
+ * `0412...`). Anything else is hashed as its digits only.
+ * @param mobile the number as typed or stored
+ * @returns the normalised digit string
+ */
 function normaliseMobile(mobile: string): string {
-  const digitsAndLeadingPlus = mobile.trim().replace(/(?!^\+)[^\d]/g, "")
-  return digitsAndLeadingPlus.replace(/^\+?61/, "0")
+  const trimmed = mobile.trim()
+  const digits = trimmed.replace(/\D/g, "")
+  let rest: string | null = null
+  if (trimmed.startsWith("+") && digits.startsWith("61")) rest = digits.slice(2)
+  else if (digits.startsWith("0061")) rest = digits.slice(4)
+  else if (digits.length === 11 && digits.startsWith("61")) rest = digits.slice(2)
+  if (rest === null) return digits
+  return "0" + rest.replace(/^0/, "")
 }
 
 // same blind-index pattern as hmacEmail, over mobile numbers — lets

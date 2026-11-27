@@ -1,18 +1,21 @@
 import type { NextAuthConfig } from "next-auth"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 
-// Edge-compatible auth config (no Node.js dependencies)
-// Used by middleware for JWT validation only
+// Lean auth config (callbacks only, no Prisma/bcrypt). Used by middleware for JWT validation only;
+// middleware runs on the Node runtime (see src/middleware.ts).
 export const authConfig: NextAuthConfig = {
   providers: [],
   pages: { signIn: "/login" },
+  // 7-day cookie life, matching auth.ts. Without it the middleware instance re-issues the cookie
+  // with NextAuth's 30-day default (AUD-1-06). Shorter windows are enforced in auth.ts's jwtCallback.
+  session: { strategy: "jwt", maxAge: 604800 },
   callbacks: {
     // Copy role + id from the JWT onto req.auth.user for middleware. The token
-    // is written by auth.ts's Node jwtCallback (which has DB access); this Edge
+    // is written by auth.ts's Node jwtCallback (which has DB access); this lean
     // config has no jwt callback, and NextAuth's default session shaping drops
     // custom claims — so without this, `req.auth.user.role` is undefined in
     // middleware and the EVENT_ORGANISER confinement never fires. Mirrors the
-    // session callback in auth.ts. (type-only UserRole import → Edge-safe.)
+    // session callback in auth.ts. 
     session({ session, token }) {
       if (session.user) {
         if (token.role) session.user.role = token.role as UserRole

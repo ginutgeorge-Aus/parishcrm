@@ -1126,7 +1126,7 @@ describe("authorizeCredentials — trusted device skip", () => {
     expect(result).toEqual({ id: "1", name: "Admin User", email: "admin@example.com", role: "ADMIN", remember: false })
     expect(sendOtpEmail).not.toHaveBeenCalled()
     expect(prisma.trustedDevice.update).toHaveBeenCalled() // lastUsedAt bumped
-    expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN", "User", 1, undefined, undefined)
+    expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN", "User", 1, { via: "trusted_device" }, undefined)
   })
 
   it("clears a stale password-failure counter on a trusted-device login", async () => {
