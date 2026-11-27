@@ -1042,8 +1042,8 @@ model BrandingAsset {
   updatedAt DateTime     @updatedAt
 }
 
-// Append-only. A DB trigger (`audit_log_no_mutate`, migration
-// 20260613000000_audit_log_append_only) blocks UPDATE/DELETE at the
+// Append-only. A DB trigger (`audit_log_no_mutate`, in the baseline migration
+// 20260925000000_baseline) blocks UPDATE/DELETE at the
 // database layer — Prisma does not model triggers, so it lives only in the
 // migration SQL. Insert via logAudit() only; never update/delete from app code.
 model AuditLog {

@@ -3,6 +3,7 @@ import { UserRole } from "../src/lib/generated/prisma/enums"
 import { PrismaPg } from "@prisma/adapter-pg"
 import bcrypt from "bcryptjs"
 import { isDemoEmail, DEMO_DOMAIN_RESERVED } from "../src/lib/demoMode"
+import { dbHost } from "./lib/script-helpers"
 import { userIdByEmailSql } from "../src/lib/userEmailSql"
 
 const DATABASE_URL = process.env.DATABASE_URL
@@ -37,6 +38,8 @@ async function main() {
     return
   }
 
+  // Show which database is being written so a wrong DATABASE_URL is obvious.
+  console.log(`Target database host: ${dbHost(DATABASE_URL)}`)
   const passwordHash = await bcrypt.hash(password, 12)
   const user = await prisma.user.create({
     data: { email, passwordHash, role, name: email.split("@")[0] },
@@ -44,6 +47,7 @@ async function main() {
   console.log(`Created user: ${user.email} (id=${user.id}, role=${user.role})`)
 }
 
+// A failure must exit non-zero so setup automation does not report success with no admin (AUD-7-08).
 main()
-  .catch(console.error)
+  .catch((e) => { console.error(e); process.exitCode = 1 })
   .finally(() => prisma.$disconnect())

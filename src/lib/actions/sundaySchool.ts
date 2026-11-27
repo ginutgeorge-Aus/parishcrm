@@ -171,21 +171,24 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
     if (!r.live) return { error: r.error }
   } catch (e) {
     if (e instanceof Error && e.message === NOT_TEACHER) return { error: NOT_TEACHER }
-    // Already assigned (unique classId_personId) — idempotent.
+    // Already assigned (unique classId_personId) — idempotent, nothing changed so no audit row (AUD-5-35).
     if (!isP2002(e)) throw e
+    return
   }
   await logAudit(actorId(g.session), "SS_TEACHER_ADDED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
 }
 
-/** Remove a teacher from a class (missing link = success). canManageSundaySchool-gated. */
+/** Remove a teacher from a class (missing link = success, no audit row). canManageSundaySchool-gated. */
 export async function removeTeacher(classId: number, personId: number): Promise<ActionResult> {
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
   const r = await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.deleteMany({ where: { classId, personId } }))
   if (!r.live) return { error: r.error }
+  // Nothing removed (no such link): no audit row (AUD-5-35).
+  if (r.value.count === 0) return
   await logAudit(actorId(g.session), "SS_TEACHER_REMOVED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
