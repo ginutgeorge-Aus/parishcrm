@@ -730,6 +730,7 @@ model CheckoutSession {
   @@index([status, expiresAt])
   @@index([registrationId])
   @@index([fundraiserEntryId])
+  @@index([eventId])
 }
 
 model EventImage {
@@ -757,6 +758,8 @@ model TicketType {
   createdAt          DateTime           @default(now())
   registrationItems  RegistrationItem[]
   waitlist           Waitlist[]
+
+  @@index([eventId])
 }
 
 model Waitlist {
@@ -815,6 +818,8 @@ model Registration {
   // capacity checks filter (eventId, paymentStatus).
   @@index([eventId])
   @@index([eventId, paymentStatus])
+  // Stripe webhook / refund lookups by payment reference (AUD-6-11). Not unique: legacy rows may repeat.
+  @@index([paymentRef])
   // settings page: findMany orderBy createdAt desc take 5 — index avoids full-table sort.
   @@index([createdAt])
 }
@@ -930,7 +935,7 @@ model PettyCashReceipt {
   session         PettyCashSession @relation(fields: [sessionId], references: [id])
   date            DateTime
   serviceTypeId   Int?
-  serviceType     ServiceType?     @relation(fields: [serviceTypeId], references: [id])
+  serviceType     ServiceType?     @relation(fields: [serviceTypeId], references: [id], onDelete: Restrict)
   accountId       Int
   account         Account          @relation(fields: [accountId], references: [id])
   personId        Int?
@@ -955,6 +960,7 @@ model PettyCashReceipt {
   @@index([sessionId])
   @@index([accountId])
   @@index([fundId])
+  @@index([personId])
   // pettyCashImport.ts filters by date range — same index Transaction
   // already has for the equivalent bank-import date-range query.
   @@index([date])

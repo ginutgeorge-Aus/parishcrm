@@ -31,6 +31,8 @@ export const DEFAULT_JOBS: Jobs = {
   venueInvoice: async (now) => (await import("@/lib/venueInvoiceJob")).runVenueInvoiceJob(now),
   // Interval job: retries group emails left queued/failed (SMTP blip, missed immediate drain).
   groupMessages: async (now) => (await import("@/lib/groupMessageDeliver")).runGroupMessageSweep(now),
+  // Daily, always on (no env flag): purges ErrorLog + RouteViewDaily older than 90 days (AUD-6-06).
+  telemetryPurge: async (now) => (await import("@/lib/telemetryPurge")).runTelemetryPurge(now),
 }
 
 /** True for a gated job's feature-off result — not a success, so the period stays open. */
@@ -103,17 +105,66 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
   }
 }
 
+/** Jobs currently awaited by a tick, so shutdown can wait for them (AUD-6-08). */
+const inFlight = new Set<Promise<void>>()
+/** Set once shutdown starts: later ticks start nothing. */
+let stopping = false
+
+/**
+ * Run every due job once. Never rejects: an unhandled rejection from the timer would take down the web server.
+ * @param state - Scheduler state (mutated).
+ * @param jobs - Job implementations.
+ * @param now - Current instant.
+ */
 export async function tick(state: SchedulerState, jobs: Jobs, now: Date = new Date()): Promise<void> {
-  // Never reject: an unhandled rejection from the timer would take down the web server.
+  if (stopping) return
   try {
     const due = dueJobs(now, state)
     // Claim every due job before awaiting any, so an overlapping tick can't pick one up too.
     for (const name of due) state[name].running = true
     // Concurrent, not sequential: a hung job must not hold back (or keep claimed) the others.
-    await Promise.all(due.map((name) => runJob(name, state, jobs[name], now)))
+    await Promise.all(due.map((name) => {
+      const p = runJob(name, state, jobs[name], now)
+      inFlight.add(p)
+      return p.finally(() => inFlight.delete(p))
+    }))
   } catch (err) {
     log("error", { message: `tick failed: ${err instanceof Error ? err.message : String(err)}` })
   }
+}
+
+/** How long shutdown waits for running jobs before closing the database anyway. */
+const SHUTDOWN_GRACE_MS = 8_000
+
+/**
+ * Graceful stop for SIGTERM (AUD-6-08): stop new ticks, give running jobs a short grace period to finish (so
+ * their claims are released rather than left to time out), then close the database connections.
+ * Best effort: in production Next's own SIGTERM handler owns process exit and does not await this, so the
+ * process can exit once HTTP drain finishes, before the grace period elapses. A job cut off then keeps its
+ * claim until the lease expires.
+ * @param disconnect - Closes the DB pool; injectable for tests.
+ * @param graceMs - Max time to wait for running jobs.
+ */
+export async function shutdownScheduler(
+  disconnect: () => Promise<unknown>,
+  graceMs: number = SHUTDOWN_GRACE_MS,
+): Promise<void> {
+  stopping = true
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const grace = new Promise<void>((resolve) => { timer = setTimeout(resolve, graceMs) })
+  await Promise.race([Promise.allSettled([...inFlight]), grace])
+  clearTimeout(timer)
+  try {
+    await disconnect()
+  } catch (err) {
+    log("error", { message: `disconnect failed: ${err instanceof Error ? err.message : String(err)}` })
+  }
+}
+
+/** Test hook: re-arm ticks after a shutdown test. */
+export function resetShutdownForTests(): void {
+  stopping = false
+  inFlight.clear()
 }
 
 const GUARD = "__parishcrmScheduler"
@@ -129,6 +180,9 @@ export function startScheduler(jobs: Jobs = DEFAULT_JOBS): boolean {
     run()
     setInterval(run, TICK_MS).unref()
   }, FIRST_TICK_MS).unref()
+  // On SIGTERM stop ticking and let running jobs finish. Deliberately no $disconnect and no process.exit:
+  // Next's own SIGTERM handler drains HTTP requests and owns the exit, and closing the pool here would race it.
+  process.once("SIGTERM", () => void shutdownScheduler(async () => {}))
   // The timer only fires while the process is up — say so once, since a host that
   // scales to zero would otherwise stop every job without a signal.
   log("info", { message: "in-app scheduler started — keep the app always on, or set IN_APP_CRON=false and call /api/cron/* externally" })
