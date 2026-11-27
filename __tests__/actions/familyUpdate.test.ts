@@ -127,7 +127,7 @@ describe("submitFamilyUpdate", () => {
   it("keys the rate limit on the proxy-derived IP, falling back to unknown", async () => {
     mockRequestHeaders.set("x-forwarded-for", "203.0.113.7")
     await submitFamilyUpdate(goodInput)
-    expect(rateLimit).toHaveBeenCalledWith(expect.stringMatching(/^familyUpdate:203\.0\.113\.7:[0-9a-f]{16}$/), 5, 10 * 60_000)
+    expect(rateLimit).toHaveBeenCalledWith("familyUpdate:203.0.113.7", 5, 10 * 60_000)
 
     mockRequestHeaders.clear()
     await submitFamilyUpdate(goodInput)

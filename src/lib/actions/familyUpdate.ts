@@ -130,10 +130,12 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
   const ip = rateKeyFromHeaders(await headers())
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
-  // The invite token hash is in the key so, when no client IP is available (all visitors share
-  // "unknown"), one visitor cannot exhaust every family's allowance.
+  // A known IP always gets its own bucket, which the caller cannot dodge by varying the token.
+  // With no IP available (all visitors would share "unknown"), fall back to a per-token bucket
+  // so one visitor cannot exhaust every family's allowance.
   const tokenKey = typeof input.token === "string" ? hashInviteToken(input.token).slice(0, 16) : "none"
-  if (!rateLimit(`familyUpdate:${ip}:${tokenKey}`, 5, 10 * 60_000)) return { error: "Too many requests" }
+  const rateKey = ip === "unknown" ? `familyUpdate:unknown:${tokenKey}` : `familyUpdate:${ip}`
+  if (!rateLimit(rateKey, 5, 10 * 60_000)) return { error: "Too many requests" }
   // Public form: generic message, never the admin wording.
   if (await featureGuard("familyUpdates")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 
