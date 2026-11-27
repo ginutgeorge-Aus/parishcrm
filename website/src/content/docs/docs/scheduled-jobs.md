@@ -26,7 +26,7 @@ scheduler.
 database, and each job saves the time of its last full success. `GET /api/health`
 reports a coarse `scheduler` field next to `status`: `ok` (ticked in the last 15
 minutes), `stale` (it did not; the timer is stuck or the app is down), `off`
-(in-app scheduler disabled) or `unknown` (no tick yet, e.g. just after boot). A
+(in-app scheduler disabled) or `unknown` (no tick yet since the app started, or the status could not be read). A
 stale scheduler never fails the probe, so point your uptime monitor at the field
 rather than the status code.
 

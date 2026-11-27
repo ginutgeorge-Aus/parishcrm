@@ -9,6 +9,10 @@ import { schedulerEnabled } from "@/lib/schedulerFlag"
 export const HEARTBEAT_KEY = "scheduler.heartbeat"
 /** Three missed 5-minute ticks: the timer is stuck or the process is down. */
 export const HEARTBEAT_STALE_MS = 15 * 60_000
+/** This process's start: a heartbeat older than it is from a previous run, not evidence of a stuck timer. */
+const BOOT_AT = Date.now()
+/** First tick runs 60s after boot (schedulerRunner FIRST_TICK_MS); allow a minute of slack. */
+const BOOT_GRACE_MS = 2 * 60_000
 
 /**
  * AppSetting key holding a job's last-success instant.
@@ -19,7 +23,11 @@ export function lastSuccessKey(job: string): string {
   return `job.lastSuccess.${job}`
 }
 
-/** Upserts one setting value. */
+/**
+ * Upserts one setting value.
+ * @param key - AppSetting key.
+ * @param value - Value to store.
+ */
 async function put(key: string, value: string): Promise<void> {
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } })
 }
@@ -72,7 +80,10 @@ export async function schedulerHealth(now: Date = new Date(), env: Record<string
     const row = await prisma.appSetting.findUnique({ where: { key: HEARTBEAT_KEY } })
     const at = row ? new Date(row.value).getTime() : NaN
     if (Number.isNaN(at)) return "unknown"
-    return now.getTime() - at > HEARTBEAT_STALE_MS ? "stale" : "ok"
+    if (now.getTime() - at <= HEARTBEAT_STALE_MS) return "ok"
+    // Old heartbeat from before this boot, first tick not due yet: not stale.
+    if (at < BOOT_AT && now.getTime() - BOOT_AT < BOOT_GRACE_MS) return "unknown"
+    return "stale"
   } catch {
     return "unknown"
   }

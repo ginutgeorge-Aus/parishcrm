@@ -5,7 +5,7 @@ import { recordHeartbeat, recordJobSuccess, readJobLastSuccess, schedulerHealth,
 jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { upsert: jest.fn(), findUnique: jest.fn() } } }))
 const upsert = prisma.appSetting.upsert as jest.Mock
 const findUnique = prisma.appSetting.findUnique as jest.Mock
-const NOW = new Date("2026-07-01T00:00:00Z")
+const NOW = new Date(Date.now() + 3600_000) // an hour after this process booted
 const ON = { IN_APP_CRON: "true" }
 
 beforeEach(() => jest.resetAllMocks())
@@ -43,5 +43,10 @@ describe("jobStatus", () => {
     expect(await schedulerHealth(NOW, ON)).toBe("stale")
     findUnique.mockRejectedValueOnce(new Error("down"))
     expect(await schedulerHealth(NOW, ON)).toBe("unknown")
+  })
+
+  it("schedulerHealth: old heartbeat just after boot is unknown, not stale", async () => {
+    findUnique.mockResolvedValueOnce({ value: new Date(Date.now() - 3600_000).toISOString() })
+    expect(await schedulerHealth(new Date(), ON)).toBe("unknown")
   })
 })

@@ -36,6 +36,7 @@ describe("tick", () => {
   it("saves a heartbeat every tick and each job's last success", async () => {
     mockStatus.recordHeartbeat.mockClear(); mockStatus.recordJobSuccess.mockClear()
     await tick(initialState(), jobs(), NOW)
+    await new Promise((r) => setImmediate(r)) // status writes are fire-and-forget
     expect(mockStatus.recordHeartbeat).toHaveBeenCalledWith(NOW)
     expect(mockStatus.recordJobSuccess).toHaveBeenCalledWith("reminders", expect.any(Date))
     expect(mockStatus.recordJobSuccess).toHaveBeenCalledWith("checkouts", expect.any(Date))

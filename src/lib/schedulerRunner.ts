@@ -65,6 +65,14 @@ function log(level: "info" | "error", fields: Record<string, unknown>): void {
   else console.log(line)
 }
 
+/**
+ * Runs one job under the timeout race, then updates the in-memory state. On a
+ * full success it also saves the job's last-success time (best effort, not awaited).
+ * @param name - Job name.
+ * @param state - In-memory schedule state.
+ * @param fn - Job implementation.
+ * @param now - Tick instant.
+ */
 async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], now: Date): Promise<void> {
   const s = state[name]
   recordStart(name, state, now)
