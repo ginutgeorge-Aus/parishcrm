@@ -53,6 +53,14 @@ describe("POST /api/import/families", () => {
     expect(res.status).toBe(401)
   })
 
+  it("returns 400 (not 500) for a text value in the file field (AUD-2-16)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const fd = new FormData()
+    fd.set("file", "not a file")
+    const res = await POST(new NextRequest("http://localhost/api/import/families", { method: "POST", body: fd, headers: { "content-length": "100" } }))
+    expect(res.status).toBe(400)
+  })
+
   it("returns 403 for non-ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     const res = await POST(makeCsvRequest("family_name,first_name,last_name\n"))

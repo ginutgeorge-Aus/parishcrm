@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation"
+import { genderLabel } from "@/lib/familyLabels"
 import Link from "next/link"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
@@ -122,7 +123,7 @@ function PersonInfoCards({
         <CardHeader><CardTitle className="text-base">Basic</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           {field("Date of birth", dob)}
-          {field("Gender", person.gender)}
+          {field("Gender", genderLabel(person.gender))}
         </CardContent>
       </Card>
 

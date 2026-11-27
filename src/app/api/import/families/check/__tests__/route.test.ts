@@ -30,7 +30,7 @@ function personRow(name: string, first: string, memberNo: string | null = null) 
 }
 
 function req(fileText = "csv") {
-  const file = { size: 10, text: async () => fileText }
+  const file = new File([fileText], "import.csv")
   return {
     headers: { get: () => null },
     formData: async () => ({ get: (k: string) => (k === "file" ? file : null) }),

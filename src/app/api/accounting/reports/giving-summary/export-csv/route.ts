@@ -1,35 +1,29 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { canViewAccounting, canViewPeople } from "@/lib/roleGuard"
+import { canViewPeople } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromRequest } from "@/lib/clientIp"
-import { rateLimit } from "@/lib/rateLimit"
+import { guardAccountingExport, fyYearParamOr400 } from "@/lib/reports/exportGuard"
 import { getGivingSummary, generateGivingSummaryCsv } from "@/lib/givingSummary"
-import { currentFYYear } from "@/lib/fiscalYear"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
 
 /** GET /api/accounting/reports/giving-summary/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  // Read-only accounting roles (ADMIN|PASTOR|AUDITOR|OFFICE_ADMIN) — matches
-  // the report page guard; exporting a read-only report shouldn't require
-  // mutation permission.
-  if (!canViewAccounting(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
+  // Read-only accounting roles (ADMIN|PASTOR|AUDITOR|OFFICE_ADMIN) — matches the report page
+  // guard; also rate-limits per actor because each call decrypts one email per giving family.
+  const guard = await guardAccountingExport("giving-summary")
+  if (guard instanceof NextResponse) return guard
   const off = await featureNotFound("accounting")
   if (off) return off
-  // Each call decrypts one email per giving family; cap per-user volume.
-  if (!rateLimit(`export:giving-summary:${actorId(session)}`, 10, 60_000)) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
 
-  const parsed = Number.parseInt(req.nextUrl.searchParams.get("year") ?? String(currentFYYear()), 10)
-  const year = parsed >= 2000 && parsed <= 2100 ? parsed : currentFYYear()
+  // A malformed ?year= is a 400, not a silent fall-back to the current FY (AUD-2-10).
+  const year = fyYearParamOr400(req.nextUrl.searchParams)
+  if (year instanceof NextResponse) return year
 
+  const session = await auth()
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   // Primary email is member PII — AUDITOR is accounting-only and must not
   // see it decrypted, on-screen or in the export.
   const showEmail = canViewPeople(session.user.role)

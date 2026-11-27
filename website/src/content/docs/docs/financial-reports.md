@@ -20,7 +20,7 @@ Accounting reports live under `/accounting/reports/*` (the Dues report is at `/a
 | **Dues** (`/accounting/dues`) | Per-family subscription/membership-dues payment status for a FY, with an "owing only" filter | Matches against a specific seeded income account by its account code |
 | **Reconciliation report** (`/accounting/reports/reconciliation`) | Printable snapshot of the reconciliation equation for one statement date | The day-to-day working version is [Reconciliation](/parishcrm/docs/reconciliation/) |
 
-CSV exports (e.g. the transaction list, giving summary) prefix any cell starting with `=`, `+`, `-`, or `@` with a leading apostrophe — a standard defence against formula injection when a spreadsheet later opens the file.
+The Giving Summary CSV rejects a malformed `?year=` with a 400 instead of silently exporting the current financial year. CSV exports (e.g. the transaction list, giving summary) prefix any cell starting with `=`, `+`, `-`, or `@` with a leading apostrophe — a standard defence against formula injection when a spreadsheet later opens the file.
 
 ## How it works
 

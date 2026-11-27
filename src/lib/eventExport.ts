@@ -1,7 +1,17 @@
 import { toFloat } from "@/lib/utils"
-import { formatDMY } from "@/lib/formatting"
+import { sydneyClock } from "@/lib/dates"
 import { escapeCsv } from "@/lib/csvUtils"
 import { formatAnswerForCsv } from "@/lib/eventQuestions"
+
+/**
+ * DD/MM/YYYY of the Sydney calendar day of an instant, so a late-night/early-morning sign-up is not
+ * shown a day early (UTC) in the registrations CSV (AUD-2-09).
+ * @param d instant to format
+ */
+function formatSydneyDMY(d: Date): string {
+  const [y, m, day] = sydneyClock(d).ymd.split("-")
+  return `${day}/${m}/${y}`
+}
 
 type Item = {
   quantity: number
@@ -71,7 +81,7 @@ export function generateCsv(
     // and used as the bank-transfer payment reference), so an admin reconciling
     // bank payments against the CSV can match them. Never the internal id.
     const ref = r.publicToken
-    const registered = formatDMY(new Date(r.createdAt))
+    const registered = formatSydneyDMY(new Date(r.createdAt))
 
     const attendees = expandAttendees(r.items)
     if (attendees.length === 0) continue

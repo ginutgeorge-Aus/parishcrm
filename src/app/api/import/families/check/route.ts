@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { readUploadFile } from "@/lib/readUploadFile"
 import { logger } from "@/lib/logger"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -79,9 +80,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 413 })
   }
 
-  const formData = await req.formData()
-  const file = formData.get("file") as File | null
-  if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 })
+  const upload = await readUploadFile(req)
+  if ("error" in upload) return NextResponse.json({ error: upload.error }, { status: 400 })
+  const { file } = upload
   if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 413 })
 
   if (isDemoMode() && file.size > DEMO_IMPORT_MAX_BYTES) {

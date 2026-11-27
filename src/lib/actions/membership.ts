@@ -92,9 +92,10 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
 
   // Two independent windows: per-IP (blocks a single host flooding many
   // emails) and per-email (blocks resubmitting the same identity).
+  // Keyed on the blind index so the applicant's address is not stored in plain text in RateLimit (AUD-2-06).
   const email = parsed.data.personal.email.toLowerCase()
   if (!(await dbRateLimit(`membership:ip:${rateKey}`, 10, 60 * 60 * 1000))) return { error: "Too many submissions. Please try again later." }
-  if (!(await dbRateLimit(`membership:email:${email}`, 3, 60 * 60 * 1000))) return { error: "Too many submissions. Please try again later." }
+  if (!(await dbRateLimit(`membership:email:${hmacEmail(email)}`, 3, 60 * 60 * 1000))) return { error: "Too many submissions. Please try again later." }
 
   const p: MembershipPayload = {
     ...parsed.data,
