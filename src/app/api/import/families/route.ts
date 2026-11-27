@@ -37,9 +37,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 413 })
   }
 
-  const formData = await req.formData()
-  const file = formData.get("file") as File | null
-  if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 })
+  // Malformed multipart body or a text value in `file` is a 400, not a 500 (AUD-2-16).
+  let formData: FormData
+  try {
+    formData = await req.formData()
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+  }
+  const file = formData.get("file")
+  if (!(file instanceof File)) return NextResponse.json({ error: "No file provided" }, { status: 400 })
   if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 413 })
 
   const content = await file.text()

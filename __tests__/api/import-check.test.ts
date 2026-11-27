@@ -38,6 +38,14 @@ beforeEach(() => {
 })
 
 describe("POST /api/import/families/check", () => {
+  it("returns 400 (not 500) for a text value in the file field (AUD-2-16)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const fd = new FormData()
+    fd.set("file", "not a file")
+    const res = await POST(new NextRequest("http://localhost/api/import/families/check", { method: "POST", body: fd, headers: { "content-length": "100" } }))
+    expect(res.status).toBe(400)
+  })
+
   it("returns 401 when unauthenticated", async () => {
     mockSession.mockResolvedValue(null)
     const res = await POST(makeCsvRequest("family_name,first_name,last_name\n"))

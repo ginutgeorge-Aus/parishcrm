@@ -111,8 +111,8 @@ export function FamilyList({
                 <Badge variant={statusVariant[f.status]}>{FAMILY_STATUS_LABELS[f.status]}</Badge>
               </div>
               <div className="mt-1 text-sm text-muted-foreground">
-                {f.memberNo ?? "—"}
-                {f.suburb ? ` · ${f.suburb}` : ""} · {f._count.people}{" "}
+                {[f.memberNo, f.suburb].filter(Boolean).join(" · ")}
+                {f.memberNo || f.suburb ? " · " : ""}{f._count.people}{" "}
                 {f._count.people === 1 ? "member" : "members"}
               </div>
             </Link>

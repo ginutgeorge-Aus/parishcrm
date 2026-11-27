@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { FAMILY_STATUS_LABELS } from "@/lib/familyLabels"
 import { NOT_XFER } from "@/lib/xferAccount"
 import { canEdit, isAdmin, canViewAccounting, canAccessAccounting, canViewPeople } from "@/lib/roleGuard"
 import { Button } from "@/components/ui/button"
@@ -177,7 +178,7 @@ function FamilyInfoCard({ family }: Readonly<{ family: DisplayFamily }>) {
         </div>
         <div>
           <span className="text-muted-foreground">Status</span>
-          <div className="mt-1"><Badge>{family.status}</Badge></div>
+          <div className="mt-1"><Badge>{FAMILY_STATUS_LABELS[family.status]}</Badge></div>
         </div>
         <div>
           <span className="text-muted-foreground">Joined</span>

@@ -66,7 +66,7 @@ process; the app does not auto-email the waitlist when a seat opens up.
 - **CSV** (`GET /api/events/[slug]/export-csv`) — one row per registration plus every ticket
   line and attendee, decrypted, with every custom-question answer as its own column. Rate-limited
   per user; every export is written to the audit log with the row count (never the exported PII
-  itself). Available to editors and to an `EVENT_ORGANISER` assigned to that specific event.
+  itself). "Registered At" is the Sydney calendar day of the sign-up. Available to editors and to an `EVENT_ORGANISER` assigned to that specific event.
 - **Print** (`/events/[id]/registrations/print`) — a browser-printable page with registration,
   attendee, and custom-answer tables; also audit-logged on access.
 

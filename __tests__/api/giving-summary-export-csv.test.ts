@@ -46,6 +46,19 @@ describe("GET /api/accounting/reports/giving-summary/export-csv", () => {
     expect(res.headers.get("content-type")).toBe("text/csv")
   })
 
+  // a bad ?year= used to silently become the current FY (AUD-2-10)
+  it.each(["2024abc", "abc", "1999"])("returns 400 for invalid year %s", async (year) => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "4" } })
+    const res = await GET(makeRequest({ year }))
+    expect(res.status).toBe(400)
+  })
+
+  it("accepts a valid year", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "4" } })
+    const res = await GET(makeRequest({ year: "2024" }))
+    expect(res.status).toBe(200)
+  })
+
   it.each([
     ["returns 200 with text/csv for OFFICE_ADMIN", "OFFICE_ADMIN", "3"],
     ["returns 200 with text/csv for ADMIN", "ADMIN", "4"],

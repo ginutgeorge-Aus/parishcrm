@@ -50,7 +50,7 @@ function row(name: string, first: string) {
 }
 
 function req() {
-  const file = { size: 10, text: async () => "csv" }
+  const file = new File(["csv"], "import.csv")
   return {
     headers: { get: () => null },
     formData: async () => ({ get: (k: string) => (k === "file" ? file : null) }),

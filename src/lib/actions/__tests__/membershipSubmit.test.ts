@@ -67,6 +67,13 @@ it("rate-limited", async () => {
   const r = await submitMembershipApplication({ payload: validPayload, signature: sig })
   expect(r).toEqual({ error: "Too many submissions. Please try again later." })
 })
+it("rate-limit key holds the email blind index, not the address (AUD-2-06)", async () => {
+  const { dbRateLimit } = await import("@/lib/dbRateLimit")
+  await submitMembershipApplication({ payload: validPayload, signature: sig })
+  const keys = (dbRateLimit as jest.Mock).mock.calls.map((c) => String(c[0]))
+  expect(keys.some((k) => k.startsWith("membership:email:"))).toBe(true)
+  expect(keys.join("|")).not.toContain("john@example.com")
+})
 it("creates encrypted application on success", async () => {
   const r = await submitMembershipApplication({ payload: validPayload, signature: sig })
   expect(r).toEqual({ success: expect.any(String) })

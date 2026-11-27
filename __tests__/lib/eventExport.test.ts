@@ -29,6 +29,12 @@ describe("generateCsv", () => {
     expect(generateCsv([], [])).toBe(HEADER)
   })
 
+  it("Registered At uses the Sydney calendar day, not UTC (AUD-2-09)", () => {
+    // 2026-05-21 22:30 UTC is 08:30 on the 22nd in Sydney (AEST)
+    const csv = generateCsv([makeReg({ createdAt: new Date("2026-05-21T22:30:00.000Z") })], [])
+    expect(csv.split("\n")[1].split(",")[9]).toBe("22/05/2026")
+  })
+
   it("Ref column shows the registrant-facing publicToken, not the internal id", () => {
     const csv = generateCsv([makeReg({ id: 42, publicToken: "REG-DEADBEEF01" })], [])
     const dataRow = csv.split("\n")[1]
