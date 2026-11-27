@@ -75,13 +75,7 @@ export async function sendFamilyUpdateInvite(
     return { error: "Server misconfiguration: AUTH_URL is not set or invalid" }
   }
 
-  // One live invite per family: supersede any outstanding SENT invites so an old
-  // forwarded link can't coexist with the new one.
-  await prisma.familyUpdateInvite.updateMany({
-    where: { familyId, status: "SENT" }, data: { status: "REVOKED" },
-  })
-
-  await prisma.familyUpdateInvite.create({
+  const created = await prisma.familyUpdateInvite.create({
     data: {
       familyId,
       tokenHash,
@@ -89,9 +83,23 @@ export async function sendFamilyUpdateInvite(
       expiresAt: new Date(Date.now() + INVITE_TTL_MS),
       createdById: actorId(session),
     },
+    select: { id: true },
   })
 
-  await sendFamilyUpdateInviteEmail(parsedEmail.data, url, family.name)
+  // Send BEFORE superseding the old invite: if the email fails, the family keeps its
+  // working link and the unsent new invite is revoked.
+  try {
+    await sendFamilyUpdateInviteEmail(parsedEmail.data, url, family.name)
+  } catch {
+    await prisma.familyUpdateInvite.update({ where: { id: created.id }, data: { status: "REVOKED" } })
+    return { error: "The invite email could not be sent. The previous link (if any) is still valid. Please try again." }
+  }
+
+  // One live invite per family: supersede any other outstanding SENT invites so an old
+  // forwarded link can't coexist with the new one.
+  await prisma.familyUpdateInvite.updateMany({
+    where: { familyId, status: "SENT", id: { not: created.id } }, data: { status: "REVOKED" },
+  })
 
   await logAudit(actorId(session), "FAMILY_INVITE_SENT", "Family", familyId)
   revalidatePath(`/families/${familyId}`)
@@ -122,7 +130,10 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
   const ip = rateKeyFromHeaders(await headers())
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
-  if (!rateLimit(`familyUpdate:${ip}`, 5, 10 * 60_000)) return { error: "Too many requests" }
+  // The invite token hash is in the key so, when no client IP is available (all visitors share
+  // "unknown"), one visitor cannot exhaust every family's allowance.
+  const tokenKey = typeof input.token === "string" ? hashInviteToken(input.token).slice(0, 16) : "none"
+  if (!rateLimit(`familyUpdate:${ip}:${tokenKey}`, 5, 10 * 60_000)) return { error: "Too many requests" }
   // Public form: generic message, never the admin wording.
   if (await featureGuard("familyUpdates")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 

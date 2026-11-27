@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import { isFeatureOn } from "@/lib/featureFlags"
-import { logAudit, logAuditManyTx } from "@/lib/audit"
+import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx } from "@/lib/fundraiserFamilyLink"
 import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { AuditWriteError, AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
@@ -114,18 +114,20 @@ beforeEach(() => {
       return (arg as (tx: unknown) => unknown)({
         // deleteFamily's row locks: the family lock re-reads archivedAt, served
         // from the same findUnique mock the test primed.
-        $queryRaw: jest.fn(async (sql: TemplateStringsArray) => {
-          if (!sql.join("?").includes('FROM "Family"')) return []
+        $queryRaw: jest.fn(async (sql: TemplateStringsArray, ...params: unknown[]) => {
+          // archiveFamily's member lock is observed on the shared prisma.$queryRaw mock.
+          if (!sql.join("?").includes('FROM "Family"')) return (prisma.$queryRaw as jest.Mock)(sql, ...params)
           const row = await (prisma.family.findUnique as jest.Mock)()
           return row ? [{ archivedAt: row.archivedAt ?? null, name: row.name ?? "Smith Family" }] : []
         }),
-        person: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), count: personCountTx },
+        person: { updateMany: prisma.person.updateMany, count: personCountTx },
         transaction: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), count: txCountTx },
         membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateInvite: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateSubmission: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         followUpTask: { findMany: followUpFindManyTx, updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         family: {
+          update: prisma.family.update,
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
           findUniqueOrThrow: familyNameTx,
           delete: familyDeleteTx,
@@ -490,8 +492,7 @@ describe("archiveFamily / unarchiveFamily", () => {
     const [sql, familyId] = (prisma.$queryRaw as jest.Mock).mock.calls[0]
     expect(sql.join("?")).toMatch(/FROM "Person" WHERE "familyId" = \? ORDER BY id FOR UPDATE/)
     expect(familyId).toBe(3)
-    const ops = (prisma.$transaction as jest.Mock).mock.calls[0][0] as unknown[]
-    expect(ops).toHaveLength(3)
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "FAMILY_ARCHIVED", "Family", 3)
     expect((prisma.$queryRaw as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
       (prisma.person.updateMany as jest.Mock).mock.invocationCallOrder[0]
     )
@@ -597,8 +598,9 @@ describe("previewMerge / mergeFamilies", () => {
     expect(reassignFundraiserEntriesTx).toHaveBeenCalledWith(expect.anything(), 1, 2, "Old", 1)
     expect((reassignFundraiserEntriesTx as jest.Mock).mock.invocationCallOrder[0])
       .toBeLessThan(familyDeleteTx.mock.invocationCallOrder[0])
-    expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_MERGED", "Family", 2, {
-      sourceId: 1, sourceName: "Old", fundraiserEntries: { moved: 1, folded: 1, unlinked: 1 },
+    // Audited inside the transaction, with ids and counts only (no family name).
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "FAMILY_MERGED", "Family", 2, {
+      sourceId: 1, fundraiserEntries: { moved: 1, folded: 1, unlinked: 1 },
     })
   })
 
@@ -649,7 +651,9 @@ describe("previewMerge / mergeFamilies", () => {
     await mergeFamilies(1, 2)
     expect(familyNameTx).toHaveBeenCalledWith({ where: { id: 1 }, select: { name: true } })
     expect(reassignFundraiserEntriesTx).toHaveBeenCalledWith(expect.anything(), 1, 2, "Renamed", 1)
-    expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_MERGED", "Family", 2, expect.objectContaining({ sourceName: "Renamed" }))
+    expect(logAuditTx).toHaveBeenCalledWith(
+      expect.anything(), 1, "FAMILY_MERGED", "Family", 2, expect.not.objectContaining({ sourceName: expect.anything() }),
+    )
   })
 
   it("mergeFamilies maps a P2034 write conflict to a retryable error, not a 500", async () => {

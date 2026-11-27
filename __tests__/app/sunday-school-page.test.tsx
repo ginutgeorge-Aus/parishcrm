@@ -2,6 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/featureFlags", () => ({ isFeatureOn: jest.fn().mockResolvedValue(true) }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     sundaySchoolClass: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },

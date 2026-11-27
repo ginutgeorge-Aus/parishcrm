@@ -338,13 +338,14 @@ export async function archiveFamily(id: number): Promise<ActionResult> {
   const now = new Date()
   // Members are locked in id order first: bulk WWCC verify takes Person
   // locks in the same order, so the two can't deadlock.
-  await prisma.$transaction([
-    prisma.family.update({ where: { id }, data: { archivedAt: now } }),
+  // The audit row commits with the archive (logAuditTx), so a failed write rolls it back.
+  await prisma.$transaction(async (tx) => {
+    await tx.family.update({ where: { id }, data: { archivedAt: now } })
     // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-    prisma.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE`,
-    prisma.person.updateMany({ where: { familyId: id }, data: { archivedAt: now } }),
-  ])
-  await logAudit(actorId(session), "FAMILY_ARCHIVED", "Family", id)
+    await tx.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE`
+    await tx.person.updateMany({ where: { familyId: id }, data: { archivedAt: now } })
+    await logAuditTx(tx, actorId(session), "FAMILY_ARCHIVED", "Family", id)
+  })
   revalidatePath("/families")
   // parity with updateFamily, which revalidates both the list and the
   // detail page — a tab open on /families/[id] otherwise keeps showing
@@ -361,11 +362,11 @@ export async function unarchiveFamily(id: number): Promise<ActionResult> {
   if (!family) return { error: "Not found" }
 
   // Atomic with members — same rationale as archiveFamily.
-  await prisma.$transaction([
-    prisma.family.update({ where: { id }, data: { archivedAt: null } }),
-    prisma.person.updateMany({ where: { familyId: id }, data: { archivedAt: null } }),
-  ])
-  await logAudit(actorId(session), "FAMILY_UNARCHIVED", "Family", id)
+  await prisma.$transaction(async (tx) => {
+    await tx.family.update({ where: { id }, data: { archivedAt: null } })
+    await tx.person.updateMany({ where: { familyId: id }, data: { archivedAt: null } })
+    await logAuditTx(tx, actorId(session), "FAMILY_UNARCHIVED", "Family", id)
+  })
   revalidatePath("/families")
   revalidatePath("/families/archived")
   // same parity gap as archiveFamily above.
@@ -539,6 +540,11 @@ export async function mergeFamilies(
       sourceName = source.name
       fundraiser = await reassignFundraiserEntriesTx(tx, sourceId, targetId, sourceName, actor)
       await tx.family.delete({ where: { id: sourceId } })
+      // Audit commits with the merge (no family name: the audit log is never purged and holds no PII).
+      await logAuditTx(tx, actor, "FAMILY_MERGED", "Family", targetId, {
+        sourceId,
+        fundraiserEntries: { moved: fundraiser.moved, folded: fundraiser.folded, unlinked: fundraiser.unlinked },
+      })
     })
   } catch (e: unknown) {
     if (e instanceof ArchivedDuringMerge) return { error: ARCHIVED_MERGE_ERROR }
@@ -559,14 +565,6 @@ export async function mergeFamilies(
   // updateEntryQuantity; never throws.
   for (const entryId of fundraiser.foldedEntryIds) await expireOpenFundraiserCheckouts(entryId)
   const counts: FundraiserReassignCounts = { moved: fundraiser.moved, folded: fundraiser.folded, unlinked: fundraiser.unlinked }
-
-  await logAudit(
-    actor,
-    "FAMILY_MERGED",
-    "Family",
-    targetId,
-    { sourceId, sourceName, fundraiserEntries: counts }
-  )
 
   revalidatePath("/families")
   // a tab open on either the source or target family detail page keeps
