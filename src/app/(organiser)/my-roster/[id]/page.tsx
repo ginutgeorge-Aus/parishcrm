@@ -1,10 +1,8 @@
 import Link from "next/link"
-import { notFound, redirect } from "next/navigation"
-import { auth } from "@/auth"
-import { actorId } from "@/lib/actor"
+import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
-import { UserRole } from "@/lib/generated/prisma/enums"
-import { formatSydneyDate, formatSydneyTime } from "@/lib/dates"
+import { requireOrganiserUserId, ledRoleWhere } from "@/lib/organiserSession"
+import { ServiceWhen } from "@/components/organiser/ServiceWhen"
 import { openPlaces } from "@/lib/roster"
 import { parseRouteId } from "@/lib/validation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,19 +17,16 @@ type Props = { params: Promise<{ id: string }> }
  * assign and remove actions re-check the same access (canEditRosterRole).
  */
 export default async function MyRosterServicePage(props: Readonly<Props>) {
-  const session = await auth()
-  if (!session?.user) redirect("/login")
-  if (session.user.role !== UserRole.EVENT_ORGANISER) redirect("/")
+  const userId = await requireOrganiserUserId()
   const id = parseRouteId((await props.params).id)
   if (id === null) notFound()
-  const userId = actorId(session)
 
   const service = await prisma.rosterService.findUnique({
     where: { id },
     select: {
       id: true, title: true, startsAt: true, endsAt: true, location: true,
       slots: {
-        where: { role: { archivedAt: null, group: { archivedAt: null, leaderAccess: { some: { userId } } } } },
+        where: { role: ledRoleWhere(userId) },
         orderBy: { role: { name: "asc" } },
         select: {
           id: true, needed: true,
@@ -51,10 +46,7 @@ export default async function MyRosterServicePage(props: Readonly<Props>) {
       <p className="text-sm"><Link href="/my-roster" className="text-muted-foreground underline hover:text-foreground">← My Roster</Link></p>
       <div>
         <h1 className="text-2xl font-semibold text-foreground">{service.title}</h1>
-        <p className="text-sm text-muted-foreground">
-          {formatSydneyDate(service.startsAt)}, {formatSydneyTime(service.startsAt)} to {formatSydneyTime(service.endsAt)}
-          {service.location ? ` · ${service.location}` : ""}
-        </p>
+        <ServiceWhen startsAt={service.startsAt} endsAt={service.endsAt} location={service.location} />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {service.slots.map((sl) => {

@@ -1,10 +1,8 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
-import { auth } from "@/auth"
-import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
-import { UserRole } from "@/lib/generated/prisma/enums"
-import { formatSydneyDate, formatSydneyTime, sydneyToday } from "@/lib/dates"
+import { requireOrganiserUserId, ledRoleWhere } from "@/lib/organiserSession"
+import { sydneyToday } from "@/lib/dates"
+import { ServiceWhen } from "@/components/organiser/ServiceWhen"
 import { openPlaces } from "@/lib/roster"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -19,12 +17,9 @@ const MAX_SERVICES = 100
  * gets in (same rule as canEditRosterRole). Staff use /roster.
  */
 export default async function MyRosterPage() {
-  const session = await auth()
-  if (!session?.user) redirect("/login")
-  if (session.user.role !== UserRole.EVENT_ORGANISER) redirect("/")
-  const userId = actorId(session)
+  const userId = await requireOrganiserUserId()
 
-  const led = { archivedAt: null, group: { archivedAt: null, leaderAccess: { some: { userId } } } }
+  const led = ledRoleWhere(userId)
   const services = await prisma.rosterService.findMany({
     where: { date: { gte: sydneyToday() }, slots: { some: { role: led } } },
     orderBy: { startsAt: "asc" },
@@ -55,10 +50,7 @@ export default async function MyRosterPage() {
                   <CardContent className="space-y-2">
                     <div>
                       <p className="font-medium text-foreground">{s.title}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatSydneyDate(s.startsAt)}, {formatSydneyTime(s.startsAt)} to {formatSydneyTime(s.endsAt)}
-                        {s.location ? ` · ${s.location}` : ""}
-                      </p>
+                      <ServiceWhen startsAt={s.startsAt} endsAt={s.endsAt} location={s.location} />
                     </div>
                     <ul className="flex flex-wrap gap-1.5">
                       {s.slots.map((sl) => {
