@@ -4,7 +4,7 @@ import { Prisma } from "@/lib/generated/prisma/client"
 import { fmtAUD } from "@/lib/formatting"
 import { APP_TIMEZONE, APP_LOCALE } from "@/lib/appConfig"
 import { encrypt } from "@/lib/crypto"
-import { rateLimit } from "@/lib/rateLimit"
+import { rateLimit, rateLimitRefund } from "@/lib/rateLimit"
 import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 import { sendRegistrationConfirmationEmail } from "@/lib/email"
 import { buildIcs, googleCalendarUrl } from "@/lib/ics"
@@ -371,9 +371,15 @@ export async function persistRegistration(
   // so cap confirmation sends per recipient address (5/hr) to stop it being used
   // as a spam relay / mail bomb against a chosen victim. Over the cap → skip the
   // send; the registration still succeeds. (The per-IP cap in the route bounds the POST.)
-  if (rateLimit(`regmail:${priced.emailHash}`, 5, 3_600_000) && (await withinMailBudgets(event.id, payment))) {
-    const sent = await sendRegistrationConfirmation(event, priced, payment, publicToken)
-    return sent ? { ok: true, ref: publicToken } : { ok: true, ref: publicToken, mailSkipped: true }
+  const emailKey = `regmail:${priced.emailHash}`
+  if (rateLimit(emailKey, 5, 3_600_000)) {
+    if (await withinMailBudgets(event.id, payment)) {
+      const sent = await sendRegistrationConfirmation(event, priced, payment, publicToken)
+      return sent ? { ok: true, ref: publicToken } : { ok: true, ref: publicToken, mailSkipped: true }
+    }
+    // The event/global budget denied: no mail goes out, so give the per-recipient
+    // slot back rather than count a send that never happened.
+    rateLimitRefund(emailKey)
   }
 
   // Throttled or over budget: the registration stands but no email went out.

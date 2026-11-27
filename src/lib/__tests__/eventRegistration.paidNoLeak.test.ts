@@ -18,6 +18,7 @@ jest.mock("@/lib/crypto", () => ({
 jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(() => Promise.resolve(true)) }))
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
+  rateLimitRefund: jest.fn(),
 }))
 jest.mock("@/lib/churchSettings", () => ({
   getChurchSettings: jest.fn(async () => ({ name: "Test Church", address: "", abn: "", email: "", website: "" })),
