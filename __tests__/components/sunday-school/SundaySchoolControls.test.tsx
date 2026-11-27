@@ -112,11 +112,10 @@ describe("ClassForm", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument()
   })
 
-  it("shows the action's error and cancels back", async () => {
+  it("shows the action's error and Cancel links to that year's list", async () => {
     const action = jest.fn().mockResolvedValue({ error: "Class name is required" })
     render(<ClassForm action={action} year={2026} />)
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
-    expect(back).toHaveBeenCalled()
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/sunday-school?year=2026")
     await act(async () => { fireEvent.submit(screen.getByRole("button", { name: "Create class" }).closest("form")!) })
     expect(await screen.findByRole("alert")).toHaveTextContent("Class name is required")
   })

@@ -34,7 +34,7 @@ export default async function NewPersonPage(props: Readonly<{ params: Promise<{ 
         {" / Add member"}
       </p>
       <h2 className="text-2xl font-semibold text-foreground mb-6">Add member</h2>
-      <PersonForm action={action} canSeePastoralNotes={canSeePastoralNotes(session?.user?.role)} />
+      <PersonForm action={action} canSeePastoralNotes={canSeePastoralNotes(session?.user?.role)} cancelHref={`/families/${family.id}`} />
     </div>
   )
 }

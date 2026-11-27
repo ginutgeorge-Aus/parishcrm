@@ -56,6 +56,7 @@ export default async function EditPersonPage(props: Readonly<{ params: Promise<{
         action={action}
         person={displayPerson}
         canSeePastoralNotes={showPastoralNotes}
+        cancelHref={`/people/${person.id}`}
       />
     </div>
   )

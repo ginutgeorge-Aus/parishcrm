@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,7 +10,7 @@ import type { ActionResult } from "@/lib/actions/types"
 import { FormError } from "@/components/shared/FormError"
 import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
-type GroupValues = { name: string; category: string; description: string }
+type GroupValues = { id?: number; name: string; category: string; description: string }
 
 /** Create/edit form for a group (name, category, description). */
 export function GroupForm({
@@ -20,7 +20,6 @@ export function GroupForm({
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   group?: GroupValues
 }>) {
-  const router = useRouter()
   const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const submitLabel = group ? "Save changes" : "Create group"
 
@@ -58,7 +57,7 @@ export function GroupForm({
         <Button type="submit" disabled={isPending}>
           {isPending ? "Saving…" : submitLabel}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
+        <Button asChild variant="outline"><Link href={group?.id ? `/groups/${group.id}` : "/groups"}>Cancel</Link></Button>
       </div>
     </form>
   )
