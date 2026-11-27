@@ -65,6 +65,14 @@ function log(level: "info" | "error", fields: Record<string, unknown>): void {
   else console.log(line)
 }
 
+/**
+ * Runs one job under the timeout race, then updates the in-memory state. On a
+ * full success it also saves the job's last-success time (best effort, not awaited).
+ * @param name - Job name.
+ * @param state - In-memory schedule state.
+ * @param fn - Job implementation.
+ * @param now - Tick instant.
+ */
 async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], now: Date): Promise<void> {
   const s = state[name]
   recordStart(name, state, now)
@@ -95,6 +103,8 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
     }
     s.lastSuccessKey = successKey(name, now)
     log("info", { job: name, ms, result: countsOnly(result) })
+    // Fire-and-forget (never rejects) so the DB write can't hold `running` set.
+    void import("@/lib/jobStatus").then((m) => m.recordJobSuccess(name, new Date())).catch(() => {})
   } catch (err) {
     log("error", { job: name, ms: Date.now() - t0, message: err instanceof Error ? err.message : String(err) })
   } finally {
@@ -103,12 +113,20 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
   }
 }
 
+/**
+ * One scheduler pass: saves the heartbeat, then runs every due job concurrently.
+ * @param state - In-memory schedule state.
+ * @param jobs - Job implementations.
+ * @param now - Tick instant.
+ */
 export async function tick(state: SchedulerState, jobs: Jobs, now: Date = new Date()): Promise<void> {
   // Never reject: an unhandled rejection from the timer would take down the web server.
   try {
     const due = dueJobs(now, state)
     // Claim every due job before awaiting any, so an overlapping tick can't pick one up too.
     for (const name of due) state[name].running = true
+    // Liveness signal for /api/health: fire-and-forget so a slow DB never delays jobs.
+    void import("@/lib/jobStatus").then((m) => m.recordHeartbeat(now)).catch(() => {})
     // Concurrent, not sequential: a hung job must not hold back (or keep claimed) the others.
     await Promise.all(due.map((name) => runJob(name, state, jobs[name], now)))
   } catch (err) {

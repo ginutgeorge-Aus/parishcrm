@@ -157,7 +157,7 @@ and goes blind in exactly the outage it exists to catch.
 | Monitor type | HTTP(s) |
 | URL | `<APP_URL>/api/health` |
 | Interval | 5 min |
-| Keyword monitoring | Keyword **exists**, keyword `"status":"ok"` — catches a 200 with a broken body |
+| Keyword monitoring | Keyword **exists**, keyword `"status":"ok"` — catches a 200 with a broken body. Add a second keyword monitor where the in-app scheduler is on: keyword `"scheduler":"stale"` must **not** exist (`off` and `unknown` are normal states) |
 | Timeout | 30 s |
 | Alert contacts | your on-call email / push |
 | Alert threshold | Alert after **2** consecutive failures (≈10 min) — absorbs a single transient blip |

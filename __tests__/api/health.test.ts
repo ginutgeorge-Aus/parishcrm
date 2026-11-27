@@ -5,6 +5,7 @@ import { GET } from "@/app/api/health/route"
 jest.mock("@/lib/prisma", () => ({
   prisma: { $queryRaw: jest.fn() },
 }))
+jest.mock("@/lib/jobStatus", () => ({ schedulerHealth: jest.fn(async () => "ok") }))
 
 const mockQueryRaw = prisma.$queryRaw as jest.Mock
 
@@ -19,6 +20,7 @@ describe("GET /api/health", () => {
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.status).toBe("ok")
+    expect(body.scheduler).toBe("ok")
   })
 
   it("does not expose version or db detail to unauthenticated callers", async () => {
