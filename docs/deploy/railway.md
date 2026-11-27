@@ -9,8 +9,12 @@ Scheduled jobs (reminders, checkout sweeps, celebrations) run inside the app.
 
 > **Without the template** (e.g. a custom setup), deploy the release
 > image: **New Project → Docker Image** → `ghcr.io/ginutgeorge-aus/parishcrm:vX.Y.Z`
-> (latest tag on the Releases page; the container applies migrations on start),
-> then **+ New → Database → PostgreSQL** and reference its `DATABASE_URL` from
+> (latest tag on the Releases page; the container applies migrations on start).
+> Release tags are mutable in a registry, so first verify the image's signed build
+> provenance and note its digest (steps in [self-hosting §4](../self-hosting.md#4-run)),
+> then enter `ghcr.io/<owner>/parishcrm@sha256:<digest>` as the image instead of the
+> tag. A digest pin turns off Auto Updates (see Upgrading); re-verify on each manual upgrade.
+> Then **+ New → Database → PostgreSQL** and reference its `DATABASE_URL` from
 > the app service. Don't deploy from the GitHub repo — that builds unreleased
 > `main` and can't use image Auto Updates (see Upgrading). In the app
 > service's **Settings → Deploy**, set **Healthcheck Path** to `/api/health` so
@@ -97,8 +101,9 @@ version and redeploys inside the window (downtime is typically under 2 minutes).
 Major versions (`v2.0.0`) may contain breaking changes, so they are never
 applied automatically — read the release notes, then change the tag yourself.
 
-**Manual:** app service → **Settings → Source**, change the image tag, then
-**Deploy**.
+**Manual:** verify the new release's digest (self-hosting §4), then app service →
+**Settings → Source**, change the image to `ghcr.io/<owner>/parishcrm@sha256:<digest>` (or the tag if you
+use Auto Updates; a tag does not pin the verified digest, so a moved tag or a later Auto Update can deploy an image you have not verified), then **Deploy**.
 
 Every upgrade can run migrations, including unattended minor ones, so keep
 backups current: turn on a backup schedule on the Postgres service
