@@ -79,7 +79,11 @@ git add prisma/                          # commit schema + generated migration t
 - **Never** hand-edit a committed migration or the generated Prisma client
   (`src/lib/generated/prisma/**`) — regenerate it with `npx prisma generate`.
 - Design migrations to be safe to apply to a live database (additive first; avoid destructive
-  drops in the same release as the code that stops using a column).
+  drops in the same release as the code that stops using a column). The **Migration safety**
+  check (`scripts/check-migration-safety.ts`) fails a PR whose new or edited migration contains
+  `DROP`, `RENAME`, a column `TYPE` change, `TRUNCATE`, `DELETE FROM`, `SET NOT NULL` or
+  `ADD COLUMN ... NOT NULL` without a `DEFAULT`. A maintainer adds the
+  `destructive-migration` label after checking the deploy order and backup.
 
 ## Code style
 
