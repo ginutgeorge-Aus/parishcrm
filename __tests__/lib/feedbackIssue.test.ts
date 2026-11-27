@@ -23,6 +23,12 @@ describe("AUD-2-05 mention and line-break hardening", () => {
     expect(escapeMarkdown("https://example.org/@octocat and @octocat")).toBe("https://example.org/@octocat and @\u200boctocat")
   })
 
+  it("defuses mentions that follow URL punctuation or whitespace", () => {
+    expect(escapeMarkdown("https://x/a,@user")).toBe("https://x/a,@\u200buser")
+    expect(escapeMarkdown("https://x/a)@bob")).toBe("https://x/a)@\u200bbob")
+    expect(escapeMarkdown("https://x/ @bob")).toBe("https://x/ @\u200bbob")
+  })
+
   it("escapeLine collapses CR/LF so a forged line cannot start", () => {
     expect(escapeLine("a\r\n- Reporter: admin")).toBe("a - Reporter: admin")
   })

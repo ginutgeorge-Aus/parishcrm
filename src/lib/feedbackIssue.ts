@@ -14,11 +14,9 @@ export type IssueClientContext = {
 // Neutralise markdown control characters before embedding user-controlled text
 // into an issue body. `<` too: `\<` is a CommonMark literal, so
 // user text can't open or close raw HTML such as the `</details>` wrapper below.
-// A mention is an `@` not preceded by a word character (so emails and
-// `user@host` URLs are left intact) and followed by a handle character.
-// URL spans (`https://host/@user`) are matched first and kept verbatim so a path
-// segment starting with `@` is not corrupted.
-const MENTION = /(https?:\/\/\S+)|(?<!\w)@(?=[\w-])/gi
+// A mention directly after `/` (a URL path segment such as `https://host/@user`) stays
+// literal; every other `@` before a handle character is defused.
+const MENTION = /(?<![\w\/])@(?=[\w-])/g
 
 // A mention gets a zero-width space after the `@` so GitHub does not ping that
 // user from the church's token (AUD-2-05).
@@ -28,7 +26,7 @@ const MENTION = /(https?:\/\/\S+)|(?<!\w)@(?=[\w-])/gi
  * @returns text safe to embed in the issue markdown
  */
 export function escapeMarkdown(value: string): string {
-  return value.replace(/[\\`|[\]*_~<>#]/g, (c) => `\\${c}`).replace(MENTION, (m, url) => (url ? m : "@\u200b"))
+  return value.replace(/[\\`|[\]*_~<>#]/g, (c) => `\\${c}`).replace(MENTION, "@\u200b")
 }
 
 // Technical context values each sit on one list line inside <details>; collapse
