@@ -66,7 +66,8 @@ status: **Unpaid**, **Part paid**, **Paid** or **Overpaid**.
 
 Open a row's payments panel and add a **cash** or **bank** payment with an amount, a date and an
 optional note. A row can take several part payments. A payment cannot exceed the remaining
-balance. A double-click does not create a second payment.
+balance. A double-click does not create a second payment. Recording or deleting a payment also
+closes any card payment page the buyer still has open, because it was priced for the old balance.
 
 To correct a mistake, delete the manual payment and record it again.
 

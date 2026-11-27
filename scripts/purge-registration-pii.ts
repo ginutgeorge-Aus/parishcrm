@@ -92,6 +92,8 @@ async function main() {
         // Prisma.DbNull, not a literal null — the pure payloads carry `null` to
         // document intent, so override just those two fields here.
         await prisma.$transaction([
+          // AUD-4-07: the encrypted "reminder sent to" address outlives the anonymised registration otherwise.
+          prisma.paymentReminderSend.deleteMany({ where: { registrationId: reg.id } }),
           prisma.attendee.updateMany({
             where: { registrationItem: { registrationId: reg.id } },
             data: { ...anonymisedAttendeeData(), answers: Prisma.DbNull },

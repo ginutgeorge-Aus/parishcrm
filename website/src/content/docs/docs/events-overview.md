@@ -28,7 +28,7 @@ The form (`/events/new`, and `/events/[id]/edit` for editing) covers:
   single date.
 - **Registration deadline** — an optional cut-off, separate from the event date itself; the form
   rejects a deadline set after the event/end date.
-- **Ticket types** — up to 20 rows, each with a name, price, optional capacity, and a
+- **Ticket types** — up to 20 rows, each with a name, price (at most 999,999.99), optional capacity, and a
   "counts toward family waiver" checkbox. Removing a ticket type that already has registrations
   is blocked; lowering its capacity below the quantity already sold is blocked too.
 - **Family pricing** — mutually exclusive with the family waiver (below); when enabled, the

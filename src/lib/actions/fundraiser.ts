@@ -604,6 +604,8 @@ export async function recordPayment(
   }
   if ("error" in res) return res
   if ("repeat" in res) return undefined
+  // AUD-4-20: a card page priced for the old balance must not stay payable.
+  await expireOpenFundraiserCheckouts(entryId)
   revalidateFundraiser(res.eventId)
   return undefined
 }
@@ -641,6 +643,8 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
   }).catch(auditFailedOrThrow)
   if (typeof deleted === "object") return deleted
   if (!deleted) return { error: "Payment not found" }
+  // AUD-4-20: balance changed, so close any open card page priced for the old one.
+  await expireOpenFundraiserCheckouts(payment.entryId)
   revalidateFundraiser(payment.entry.fundraiser.eventId)
   return undefined
 }

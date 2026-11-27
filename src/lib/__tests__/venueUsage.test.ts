@@ -87,6 +87,7 @@ describe("dates and months", () => {
     expect(isValidYMD("2026-04-31")).toBe(false)
     expect(isValidYMD("2026-9-6")).toBe(false)
     expect(isValidYMD("")).toBe(false)
+    expect(isValidYMD(["2026-09-06"] as unknown as string)).toBe(false)
   })
 
   it("ymdToUtcDate / utcDateToYmd round-trip at UTC midnight", () => {
@@ -102,6 +103,8 @@ describe("dates and months", () => {
     expect(isValidMonth("2026-13")).toBe(false)
     expect(isValidMonth("2026-9")).toBe(false)
     expect(isValidMonth("2026-09-01")).toBe(false)
+    // AUD-4-36: one-element arrays coerce to a matching string under RegExp.test
+    expect(isValidMonth(["2026-09"] as unknown as string)).toBe(false)
   })
 
   it("monthRange covers first to last day inclusive", () => {
