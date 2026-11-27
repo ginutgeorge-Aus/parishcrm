@@ -197,7 +197,7 @@ async function markMonthDone(month: string, claimAt: Date): Promise<boolean> {
  * missing staff notice is better than a duplicate venue email. When the bookings changed while the request was
  * going out (`stale`), the staff notice says so and asks them to check and resend. A manual send already in flight
  * makes the send refuse (BUSY): the claim is released and the run reports `inFlight`. All reads that depend on the claim happen
- * here, after it was won.
+ * here, after it was won. A reminder is dropped when the month was sent by hand (or closed) meanwhile.
  * @param month "YYYY-MM" being invoiced
  * @param claimAt the claim timestamp this run holds (fence for the final write)
  */
@@ -264,6 +264,16 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
         ? ["Everything is recorded, but the invoice request has not been approved for automatic sending."]
         : describeIncomplete(completeness)
       mail = buildReminderEmail({ churchName, month, problems, url: venuePageUrl(month) })
+    }
+  }
+
+  // A reminder is stale if the month was sent by hand (or closed) while it was being built: re-read just before
+  // mailing so staff get no "still incomplete" reminder for a month that is already done.
+  if (!isInvoiceNotice) {
+    const latest = await prisma.venueUsageRequest.findUnique({ where: { month }, select: { status: true, reminderSentAt: true } })
+    if (latest?.reminderSentAt || latest?.status === "SUCCESS") {
+      if (!(await markMonthDone(month, claimAt))) await releaseClaim(month, claimAt)
+      return ZERO
     }
   }
 

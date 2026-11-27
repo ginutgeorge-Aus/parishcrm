@@ -96,7 +96,8 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   // Same rule the server enforces on publish. Stripe config is server-side, so
   // the hint only asks for card payment to be ticked; the server has the final say.
   const paidWithoutPayment = paidEventLacksPaymentMethod({
-    ticketPrices: ticketRows.map((r) => r.price),
+    // Blank-name rows are dropped by the server parser, so they must not count here.
+    ticketPrices: ticketRows.filter((r) => r.name.trim()).map((r) => r.price),
     tierPrices: tierPrices.map((p) => Number(p) || 0),
     tieredPricingEnabled: tieredOn,
     onlinePaymentEnabled: onlinePaymentOn,
@@ -420,7 +421,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             preserves in-progress tier rows instead of remounting to defaults
 . Server ignores tier fields unless tieredPricingEnabled. */}
         <div className={tieredOn ? "" : "hidden"}>
-          <TieredPricingEditor defaultTiers={defaultValues.familyPricingTiers ?? []} active={tieredOn} onPricesChange={setTierPrices} />
+          <TieredPricingEditor prices={tierPrices} onChange={setTierPrices} active={tieredOn} />
         </div>
       </section>
 
