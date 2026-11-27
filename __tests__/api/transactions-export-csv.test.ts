@@ -50,6 +50,15 @@ it("search scans past the first page and keeps only matches (AUD-3-11)", async (
   expect(generateTransactionCsv).toHaveBeenCalledWith([expect.objectContaining({ id: 2001 })])
 })
 
+it("search stops scanning at the scan cap and flags truncation", async () => {
+  mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+  const page = Array.from({ length: 2000 }, (_, i) => ({ id: i + 1, description: "enc:other", notes: null, reference: null, paymentAccountRel: null }))
+  mockFindMany.mockResolvedValue(page)
+  const res = await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?q=zzz"))
+  expect(mockFindMany).toHaveBeenCalledTimes(25)
+  expect(res.headers.get("x-export-truncated")).toBe("true")
+})
+
 it("keeps an open range when from is already past the FY end", async () => {
   jest.useFakeTimers({ doNotFake: ["queueMicrotask", "setImmediate"] }).setSystemTime(new Date("2026-03-15T12:00:00"))
   try {

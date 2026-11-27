@@ -20,6 +20,8 @@ const ID = /^\d+$/
 const EXPORT_ROW_CAP = 10000
 /** Rows per page when a search scans the whole range (descriptions are encrypted, so SQL cannot filter). */
 const SEARCH_PAGE_SIZE = 2000
+/** Max rows a search decrypts in one request (5x the export cap); bounds CPU per call. */
+const SEARCH_SCAN_CAP = EXPORT_ROW_CAP * 5
 
 // Tri-state: the parsed id, `null` when the param is present but malformed
 // (caller 400s), or `undefined` when absent (filter omitted). Rejecting a
@@ -185,6 +187,7 @@ export async function GET(req: NextRequest) {
     // range in pages, decrypt app-side, and keep only matches (bounded by EXPORT_ROW_CAP + 1).
     const needle = q.toLowerCase()
     let cursorId: number | undefined
+    let scanned = 0
     scan: for (;;) {
       const page = await fetchPage(SEARCH_PAGE_SIZE, cursorId)
       for (const tx of page) {
@@ -196,7 +199,12 @@ export async function GET(req: NextRequest) {
         }
         rows.push(row)
       }
+      scanned += page.length
       if (page.length < SEARCH_PAGE_SIZE) break
+      if (scanned >= SEARCH_SCAN_CAP) {
+        truncated = true
+        break
+      }
       cursorId = page[page.length - 1].id
     }
   } else {
