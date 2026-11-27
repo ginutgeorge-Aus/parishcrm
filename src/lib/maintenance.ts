@@ -117,6 +117,22 @@ export function renderMaintenanceHtml(
 </html>`
 }
 
+/** Minutes past `backAt` after which a still-on maintenance flag is treated as stuck and ignored. */
+export const MAINTENANCE_EXPIRY_GRACE_MINUTES = 15
+
+/**
+ * Whether an enabled state is stale: `backAt` plus the grace has passed, so the deploy
+ * that set it most likely failed to switch it off. States without a valid `backAt` never expire.
+ * @param state parsed maintenance state
+ * @param nowMs current time in epoch ms
+ * @returns true when the flag should be treated as off
+ */
+function isMaintenanceExpired(state: MaintenanceState, nowMs: number): boolean {
+  if (!state.enabled || !state.backAt) return false
+  const t = new Date(state.backAt).getTime()
+  return !Number.isNaN(t) && nowMs > t + MAINTENANCE_EXPIRY_GRACE_MINUTES * 60_000
+}
+
 // Last successfully read state. A read failure serves it, so maintenance switched on
 // before a migration stays on through a DB blip instead of failing open mid-deploy.
 let lastKnown: MaintenanceState | null = null
@@ -133,6 +149,8 @@ export async function getMaintenanceState(): Promise<MaintenanceState> {
   let state: MaintenanceState
   try {
     state = parseMaintenanceValue((await getSettingsSnapshot())[MAINTENANCE_SETTING_KEY])
+    // A flag stuck on after a failed deploy must not lock everyone out indefinitely (AUD-7-03 c).
+    if (isMaintenanceExpired(state, Date.now())) state = { ...DISABLED }
   } catch {
     return { ...(lastKnown ?? DISABLED) }
   }
