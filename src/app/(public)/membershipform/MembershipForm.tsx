@@ -49,6 +49,25 @@ function inputIdForPath(path: string, rowMap: Record<string, number[]>): string 
 }
 type FieldError = { id: string; message: string }
 
+/**
+ * First repeating-section row that has data in any field but no name. Such rows
+ * are dropped from the payload, so the form asks the applicant to fix them
+ * instead of discarding them silently.
+ */
+function findNamelessRow(sections: { title: string; rows: Record<string, string>[] }[]): { title: string; index: number } | null {
+  for (const { title, rows } of sections) {
+    const index = rows.findIndex((row) => !row.name.trim() && Object.values(row).some((v) => v.trim()))
+    if (index >= 0) return { title, index }
+  }
+  return null
+}
+
+// Row caps for the repeating sections. Keep in step with the `.max()` bounds in
+// membershipPayloadSchema (src/lib/membership.ts).
+const MAX_CHILDREN = 8
+const MAX_DEPENDENTS = 8
+const MAX_RELATIVES = 6
+
 type Child = { name: string; sex: string; dateOfBirth: string; occupation: string; phoneEmail: string }
 type Dependent = { name: string; sex: string; dateOfBirth: string; relationship: string; phoneEmail: string }
 type Relative = { name: string; place: string; relationship: string; phoneEmail: string }
@@ -217,6 +236,17 @@ export function MembershipForm({
     }
     if (!isValidEmail(email.trim())) return badEmail("email", "Email")
     if (spouseName.trim() && spouseEmail.trim() && !isValidEmail(spouseEmail.trim())) return badEmail("spouseEmail", "Spouse email")
+    const orphan = findNamelessRow([
+      { title: ROW_TITLES.children, rows: children },
+      { title: ROW_TITLES.dependents, rows: dependents },
+      { title: ROW_TITLES.relativesInAustralia, rows: relatives },
+    ])
+    if (orphan) {
+      const message = `${orphan.title}: Enter a name for row ${orphan.index + 1}, or clear the row. Rows without a name are not submitted.`
+      setError(message)
+      setFieldError({ id: `${slug(orphan.title)}-name-${orphan.index}`, message })
+      return
+    }
     if (!(amount >= (minDues ?? 0))) {
       setError(minDues != null ? `Monthly subscription must be at least $${minDues}.` : "Please enter your monthly subscription.")
       return
@@ -489,11 +519,11 @@ export function MembershipForm({
         title="C. Name of children"
         rows={children}
         empty={emptyChild}
-        max={4}
+        max={MAX_CHILDREN}
         setRows={setChildren}
         columns={[
           { key: "name", label: "Name" },
-          { key: "sex", label: "Sex (M/F)" },
+          { key: "sex", label: "Sex", type: "sex" },
           { key: "dateOfBirth", label: "Date of birth", type: "date" },
           { key: "occupation", label: "Occupation" },
           { key: "phoneEmail", label: "Phone / Email" },
@@ -506,11 +536,11 @@ export function MembershipForm({
         title="D. Other dependents (to be included in the Register)"
         rows={dependents}
         empty={emptyDependent}
-        max={4}
+        max={MAX_DEPENDENTS}
         setRows={setDependents}
         columns={[
           { key: "name", label: "Name" },
-          { key: "sex", label: "Sex (M/F)" },
+          { key: "sex", label: "Sex", type: "sex" },
           { key: "dateOfBirth", label: "Date of birth", type: "date" },
           { key: "relationship", label: "Relationship" },
           { key: "phoneEmail", label: "Phone / Email" },
@@ -523,7 +553,7 @@ export function MembershipForm({
         title="E. Any other relatives in Australia"
         rows={relatives}
         empty={emptyRelative}
-        max={3}
+        max={MAX_RELATIVES}
         setRows={setRelatives}
         columns={[
           { key: "name", label: "Name" },
@@ -596,6 +626,7 @@ export function MembershipForm({
   )
 }
 
+/** `type: "sex"` renders the Male/Female/Other select; any other value is an `<input type>`. */
 type Column<T> = { key: keyof T; label: string; type?: string }
 
 function RowSection<T extends { name: string }>(props: Readonly<{
@@ -644,15 +675,31 @@ function RowSection<T extends { name: string }>(props: Readonly<{
                 return (
                   <div key={String(col.key)}>
                     <label id={labelId} htmlFor={inputId} className={rowLabel}>{col.label}</label>
-                    <Input
-                      id={inputId}
-                      type={col.type ?? "text"}
-                      placeholder={col.label}
-                      aria-labelledby={`${rowHeadingId} ${labelId}`}
-                      {...(invalid?.id === inputId ? { "aria-invalid": true as const, "aria-describedby": `${inputId}-error` } : {})}
-                      value={String(row[col.key] ?? "")}
-                      onChange={(e) => onChange(i, { [col.key]: e.target.value } as Partial<T>)}
-                    />
+                    {col.type === "sex" ? (
+                      <Select
+                        value={String(row[col.key] ?? "") || undefined}
+                        onValueChange={(v) => onChange(i, { [col.key]: v } as Partial<T>)}
+                      >
+                        <SelectTrigger id={inputId} className="w-full" aria-labelledby={`${rowHeadingId} ${labelId}`}>
+                          <SelectValue placeholder="—" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="MALE">Male</SelectItem>
+                          <SelectItem value="FEMALE">Female</SelectItem>
+                          <SelectItem value="OTHER">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={inputId}
+                        type={col.type ?? "text"}
+                        placeholder={col.label}
+                        aria-labelledby={`${rowHeadingId} ${labelId}`}
+                        {...(invalid?.id === inputId ? { "aria-invalid": true as const, "aria-describedby": `${inputId}-error` } : {})}
+                        value={String(row[col.key] ?? "")}
+                        onChange={(e) => onChange(i, { [col.key]: e.target.value } as Partial<T>)}
+                      />
+                    )}
                     {invalid?.id === inputId && <p id={`${inputId}-error`} className="mt-1 text-sm text-destructive">{invalid.message.replace(/^[^:]*: /, "")}</p>}
                   </div>
                 )
@@ -678,10 +725,14 @@ function RowSection<T extends { name: string }>(props: Readonly<{
         })}
       </div>
       <div className="mt-2 flex gap-4 text-sm">
-        {rows.length < max && (
+        {rows.length < max ? (
           <button ref={addButtonRef} type="button" className="inline-flex min-h-11 items-center px-1 py-2.5 underline text-primary" onClick={() => setRows((r) => [...r, { ...empty }])}>
             + Add row
           </button>
+        ) : (
+          <p role="status" className="py-2.5 text-muted-foreground">
+            Maximum of {max} rows reached. To add more, contact the church office.
+          </p>
         )}
       </div>
     </>
