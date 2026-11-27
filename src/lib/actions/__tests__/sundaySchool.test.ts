@@ -347,7 +347,8 @@ describe("addTeacher", () => {
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
     ;(prisma.sundaySchoolTeacher.create as jest.Mock).mockRejectedValue({ code: "P2002" })
     expect(await addTeacher(1, 5)).toBeUndefined()
-    expect(logAudit).toHaveBeenCalledWith(1, "SS_TEACHER_ADDED", "SundaySchoolClass", 1, { personId: 5 })
+    // Nothing changed, so no audit row (AUD-5-35).
+    expect(logAudit).not.toHaveBeenCalled()
   })
 })
 
@@ -521,8 +522,15 @@ describe("unenrolChild / removeTeacher success paths", () => {
     expect(prisma.sundaySchoolTeacher.deleteMany).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })
+  it("writes no audit row when the teacher link did not exist (AUD-5-35)", async () => {
+    as(UserRole.ADMIN); liveClass()
+    ;(prisma.sundaySchoolTeacher.deleteMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await removeTeacher(1, 7)).toBeUndefined()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
   it("deletes the teacher link and audits", async () => {
     as(UserRole.ADMIN); liveClass()
+    ;(prisma.sundaySchoolTeacher.deleteMany as jest.Mock).mockResolvedValue({ count: 1 })
     await removeTeacher(1, 7)
     expect(prisma.sundaySchoolTeacher.deleteMany).toHaveBeenCalledWith({ where: { classId: 1, personId: 7 } })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_TEACHER_REMOVED", "SundaySchoolClass", 1, { personId: 7 })

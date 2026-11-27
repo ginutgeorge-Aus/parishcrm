@@ -147,7 +147,8 @@ async function sendDueBirthdays(today: Date, sendDate: string): Promise<Counts> 
   // fire-and-forget cron. Mirrors reminderSweep's all-failed guard.
   if (failed > 0 && sent === 0)
     logger.error(`[celebration] all ${failed} birthday email(s) failed to send today — likely an SMTP outage; the in-app scheduler retries later today (max 3 attempts), investigate`)
-  await logAudit(null, "BIRTHDAY_EMAIL_BATCH_SENT", "Person", undefined, { window: 0, sent, skipped, failed })
+  // Only when something was attempted: an idle daily run would add ~365 noise rows a year (AUD-6-18).
+  if (sent + failed > 0) await logAudit(null, "BIRTHDAY_EMAIL_BATCH_SENT", "Person", undefined, { window: 0, sent, skipped, failed })
   return inFlight ? { sent, skipped, failed, inFlight } : { sent, skipped, failed }
 }
 
@@ -197,6 +198,7 @@ async function sendDueAnniversaries(today: Date, sendDate: string): Promise<Coun
   // Total-failure signal — see sendDueBirthdays.
   if (failed > 0 && sent === 0)
     logger.error(`[celebration] all ${failed} anniversary email(s) failed to send today — likely an SMTP outage; the in-app scheduler retries later today (max 3 attempts), investigate`)
-  await logAudit(null, "ANNIVERSARY_EMAIL_BATCH_SENT", "Family", undefined, { window: 0, sent, skipped, failed })
+  // Only when something was attempted (AUD-6-18).
+  if (sent + failed > 0) await logAudit(null, "ANNIVERSARY_EMAIL_BATCH_SENT", "Family", undefined, { window: 0, sent, skipped, failed })
   return inFlight ? { sent, skipped, failed, inFlight } : { sent, skipped, failed }
 }

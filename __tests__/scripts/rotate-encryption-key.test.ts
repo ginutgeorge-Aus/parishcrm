@@ -452,6 +452,7 @@ describe("FIELDS map", () => {
     // request text + requester contact (actions/prayerRequest.ts).
     followUpTask: ["title", "notes"],
     prayerRequest: ["request", "requesterName", "requesterEmail", "requesterPhone"],
+    venueUsageRequest: ["sentTo"],
   }
   // Registration.customAnswers is appended separately below (kept out of the
   // literal above so the intent — "registration gained a field" — stays visible
