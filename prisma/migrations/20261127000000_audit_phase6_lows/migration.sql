@@ -1,7 +1,7 @@
 -- AUD-6-05: a service type deleted while a receipt is being saved must be refused, not silently blank the receipt.
 ALTER TABLE "PettyCashReceipt" DROP CONSTRAINT "PettyCashReceipt_serviceTypeId_fkey";
 ALTER TABLE "PettyCashReceipt" ADD CONSTRAINT "PettyCashReceipt_serviceTypeId_fkey"
-  FOREIGN KEY ("serviceTypeId") REFERENCES "ServiceType"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  FOREIGN KEY ("serviceTypeId") REFERENCES "ServiceType"("id") ON DELETE RESTRICT ON UPDATE CASCADE NOT VALID;
 
 -- AUD-6-11: FK / lookup indexes (Postgres does not index FK columns). paymentRef stays non-unique:
 -- a unique constraint needs a duplicate check on the live data first.

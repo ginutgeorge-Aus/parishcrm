@@ -134,11 +134,14 @@ export async function tick(state: SchedulerState, jobs: Jobs, now: Date = new Da
 }
 
 /** How long shutdown waits for running jobs before closing the database anyway. */
-export const SHUTDOWN_GRACE_MS = 8_000
+const SHUTDOWN_GRACE_MS = 8_000
 
 /**
  * Graceful stop for SIGTERM (AUD-6-08): stop new ticks, give running jobs a short grace period to finish (so
  * their claims are released rather than left to time out), then close the database connections.
+ * Best effort: in production Next's own SIGTERM handler owns process exit and does not await this, so the
+ * process can exit once HTTP drain finishes, before the grace period elapses. A job cut off then keeps its
+ * claim until the lease expires.
  * @param disconnect - Closes the DB pool; injectable for tests.
  * @param graceMs - Max time to wait for running jobs.
  */

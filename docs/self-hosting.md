@@ -133,8 +133,10 @@ blocks duplicate live exams there.
 aborts with "case-variant duplicate User emails exist (...)" when two user accounts
 have emails that differ only by letter case. Do not edit the migration. Find the pair with
 `SELECT lower(email), count(*) FROM "User" GROUP BY 1 HAVING count(*) > 1;`, then remove or
-change the extra account's email (keep the one that is used to sign in), and re-run
-`prisma migrate deploy`.
+change the extra account's email (keep the one that is used to sign in). Prisma records the
+failed attempt, so a plain re-run stops with P3009: first run
+`npx prisma migrate resolve --rolled-back 20261028000000_user_email_lower_unique` against the same
+database, then re-run `prisma migrate deploy`.
 
 ## 4. Run
 
