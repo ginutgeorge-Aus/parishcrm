@@ -85,7 +85,7 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
           <li>{preview.peopleCount} people will be reassigned</li>
           <li>{preview.transactionCount} transactions will be reassigned</li>
           {preview.fundraiserEntryCount > 0 && (
-            <li>{preview.fundraiserEntryCount} fundraiser entries will be reassigned (combined with the target&apos;s entry for the same fundraiser where possible; some may remain unlinked)</li>
+            <li>{preview.fundraiserEntryCount} fundraiser entries will be reassigned (combined with the kept family&apos;s entry for the same fundraiser where possible; some may remain unlinked)</li>
           )}
           {preview.fundraiserEntriesKeptSeparate > 0 && (
             <li>{preview.fundraiserEntriesKeptSeparate} of them can&apos;t be combined (different price, or over the per-entry amount or quantity limit) and will stay as separate rows under <strong>{preview.source.name}</strong>&apos;s name</li>
@@ -117,11 +117,11 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
   return (
     <div className="space-y-6 max-w-lg">
       <p className="text-sm text-muted-foreground">
-        Select the duplicate (source) and the record to keep (target). All people and transactions from the source will be moved to the target, then the source is deleted.
+        Select the duplicate family to remove and the family to keep. All people and transactions from the duplicate will be moved to the family you keep, then the duplicate is deleted.
       </p>
       <div className="space-y-4">
         <div className="space-y-1">
-          <Label htmlFor="source">Source — duplicate to delete</Label>
+          <Label htmlFor="source">Family to remove (the duplicate)</Label>
           <Select value={sourceId} onValueChange={setSourceId}>
             <SelectTrigger id="source" className="w-full">
               <SelectValue placeholder="Select family…" />
@@ -134,7 +134,7 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label htmlFor="target">Target — record to keep</Label>
+          <Label htmlFor="target">Family to keep</Label>
           <Select value={targetId} onValueChange={setTargetId}>
             <SelectTrigger id="target" className="w-full">
               <SelectValue placeholder="Select family…" />
@@ -148,7 +148,7 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
         </div>
       </div>
       {sourceId && targetId && sourceId === targetId && (
-        <p role="alert" className="text-sm text-warning">Source and target must be different families.</p>
+        <p role="alert" className="text-sm text-warning">The family to remove and the family to keep must be different.</p>
       )}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <Button onClick={handlePreview} disabled={isPending || !sourceId || !targetId || sourceId === targetId}>

@@ -53,11 +53,11 @@ const families = [
 ]
 
 function selectSource(value: string) {
-  fireEvent.change(screen.getByLabelText(/source/i), { target: { value } })
+  fireEvent.change(screen.getByLabelText(/family to remove/i), { target: { value } })
 }
 
 function selectTarget(value: string) {
-  fireEvent.change(screen.getByLabelText(/target/i), { target: { value } })
+  fireEvent.change(screen.getByLabelText(/family to keep/i), { target: { value } })
 }
 
 describe("MergeClient", () => {
@@ -76,7 +76,7 @@ describe("MergeClient", () => {
       render(<MergeClient families={families} />)
       selectSource("1")
       selectTarget("1")
-      expect(screen.getByText(/source and target must be different/i)).toBeInTheDocument()
+      expect(screen.getByText(/must be different/i)).toBeInTheDocument()
       expect(screen.getByRole("button", { name: /preview merge/i })).toBeDisabled()
     })
 
@@ -96,7 +96,7 @@ describe("MergeClient", () => {
       render(<MergeClient families={families} />)
       selectSource("1")
       selectTarget("2")
-      expect(screen.queryByText(/source and target must be different/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/must be different/i)).not.toBeInTheDocument()
     })
   })
 

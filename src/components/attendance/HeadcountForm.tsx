@@ -47,7 +47,7 @@ export function HeadcountForm({
   if (serviceTypes.length === 0) {
     return (
       <p className="rounded-lg border p-4 text-sm text-muted-foreground">
-        No active service types. An admin can add them under{" "}
+        No active services. Ask an admin to add or reactivate one, such as Sunday Service, under{" "}
         <Link href="/accounting/petty-cash/service-types" className="underline">
           Petty cash → Service types
         </Link>
