@@ -8,7 +8,7 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { hasDuplicateDonorSplit } from "@/lib/bankSplit"
 import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
-import { isP2034 } from "@/lib/validation"
+import { isP2002, isP2034 } from "@/lib/validation"
 import { moneyAmountSchema } from "@/lib/actions/transactionValidation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
 import { unsealAccountNumber } from "@/lib/bankAccountToken"
@@ -130,6 +130,18 @@ const BodySchema = z.union([
 ])
 
 type ConfirmRow = z.infer<typeof RowSchema>
+
+/**
+ * Thrown when linking a matched session transfer to a deposit hits the
+ * `linkedDepositBankRef` unique index (AUD-3-12). A real fault, never a duplicate row.
+ */
+class TransferLinkConflictError extends Error {
+  /** Builds the error with a message that can't be mistaken for a duplicate-bankRef clash. */
+  constructor() {
+    super("Petty-cash transfer is already linked to this deposit's bank reference")
+    this.name = "TransferLinkConflictError"
+  }
+}
 
 /**
  * Rebuild the real (full account number) bankRef of every masked row in place,
@@ -497,7 +509,13 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         paymentAccountId: cashAccount?.id ?? null,
         date: { gte: new Date(rowTime - XFER_WINDOW_MS), lte: new Date(rowTime + XFER_WINDOW_MS) },
       },
-      select: { id: true, amount: true, date: true, pettyCashTransferId: true },
+      select: {
+        id: true,
+        amount: true,
+        date: true,
+        pettyCashTransferId: true,
+        pettyCashTransfer: { select: { linkedDepositBankRef: true } },
+      },
     })
 
   let imported = 0
@@ -666,7 +684,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
        * bankRef in the same transaction (AUD-3-12). Returns the consumed mirror id, if any.
        */
       const writePair = async (tx: Prisma.TransactionClient): Promise<number | null> => {
-        const mirrorMatch = (await readTransferMirrors(tx, rowTime, rowRefs)).find(
+        const candidates = (await readTransferMirrors(tx, rowTime, rowRefs)).filter(
           (m) =>
             m.pettyCashTransferId != null &&
             m.amount != null &&
@@ -674,6 +692,12 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
             toCents(m.amount) === rowCents &&
             Math.abs(new Date(m.date).getTime() - rowTime) <= XFER_WINDOW_MS
         )
+        // Prefer the transfer already linked to this deposit (a re-import after the
+        // deposit was deleted): linking a different unlinked transfer to the same
+        // bankRef would hit the unique index instead.
+        const ownLink = (m: (typeof candidates)[number]) =>
+          m.pettyCashTransfer?.linkedDepositBankRef != null && rowRefs.includes(m.pettyCashTransfer.linkedDepositBankRef)
+        const mirrorMatch = candidates.find(ownLink) ?? candidates[0]
         await tx.transaction.create({
           data: {
             date: new Date(row.date),
@@ -695,10 +719,17 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         })
         if (mirrorMatch?.pettyCashTransferId != null) {
           // Same hashed bankRef the deposit row stores — no new PII at rest.
-          await tx.pettyCashTransfer.update({
-            where: { id: mirrorMatch.pettyCashTransferId },
-            data: { linkedDepositBankRef: row.bankRef },
-          })
+          try {
+            await tx.pettyCashTransfer.update({
+              where: { id: mirrorMatch.pettyCashTransferId },
+              data: { linkedDepositBankRef: row.bankRef },
+            })
+          } catch (e: unknown) {
+            // A unique clash here is a link conflict, not a duplicate deposit:
+            // surface it so the catch below doesn't count the row as a duplicate.
+            if (isP2002(e)) throw new TransferLinkConflictError()
+            throw e
+          }
         }
         // Re-check the XFER_OUT leg through tx: the pre-read set above is from
         // before this transaction, so a retry after a conflict (or a concurrent
@@ -755,6 +786,10 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         existingRefs.add(pairRef)
         imported++
       } catch (e: unknown) {
+        if (e instanceof TransferLinkConflictError) {
+          console.error("Bank import DB error", e.message)
+          return dbFault()
+        }
         const msg = e instanceof Error ? e.message : String(e)
         if (msg.includes("UniqueConstraintViolation") || msg.includes("Unique constraint")) {
           duplicates++

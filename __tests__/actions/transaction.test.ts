@@ -28,6 +28,9 @@ jest.mock("@/lib/prisma", () => {
     auditLog: {
       findFirst: jest.fn().mockResolvedValue(null),
     },
+    pettyCashTransfer: {
+      updateMany: jest.fn(),
+    },
   }
   // Interactive transaction: run the callback against the same mocked client.
   prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) =>
@@ -752,6 +755,30 @@ describe("deleteTransaction", () => {
       mockFindUnique.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce(row)
       await deleteTransaction(1)
       expect(mockFindUnique).toHaveBeenCalledTimes(2)
+    }
+  })
+
+  it("clears the session-transfer link of a deleted imported deposit in the delete transaction (AUD-3-12)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce(importedDeposit).mockResolvedValueOnce({ pettyCashTransferId: null })
+    mockDelete.mockResolvedValueOnce({ count: 1 })
+    const linkClear = prisma.pettyCashTransfer.updateMany as jest.Mock
+    linkClear.mockClear()
+    await deleteTransaction(1)
+    expect(linkClear).toHaveBeenCalledWith({ where: { linkedDepositBankRef: "ANZ_1" }, data: { linkedDepositBankRef: null } })
+    // Inside the delete's Serializable transaction (the mocked $transaction runs the callback).
+    expect(prisma.$transaction).toHaveBeenCalled()
+
+    // No clear when the delete matched 0 rows, or for a non-deposit row.
+    for (const [row, count] of [
+      [importedDeposit, 0],
+      [{ id: 1, bankRef: "ANZ_1", type: "EXPENSE", account: { code: "XFER" } }, 1],
+    ] as const) {
+      linkClear.mockClear()
+      mockFindUnique.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce(row).mockResolvedValueOnce({ pettyCashTransferId: null })
+      mockDelete.mockResolvedValueOnce({ count })
+      await deleteTransaction(1)
+      expect(linkClear).not.toHaveBeenCalled()
     }
   })
 
