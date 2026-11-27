@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
 import { sydneyWeekStartYMD } from "@/lib/dates"
+import { purgeErrorLog, purgeRouteViews } from "@/lib/telemetryPurge"
 import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
 
 const PROD_ERROR_LABEL = "prod-error"
@@ -100,18 +101,9 @@ export async function runErrorDigest(
   // Each purge is independent: one failing must not skip the other.
   let purged = 0
   const purges: Array<() => Promise<void>> = [
-    async () => {
-      ;({ count: purged } = await prisma.errorLog.deleteMany({
-        where: { createdAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
-      }))
-    },
-    // Reuse this weekly run to purge the aggregate route-view counter too
-    // ( Phase 3) — no separate scheduler for a bare counter table.
-    async () => {
-      await prisma.routeViewDaily.deleteMany({
-        where: { date: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
-      })
-    },
+    async () => { purged = await purgeErrorLog(now) },
+    // The always-on daily telemetry job also purges these (AUD-6-06); kept here so a manual digest run still does.
+    async () => { await purgeRouteViews(now) },
   ]
   for (const purge of purges) {
     // Purges are side effects too: don't run them on a lease another run now owns.

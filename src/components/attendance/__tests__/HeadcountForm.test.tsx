@@ -120,7 +120,7 @@ describe("HeadcountForm", () => {
 
   it("shows an empty state, not a form, with no active service types", () => {
     render(<HeadcountForm serviceTypes={[]} rows={[]} today="2026-11-12" />)
-    expect(screen.getByText(/no active service types/i)).toBeInTheDocument()
+    expect(screen.getByText(/no active services/i)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Save headcount" })).not.toBeInTheDocument()
   })
 

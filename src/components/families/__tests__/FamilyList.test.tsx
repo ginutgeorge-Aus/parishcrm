@@ -3,6 +3,30 @@ import { FamilyList } from "@/components/families/FamilyList"
 
 const links = () => screen.queryAllByRole("link").map((a) => a.getAttribute("href"))
 
+describe("FamilyList mobile card meta line", () => {
+  const base = { id: 1, name: "Sample", status: "ACTIVE" as const }
+
+  it("joins member no, suburb and member count with separators", () => {
+    render(
+      <FamilyList
+        families={[{ ...base, memberNo: "M1", suburb: "Testville", _count: { people: 3 } }]}
+        canEdit={false}
+      />
+    )
+    expect(screen.getAllByText("M1 · Testville · 3 members").length).toBeGreaterThan(0)
+  })
+
+  it("shows only the singular count when memberNo and suburb are empty", () => {
+    render(
+      <FamilyList
+        families={[{ ...base, memberNo: null, suburb: null, _count: { people: 1 } }]}
+        canEdit={false}
+      />
+    )
+    expect(screen.getAllByText("1 member").length).toBeGreaterThan(0)
+  })
+})
+
 describe("FamilyList empty states", () => {
   it("offers Add family and Import CSV to an ADMIN on a first run", () => {
     render(<FamilyList families={[]} canEdit canImport />)

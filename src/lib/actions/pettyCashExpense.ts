@@ -10,7 +10,7 @@ import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, holdAccountingLock } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, isOversizeMoney, hasEncryptedFieldMatch, isP2034 } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -245,6 +245,9 @@ export async function createExpense(
     // concurrent retype can't land between them, and the entry can never commit
     // without its "created" audit row (so a replay never needs to backfill one, #563).
     const result = await serializableWrite<{ error: string } | { id: number } | { replay: true }>(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       // Token re-check inside the tx: a twin submit may have committed since the
       // pre-check (serializableWrite's P2034 retry lands here and sees it).
       if (token) {
@@ -255,6 +258,9 @@ export async function createExpense(
       // Re-assert OPEN inside the tx — a concurrent close between the check
       // above and this write must not post into a closed session.
       await assertSessionOpenTx(tx, sessionId)
+      // Period-lock re-check inside the write (AUD-3-08): a lock set after the pre-check must still block it.
+      const txLockError = await assertUnlockedTx(tx, sessionDate)
+      if (txLockError) return { error: txLockError }
       const fresh = await accountMatches(tx, parsed.data.accountId, "EXPENSE")
       if (!fresh) return { error: "Invalid account" }
       const id = await createExpenseEntry(tx, {
@@ -294,7 +300,7 @@ export async function updateExpense(
     where: { id },
     include: {
       session: { select: { id: true, status: true, title: true } },
-      transaction: { select: { reconciled: true } },
+      transaction: { select: { id: true, reconciled: true } },
     },
   })
   if (!expense) return { error: "Expense not found" }
@@ -347,9 +353,17 @@ export async function updateExpense(
   try {
     // Account re-check + write share one Serializable transaction (see createExpense).
     const result = await serializableWrite<{ error: string } | null>(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       // Re-assert OPEN inside the tx — a concurrent close must not let an edit
       // land in a now-closed session.
       await assertSessionOpenTx(tx, expense.sessionId, "Cannot edit in closed session")
+      // In-tx re-checks (AUD-3-08): a lock change or reconcile after the pre-checks must still block the edit.
+      // The mirror row lock (FOR UPDATE) holds off a reconcile until this edit commits.
+      const txLockError = await assertUnlockedTx(tx, sessionDate)
+      if (txLockError) return { error: txLockError }
+      await assertMirrorNotReconciledTx(tx, expense.transaction?.id, RECONCILED_EDIT_ERROR)
       const fresh = await accountMatches(tx, parsed.data.accountId, "EXPENSE", { allowInactive: true })
       if (!fresh) return { error: "Invalid account" }
       await tx.pettyCashExpense.update({
@@ -365,8 +379,9 @@ export async function updateExpense(
       },
     })
     // updateMany: pre- expenses have no mirrored ledger row — must not throw
-    await tx.transaction.updateMany({
-      where: { pettyCashExpenseId: id },
+    // reconciled: false — never rewrite a reconciled mirror; a mirror read above that now matches nothing rolls the edit back.
+    const mirror = await tx.transaction.updateMany({
+      where: { pettyCashExpenseId: id, reconciled: false },
       data: {
         date: sessionDate,
         amount: parsed.data.amount,
@@ -379,6 +394,7 @@ export async function updateExpense(
         fundId: parsed.data.fundId,
       },
     })
+    if (expense.transaction && mirror.count === 0) throw new SessionClosedError(RECONCILED_EDIT_ERROR)
     await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "UPDATED", id, parsed.data, expense.sessionId)
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
@@ -418,7 +434,13 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
   try {
     await prisma.$transaction(async (tx) => {
+      // Lock order: shared accounting advisory lock first, before any row lock or session-row write, so this
+      // write and setAccountingLockDate (exclusive) never wait on each other in a cycle (AUD-3-08).
+      await holdAccountingLock(tx, "shared")
       await assertSessionOpenTx(tx, expense.session.id, "Cannot delete from closed session")
+      // Period-lock re-check inside the delete (AUD-3-08): a lock set after the pre-check must still block it.
+      const txLockError = await assertUnlockedTx(tx, expenseSessionDate)
+      if (txLockError) throw new SessionClosedError(txLockError)
       // Audit metadata comes from the row as read INSIDE the tx (not the pre-read), so a
       // concurrent edit between the two can't leave the DELETED row describing stale values.
       const row = await tx.pettyCashExpense.findUnique({

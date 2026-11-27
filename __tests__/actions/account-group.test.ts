@@ -169,6 +169,29 @@ describe("updateAccountGroup", () => {
     expect(result).toEqual({ error: "A group with this name already exists for this type" })
     expect(mockRedirect).not.toHaveBeenCalled()
   })
+
+  it("returns 'Group not found' when the group vanishes before the in-transaction re-read", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique
+      .mockResolvedValueOnce({ id: 1, name: "Old", type: "INCOME", sortOrder: 0 }) // existing row
+      .mockResolvedValueOnce(null) // duplicate pre-check passes
+      .mockResolvedValueOnce(null) // in-tx re-read: deleted meanwhile
+    const result = await updateAccountGroup(1, undefined, fd({ ...validGroup, name: "Updated" }))
+    expect(result).toEqual({ error: "Group not found" })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it("maps a P2034 serialization conflict to a retry message", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique
+      .mockResolvedValueOnce({ id: 1, name: "Old", type: "INCOME", sortOrder: 0 })
+      .mockResolvedValueOnce(null)
+    ;(prisma as unknown as { $transaction: jest.Mock }).$transaction.mockRejectedValueOnce(
+      Object.assign(new Error("write conflict"), { code: "P2034" })
+    )
+    const result = await updateAccountGroup(1, undefined, fd({ ...validGroup, name: "Updated" }))
+    expect(result).toEqual({ error: "This group was changed at the same time by someone else — try again." })
+  })
 })
 
 describe("deleteAccountGroup", () => {

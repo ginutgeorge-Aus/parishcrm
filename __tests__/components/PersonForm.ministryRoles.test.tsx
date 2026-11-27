@@ -7,6 +7,15 @@ jest.mock("next/navigation", () => ({
 
 const noop = async () => undefined
 
+describe("PersonForm phone inputs", () => {
+  it("uses tel keyboards for every phone field", () => {
+    render(<PersonForm action={noop} canSeePastoralNotes />)
+    for (const id of ["mobile", "workPhone", "homePhone", "emergencyContactPhone"]) {
+      expect(document.getElementById(id)).toHaveAttribute("type", "tel")
+    }
+  })
+})
+
 describe("PersonForm ministry roles", () => {
   it("renders one named checkbox per ministry role, all unticked for a new person", () => {
     render(<PersonForm action={noop} canSeePastoralNotes={false} />)

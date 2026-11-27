@@ -7,7 +7,7 @@
 
 jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
 jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn(), XFER_OUT_PREFIX: "XFER_OUT_" }))
-jest.mock("@/lib/accountingLock", () => ({
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null),
   getAccountingLockDate: jest.fn().mockResolvedValue(null),
   isDateLocked: jest.fn(() => false),
 }))
@@ -35,6 +35,7 @@ jest.mock("@/lib/prisma", () => ({
 import { prisma } from "@/lib/prisma"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { confirmBankImport } from "@/lib/bankImportConfirm"
+import { assertUnlockedTx } from "@/lib/accountingLock"
 
 const mockAccountFindMany = prisma.account.findMany as jest.Mock
 const mockFamilyFindMany = prisma.family.findMany as jest.Mock
@@ -416,6 +417,18 @@ describe("confirmBankImport — concurrent manual transfer (#493)", () => {
     expect(result).toEqual(expect.objectContaining({ ok: false, status: 500 }))
     expect(prisma.$transaction).toHaveBeenCalledTimes(3)
   })
+
+  it("a lock set after the pre-check rejects the pair with PERIOD_LOCKED and is not retried (AUD-3-08)", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma))
+    const LOCKED = "One or more transactions fall in a locked accounting period (on or before 2026-12-31). Adjust the lock date or exclude those rows."
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce(LOCKED)
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: false, status: 400, code: "PERIOD_LOCKED", error: LOCKED, imported: 0 }))
+    // ImportPeriodLockedError is not a P2034: the retry loop rethrows it on the first attempt.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
 })
 
 describe("confirmBankImport — partial write on mid-batch DB fault", () => {
@@ -426,7 +439,10 @@ describe("confirmBankImport — partial write on mid-batch DB fault", () => {
       { id: 5, type: "INCOME", isActive: true },
       { id: 6, type: "INCOME", isActive: true },
     ])
-    ;(prisma.$transaction as jest.Mock).mockRejectedValue(new Error("connection reset by peer"))
+    // The plain-row batch's transaction commits; the split row's then fails.
+    ;(prisma.$transaction as jest.Mock)
+      .mockImplementationOnce((fn: (tx: unknown) => unknown) => fn(prisma))
+      .mockRejectedValueOnce(new Error("connection reset by peer"))
 
     const result = await confirmBankImport([
       { ...baseRow, bankRef: "REF-plain", accountId: 5 },
@@ -443,6 +459,38 @@ describe("confirmBankImport — partial write on mid-batch DB fault", () => {
     expect(result.status).toBe(500)
     expect(result.imported).toBe(1) // the plain row really committed
     expect(result.error).toContain("already saved")
+  })
+})
+
+// AUD-3-08: the period lock is re-checked inside each write transaction, so a lock
+// date set after the pre-check still keeps the rows out of the locked period.
+describe("confirmBankImport — lock re-checked inside the write transaction", () => {
+  const LOCKED = "One or more transactions fall in a locked accounting period (on or before 2026-12-31). Adjust the lock date or exclude those rows."
+
+  it("rejects the plain-row batch with PERIOD_LOCKED and inserts nothing", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce(LOCKED)
+    const result = await confirmBankImport([{ ...baseRow, bankRef: "REF-plain", accountId: 5 }])
+    expect(result).toEqual(expect.objectContaining({ ok: false, status: 400, code: "PERIOD_LOCKED", error: LOCKED, imported: 0 }))
+    expect(assertUnlockedTx).toHaveBeenCalledWith(prisma, new Date(baseRow.date), expect.any(Function))
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("reports rows already saved when a later write hits the new lock", async () => {
+    mockAccountFindMany.mockResolvedValue([
+      { id: 5, type: "INCOME", isActive: true },
+      { id: 6, type: "INCOME", isActive: true },
+    ])
+    // Plain batch passes; the split row's transaction sees the new lock.
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce(null).mockResolvedValueOnce(LOCKED)
+    const result = await confirmBankImport([
+      { ...baseRow, bankRef: "REF-plain", accountId: 5 },
+      { ...baseRow, bankRef: "REF-split", accountId: null, splits: [{ accountId: 6, amount: "100.00" }] },
+    ])
+    expect(result).toEqual(expect.objectContaining({ ok: false, status: 400, code: "PERIOD_LOCKED", imported: 1 }))
+    if (result.ok) throw new Error("expected failure")
+    expect(result.error).toContain("1 transaction was saved before the lock date changed")
+    expect(mockCreate).not.toHaveBeenCalled()
   })
 })
 
@@ -495,6 +543,87 @@ describe("confirmBankImport — direction-aware cross-format dedup", () => {
     if (!result.ok) throw new Error(result.error)
     expect(result.imported).toBe(1)
     expect(result.duplicates).toBe(0)
+  })
+})
+
+// AUD-3-14: two genuine identical payments on one day share a content key, so the
+// second is auto-skipped as a duplicate; "import anyway" must be able to force it.
+describe("confirmBankImport — import anyway (AUD-3-14)", () => {
+  const dupRow = {
+    date: "2026-06-08",
+    description: "PAYMENT FROM BRUNO TAYLOR WILLIAMSON",
+    amount: "300.00",
+    type: "INCOME" as const,
+    bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_1060000",
+    accountId: 5,
+    skip: false,
+    paymentAccountId: 1,
+  }
+  const existing = [{ bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_1030000", type: "INCOME" }]
+
+  it("skips the row as a duplicate without the flag", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    const result = await confirmBankImport([dupRow])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.duplicates).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("imports the row with a suffixed bankRef when importAnyway is set", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    const result = await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.imported).toBe(1)
+    expect(result.duplicates).toBe(0)
+    const data = mockCreateMany.mock.calls[0][0].data as { bankRef: string }[]
+    expect(data[0].bankRef).toMatch(/#dup$/)
+    expect(data[0].bankRef).not.toBe(dupRow.bankRef)
+  })
+
+  it("imports two importAnyway rows with identical content but distinct refs, and drops a same-ref repeat as a duplicate", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    const second = { ...dupRow, bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL_1090000" }
+    const result = await confirmBankImport([
+      { ...dupRow, importAnyway: true },
+      { ...second, importAnyway: true },
+      { ...second, importAnyway: true },
+    ])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.imported).toBe(2)
+    expect(result.duplicates).toBe(1)
+  })
+
+  it("still dedupes a forced row against a legacy full-number stored ref", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue([...existing, { bankRef: `${dupRow.bankRef}#dup`, type: "INCOME" }])
+    const result = await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.duplicates).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("ignores importAnyway on a skipped row", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    const result = await confirmBankImport([{ ...dupRow, skip: true, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.skipped).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
+  })
+
+  it("treats a repeat of the same forced row as already imported", async () => {
+    mockAccountFindMany.mockResolvedValue([{ id: 5, type: "INCOME", isActive: true }])
+    mockTxFindMany.mockResolvedValue(existing)
+    await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    const stored = (mockCreateMany.mock.calls[0][0].data as { bankRef: string }[])[0].bankRef
+    mockCreateMany.mockClear()
+    mockTxFindMany.mockResolvedValue([...existing, { bankRef: stored, type: "INCOME" }])
+    const result = await confirmBankImport([{ ...dupRow, importAnyway: true }])
+    if (!result.ok) throw new Error(result.error)
+    expect(result.duplicates).toBe(1)
+    expect(mockCreateMany).not.toHaveBeenCalled()
   })
 })
 

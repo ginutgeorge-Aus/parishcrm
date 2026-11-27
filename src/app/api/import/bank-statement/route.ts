@@ -225,16 +225,21 @@ async function findDuplicateBankRefs(rows: ParsedRow[], accountNumber: string): 
           : []),
       ],
     },
-    select: { bankRef: true },
+    select: { bankRef: true, type: true },
   })
   const existingRefs = new Set(existing.map((t) => t.bankRef))
+  // Direction-qualified, exactly as the confirm step keys them (`key|type`), so an
+  // opposite-direction line is not pre-skipped here only to be imported there.
   const existingContentKeys = new Set<string>()
   for (const t of existing) {
     const key = t.bankRef ? contentKeyFromBankRef(t.bankRef) : null
-    if (key) existingContentKeys.add(key)
+    if (key) existingContentKeys.add(`${key}|${t.type}`)
   }
   return rows
-    .filter((_, i) => forms[i].refs.some((ref) => existingRefs.has(ref)) || forms[i].keys.some((key) => existingContentKeys.has(key)))
+    .filter(
+      (r, i) =>
+        forms[i].refs.some((ref) => existingRefs.has(ref)) || forms[i].keys.some((key) => existingContentKeys.has(`${key}|${r.type}`))
+    )
     .map((r) => r.bankRef)
 }
 
@@ -322,5 +327,9 @@ export async function POST(req: Request) {
     suggestedPaymentAccountId,
     dateFormatAmbiguous: result.dateFormatAmbiguous === true,
     errors: validated.clientErrors,
+    // Date + amount of every block the parser dropped, and totals/balance
+    // warnings, so the review screen shows what is missing (AUD-3-13).
+    skippedBlocks: result.skippedBlocks ?? [],
+    warnings: result.warnings ?? [],
   })
 }

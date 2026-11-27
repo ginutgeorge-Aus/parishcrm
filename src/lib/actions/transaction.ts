@@ -9,7 +9,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAuditTx } from "@/lib/audit"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
 import { xferOutRef } from "@/lib/xferRefs"
 import { utcYmd } from "@/lib/dates"
@@ -159,6 +159,9 @@ export async function createTransaction(
   // concurrent updateAccount retype (which counts transactions under Serializable) could otherwise commit in
   // between and leave this row on an account of the wrong type. See serializableWrite.
   const result = await serializableWrite<{ error: string } | { created: { id: number } }>(async (tx) => {
+    // Re-check the period lock inside the write (AUD-3-08): a lock set after the pre-check must still block it.
+    const txLockError = await assertUnlockedTx(tx, rest.date)
+    if (txLockError) return { error: txLockError }
     if (!(await accountMatches(tx, rest.accountId, rest.type))) return { error: "Invalid category" }
     const created = await tx.transaction.create({
       data: {
@@ -212,6 +215,8 @@ function adoptionFieldsChanged(
 }
 
 const PETTY_CASH_EDIT_ERROR = "Petty cash transactions cannot be edited here — edit via the petty cash session"
+const RECONCILED_EDIT_ERROR = "This transaction is reconciled. Un-reconcile it on the Reconciliation page before editing."
+const RECONCILED_DELETE_ERROR = "This transaction is reconciled. Un-reconcile it on the Reconciliation page before deleting."
 const DEPOSIT_LINKED_ERROR = "This imported deposit is linked to a petty cash transfer. Delete the transfer first."
 
 /**
@@ -254,7 +259,7 @@ export async function updateTransaction(
   // reconciled while leaving every row still flagged reconciled. Force a
   // deliberate re-open via the reconciliation page's un-reconcile toggle first.
   if (existing.reconciled)
-    return { error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before editing." }
+    return { error: RECONCILED_EDIT_ERROR }
 
   const lockError = await assertUnlocked(existing.date)
   if (lockError) return { error: lockError }
@@ -321,9 +326,14 @@ export async function updateTransaction(
     // The change test uses the row as read in this tx, not the pre-read, so a concurrent edit can't make it stale.
     const current = await tx.transaction.findUnique({
       where: { id },
-      select: { date: true, amount: true, type: true, accountId: true, bankRef: true, pettyCashTransferId: true },
+      select: { date: true, amount: true, type: true, accountId: true, bankRef: true, pettyCashTransferId: true, reconciled: true },
     })
     if (!current) return { error: "Not found" }
+    // In-tx re-checks (AUD-3-08): a reconcile or lock change after the pre-checks must still block
+    // the edit. Both the stored and the submitted date are checked, as outside the transaction.
+    if (current.reconciled) return { error: RECONCILED_EDIT_ERROR }
+    const txLockError = await assertUnlockedTx(tx, current.date) ?? await assertUnlockedTx(tx, parsed.data.date)
+    if (txLockError) return { error: txLockError }
     // The internal-transfer account is a clearing account: rows may stay on it but nothing may be moved onto it.
     if (rest.accountId !== current.accountId) {
       const target = await tx.account.findUnique({ where: { id: rest.accountId }, select: { code: true } })
@@ -334,7 +344,8 @@ export async function updateTransaction(
     if (current.bankRef && adoptionFieldsChanged(current, parsed.data) && (await depositLinkedToTransfer(tx, current.bankRef)))
       return { error: DEPOSIT_LINKED_ERROR }
     const updated = await tx.transaction.updateMany({
-      where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
+      // reconciled: false — a reconcile committed after the in-tx read above matches 0 rows (conflict).
+      where: { id, invoiceId: existing.invoiceId, reconciled: false, ...(seenAt ? { updatedAt: seenAt } : {}) },
       data: {
         ...rest,
         description: encrypt(rest.description),
@@ -392,7 +403,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   // Deleting a reconciled row silently un-balances a reconciled period —
   // require a deliberate un-reconcile on the Reconciliation page first.
   if (existing.reconciled)
-    return { error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before deleting." }
+    return { error: RECONCILED_DELETE_ERROR }
 
   const lockError = await assertUnlocked(existing.date)
   if (lockError) return { error: lockError }
@@ -414,14 +425,18 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
       // one, can pair with a leg, so no prefix exclusion. Every other row skips the lookup.
       const row = await tx.transaction.findUnique({
         where: { id },
-        select: { type: true, amount: true, accountId: true, bankRef: true, account: { select: { code: true } } },
+        select: { type: true, amount: true, accountId: true, bankRef: true, date: true, reconciled: true, account: { select: { code: true } } },
       })
+      // In-tx re-checks (AUD-3-08): a reconcile or lock change after the pre-checks must still block the delete.
+      if (row?.reconciled) return { error: RECONCILED_DELETE_ERROR }
+      const txLockError = row ? await assertUnlockedTx(tx, row.date) : null
+      if (txLockError) return { error: txLockError }
       if (row?.bankRef && row.type === "INCOME" && row.account?.code === "XFER" && (await depositLinkedToTransfer(tx, row.bankRef)))
         return { error: DEPOSIT_LINKED_ERROR }
       // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
       // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
       const deleted = await tx.transaction.deleteMany({
-        where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null },
+        where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, reconciled: false },
       })
       // Audit in the same tx so a failed audit write rolls the delete back.
       // Metadata is from the row read in this tx, not the pre-read, so it can't be stale.

@@ -675,3 +675,149 @@ describe("contentKeyFromBankRef — OFX/QIF", () => {
     expect(contentKeyFromBankRef("CSV_1_20260902_1.00_X_1")).toBeNull()
   })
 })
+
+// AUD-3-13: bank import completeness. Synthetic data only.
+const BAL_HEAD = `
+BUSINESS EXTRA STATEMENT
+Account Number 1111-22222
+01 JANUARY 2026 TO 31 JANUARY 2026
+
+Date Transaction Details Withdrawals ($) Deposits ($) Balance ($)
+2026
+01 JAN OPENING BALANCE
+1,000.00
+`
+
+describe("parseAnzStatement — completeness checks (AUD-3-13)", () => {
+  test("a consistent statement has no balance mismatch, skipped blocks or warnings", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+06 JAN PAYMENT TWO
+blank 50.00 1,150.00
+07 JAN PAYMENT THREE
+30.00 blank 1,120.00
+TOTALS AT END OF PERIOD $30.00 $150.00
+`
+    const r = parseAnzStatement(text)
+    expect(r.rows).toHaveLength(3)
+    expect(r.rows.some((x) => x.balanceMismatch)).toBe(false)
+    expect(r.skippedBlocks).toEqual([])
+    expect(r.warnings).toEqual([])
+  })
+
+  test("flags a row whose balance is not previous balance +/- amount", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+06 JAN PAYMENT TWO
+20.00 blank 1,090.00
+`
+    const r = parseAnzStatement(text)
+    expect(r.rows[0].balanceMismatch).toBeUndefined()
+    expect(r.rows[1].balanceMismatch).toBe(true)
+  })
+
+  test("reports date and amount of a block it could not parse", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+06 JAN GARBLED LINE 40.00 NOT-A-BALANCE
+07 JAN PAYMENT THREE
+blank 10.00 1,110.00
+`
+    const r = parseAnzStatement(text)
+    expect(r.rows).toHaveLength(2)
+    expect(r.skippedBlocks).toEqual([{ date: "2026-01-06", amount: "40.00" }])
+    expect(r.rows[1].balanceMismatch).toBeUndefined()
+  })
+
+  test("a skipped block that moved the balance makes the next row's balance check fail", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+06 JAN GARBLED LINE 40.00 NOT-A-BALANCE
+07 JAN PAYMENT THREE
+blank 10.00 1,150.00
+`
+    const r = parseAnzStatement(text)
+    expect(r.skippedBlocks).toHaveLength(1)
+    expect(r.rows[1].balanceMismatch).toBe(true)
+  })
+
+  test("warns when parsed rows do not sum to the statement totals line", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+TOTALS AT END OF PERIOD $0.00 $250.00
+`
+    const r = parseAnzStatement(text)
+    expect(r.warnings).toHaveLength(1)
+    expect(r.warnings![0]).toMatch(/do not match the statement totals/)
+  })
+
+  test("a totals line with one amount followed by another line's number gives no false warning", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+TOTALS AT END OF PERIOD $100.00
+250.00 999.00
+`
+    expect(parseAnzStatement(text).warnings).toEqual([])
+  })
+
+  test("report parser also lists skipped blocks", () => {
+    const text = `Transaction Report
+9 May 2026 to 8 June 2026
+Date Transaction Details Withdrawals Deposits
+08 JUN NO AMOUNT HERE
+blank
+`
+    const r = parseAnzTransactionReport(text)
+    expect(r.rows).toHaveLength(0)
+    expect(r.skippedBlocks).toEqual([{ date: "2026-06-08", amount: null }])
+  })
+})
+
+// AUD-3-22: behaviours the balance check cannot cover, documented.
+describe("parser edge behaviour (AUD-3-22)", () => {
+  test("report row with no blank marker defaults to EXPENSE but is flagged ambiguous", () => {
+    const text = `Transaction Report
+9 May 2026 to 8 June 2026
+Date Transaction Details Withdrawals Deposits
+08 JUN MYSTERY ITEM $12.00
+`
+    const r = parseAnzTransactionReport(text)
+    expect(r.rows).toHaveLength(1)
+    expect(r.rows[0].type).toBe("EXPENSE")
+    expect(r.rows[0].ambiguousType).toBe(true)
+  })
+
+  test("report row with a blank marker is not ambiguous", () => {
+    const text = `Transaction Report
+9 May 2026 to 8 June 2026
+Date Transaction Details Withdrawals Deposits
+08 JUN KNOWN ITEM $12.00
+blank
+`
+    expect(parseAnzTransactionReport(text).rows[0].ambiguousType).toBeUndefined()
+  })
+
+  test("a bare 'DD MON' line does not start a block: it merges into the previous block's details", () => {
+    const text = `${BAL_HEAD}05 JAN DEPOSIT ONE
+blank 100.00 1,100.00
+06 JAN
+blank 50.00 1,150.00
+`
+    const r = parseAnzStatement(text)
+    // Documented limitation: the bare date line is swallowed as detail text and the
+    // second amount line is ignored (amount already read), so one row is lost.
+    expect(r.rows).toHaveLength(1)
+    expect(r.rows[0].details).toContain("06 JAN")
+  })
+
+  test("a leading minus is dropped to a magnitude; direction comes from the column, and the balance check flags a contradiction", () => {
+    const text = `${BAL_HEAD}05 JAN REVERSAL
+-25.00 blank 1,025.00
+`
+    const r = parseAnzStatement(text)
+    expect(r.rows[0].amount).toBe("25.00")
+    expect(r.rows[0].type).toBe("EXPENSE")
+    // 1,000.00 - 25.00 = 975.00, but the statement printed 1,025.00.
+    expect(r.rows[0].balanceMismatch).toBe(true)
+  })
+})

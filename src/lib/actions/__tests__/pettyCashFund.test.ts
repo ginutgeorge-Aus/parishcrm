@@ -20,7 +20,7 @@ jest.mock("@/lib/crypto", () => ({
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: (...a: unknown[]) => unknown) => fn }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn(async () => null) }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), holdAccountingLock: jest.fn(async () => undefined), assertUnlocked: jest.fn(async () => null) }))
 // Sibling "use server" action modules — mock wholesale so the fundId gate can
 // be tested in isolation without dragging in their own prisma/zod/redirect deps.
 jest.mock("@/lib/actions/transaction", () => ({ validateAccount: jest.fn() }))
@@ -171,7 +171,7 @@ describe("update paths accept a deactivated account (allowInactive)", () => {
     expect(mockAccountMatches).toHaveBeenCalledWith(tx, 1, "INCOME", { allowInactive: true })
     expect(tx.pettyCashReceipt.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }))
     expect(tx.transaction.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { pettyCashReceiptId: 1 }, data: expect.objectContaining({ accountId: 1 }) })
+      expect.objectContaining({ where: { pettyCashReceiptId: 1, reconciled: false }, data: expect.objectContaining({ accountId: 1 }) })
     )
   })
 
@@ -184,7 +184,7 @@ describe("update paths accept a deactivated account (allowInactive)", () => {
     expect(mockAccountMatches).toHaveBeenCalledWith(tx, 1, "EXPENSE", { allowInactive: true })
     expect(tx.pettyCashExpense.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }))
     expect(tx.transaction.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { pettyCashExpenseId: 1 }, data: expect.objectContaining({ accountId: 1 }) })
+      expect.objectContaining({ where: { pettyCashExpenseId: 1, reconciled: false }, data: expect.objectContaining({ accountId: 1 }) })
     )
   })
 

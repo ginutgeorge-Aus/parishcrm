@@ -21,7 +21,16 @@ export type ParsedRow = {
   // the `type` above is a guess only — the review UI must force a manual choice
   // before import rather than silently posting a wrong sign.
   ambiguousType?: boolean
+  // Statement rows only: the running balance printed on this row is not the
+  // previous balance plus/minus this row's amount, so the row (or one before it)
+  // was mis-parsed or a block between them was skipped. Review must surface it.
+  balanceMismatch?: boolean
 }
+
+// A transaction block the parser could not turn into a row. Date is ISO when it
+// could be resolved (else the raw "DD MMM" text); amount is the first money
+// token in the block, or null when none was printed.
+export type SkippedBlock = { date: string; amount: string | null }
 
 export type ParseResult = {
   rows: ParsedRow[]
@@ -34,6 +43,12 @@ export type ParseResult = {
   // QIF only: every date in the file read the same as DD/MM and MM/DD, so the
   // parser used the caller's/default order and the UI must let the user confirm.
   dateFormatAmbiguous?: boolean
+  // Blocks dropped by the parser (statement + report parsers), so the review
+  // screen can show exactly which date/amount is missing from the import.
+  skippedBlocks?: SkippedBlock[]
+  // Non-fatal completeness warnings (e.g. parsed rows do not sum to the
+  // statement's own totals line).
+  warnings?: string[]
 }
 
 const MONTH_MAP: Record<string, string> = {
@@ -166,6 +181,39 @@ function parseBalance(str: string): number {
 function centsToDecimalString(cents: number): string {
   const abs = Math.abs(cents)
   return `${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`
+}
+
+/**
+ * Describe a block the parser dropped: its date (ISO when resolvable, else the
+ * raw "DD MMM") and the first money token it contains (magnitude, or null).
+ *
+ * @param blockLines - the block's lines, first line being the DD MMM date line
+ * @param year - the year to resolve the date with
+ * @returns the date + amount shown to the reviewer
+ */
+function describeSkippedBlock(blockLines: string[], year: number): SkippedBlock {
+  const dm = DATE_LINE_RE.exec(blockLines[0])
+  const date = dm ? (toIso(dm[1], dm[2], year) ?? `${dm[1]} ${dm[2]}`) : blockLines[0].slice(0, 12)
+  const money = /-?[\d,]+\.\d{2}/.exec(blockLines.join(" "))
+  return { date, amount: money ? amountMagnitude(money[0]) : null }
+}
+
+/**
+ * Compare the parsed rows with the statement's own "TOTALS AT END OF PERIOD"
+ * line (withdrawals then deposits, when it prints amounts). Returns a warning
+ * when either sum differs, else null (also null when no totals are printed).
+ *
+ * @param text - the statement text from the totals marker onwards
+ * @param rows - parsed rows
+ * @returns a user-facing warning or null
+ */
+function checkStatementTotals(text: string, rows: ParsedRow[]): string | null {
+  const m = /TOTALS AT END OF PERIOD[ \t]*\$?[ \t]*([\d,]+\.\d{2})[ \t]+\$?[ \t]*([\d,]+\.\d{2})/.exec(text)
+  if (!m) return null
+  const sum = (type: ParsedRow["type"]) => rows.filter((r) => r.type === type).reduce((a, r) => a + toCents(r.amount), 0)
+  const [wd, dep] = [sum("EXPENSE"), sum("INCOME")]
+  if (wd === parseMoneyCents(m[1]) && dep === parseMoneyCents(m[2])) return null
+  return `Imported withdrawals $${centsToDecimalString(wd)} and deposits $${centsToDecimalString(dep)} do not match the statement totals ($${m[1]} / $${m[2]}). Some transactions may be missing or mis-read.`
 }
 
 // Normalize a transaction amount token to a positive magnitude decimal string.
@@ -375,14 +423,32 @@ function parseStatementBlock(
     explicitType ?? (prevBalance === null || balance > prevBalance ? "INCOME" : "EXPENSE")
   balanceState.prevBalance = balance
 
+  // Where the statement prints a previous balance, previous +/- amount must equal
+  // this row's balance. Ambiguous rows are already flagged for manual review.
+  const amountCents = toCents(amountStr)
+  const expected = prevBalance === null ? null : type === "INCOME" ? prevBalance + amountCents : prevBalance - amountCents
+  const balanceMismatch = !ambiguousType && expected !== null && expected !== balance
+
   const description = descLines[0] ?? ""
   const details = descLines.join(" | ")
   const dedupKey = bankRefContentKey(accountNumber, date, amountStr, description)
   const bankRef = makeBankRef(accountNumber, date, amountStr, description, balance)
 
-  return { date, description, details, amount: amountStr, type, bankRef, dedupKey, ...(ambiguousType && { ambiguousType: true }) }
+  return {
+    date, description, details, amount: amountStr, type, bankRef, dedupKey,
+    ...(ambiguousType && { ambiguousType: true }),
+    ...(balanceMismatch && { balanceMismatch: true }),
+  }
 }
 
+/**
+ * Parse an ANZ Business Extra Statement. Besides rows it returns the skipped
+ * blocks (date + amount), a per-row running-balance check (`balanceMismatch`)
+ * and a totals-line comparison (`warnings`).
+ *
+ * @param text - extracted PDF text
+ * @returns rows, period, account number, errors, skipped blocks and warnings
+ */
 export function parseAnzStatement(text: string): ParseResult {
   const errors: string[] = []
 
@@ -424,12 +490,20 @@ export function parseAnzStatement(text: string): ParseResult {
   const yearState: StatementYearState = { currentYear: fromYear, prevMonthNum: null }
   const balanceState: StatementBalanceState = { prevBalance: openingBalanceState.value }
 
+  const skippedBlocks: SkippedBlock[] = []
   for (const block of blocks) {
     const row = parseStatementBlock(block, period, accountNumber, yearState, balanceState, errors)
     if (row) rows.push(row)
+    else skippedBlocks.push(describeSkippedBlock(block, yearState.currentYear))
   }
 
-  return { rows, period, accountNumber, errors }
+  const warnings: string[] = []
+  if (tableEnd !== -1) {
+    const totalsWarning = checkStatementTotals(text.slice(tableEnd), rows)
+    if (totalsWarning) warnings.push(totalsWarning)
+  }
+
+  return { rows, period, accountNumber, errors, skippedBlocks, warnings }
 }
 
 // ANZ "Transaction Report" — a different export from the Business Extra Statement.
@@ -520,6 +594,7 @@ export function parseAnzTransactionReport(text: string): ParseResult {
 
   const rows: ParsedRow[] = []
   const seqByKey = new Map<string, number>()
+  const skippedBlocks: SkippedBlock[] = []
 
   for (const block of blocks) {
     const dateMatch = DATE_LINE_RE.exec(block.segs[0])
@@ -528,24 +603,30 @@ export function parseAnzTransactionReport(text: string): ParseResult {
     const date = toIso(day, month, block.year)
     if (date === null) {
       errors.push(`Invalid date in transaction: ${block.segs[0]}`)
+      skippedBlocks.push(describeSkippedBlock(block.segs, block.year))
       continue
     }
     // The year-decrement heuristic can mis-assign years from malformed/merged
     // report pages — reject anything outside the statement period rather than
     // silently importing a mis-dated transaction into the wrong FY (
     // matching parseAnzStatement's guard).
-    if (!assertWithinPeriod(date, period, block.segs[0], errors)) continue
+    if (!assertWithinPeriod(date, period, block.segs[0], errors)) {
+      skippedBlocks.push(describeSkippedBlock(block.segs, block.year))
+      continue
+    }
 
     const descLines: string[] = []
     let amountStr: string | null = null
     let type: "INCOME" | "EXPENSE" | null = null
     let sawBlank = false
+    let blankCount = 0
 
     const segs = [firstLineRest.trim(), ...block.segs.slice(1)]
     for (const seg of segs) {
       if (!seg) continue
       if (seg === "blank") {
         sawBlank = true
+        blankCount++
         continue
       }
       if (amountStr === null) {
@@ -564,6 +645,7 @@ export function parseAnzTransactionReport(text: string): ParseResult {
 
     if (amountStr === null || type === null) {
       errors.push(`Could not parse amount for: ${block.segs[0]}`)
+      skippedBlocks.push(describeSkippedBlock(block.segs, block.year))
       continue
     }
 
@@ -574,8 +656,11 @@ export function parseAnzTransactionReport(text: string): ParseResult {
     seqByKey.set(dedupKey, seq + 1)
     const bankRef = makeReportBankRef(accountNumber, date, amountStr, description, seq)
 
-    rows.push({ date, description, details, amount: amountStr, type, bankRef, dedupKey })
+    // The report prints no running balance, so direction comes only from the
+    // "blank" column marker. With no marker at all the EXPENSE above is a default,
+    // not a reading: flag it so the review forces a manual choice.
+    rows.push({ date, description, details, amount: amountStr, type, bankRef, dedupKey, ...(blankCount === 0 && { ambiguousType: true }) })
   }
 
-  return { rows, period, accountNumber, errors }
+  return { rows, period, accountNumber, errors, skippedBlocks }
 }

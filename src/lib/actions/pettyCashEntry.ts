@@ -90,18 +90,21 @@ export async function assertSessionOpenTx(
  * delete and remove an already-reconciled ledger row. With the lock, a racing
  * reconcile either committed first (the locked read sees `reconciled = true`) or
  * waits until the delete commits (then matches no row).
- * @param tx - the delete's transaction client
+ * Edits use it too (AUD-3-08), passing RECONCILED_EDIT_ERROR as the message.
+ * @param tx - the delete's (or edit's) transaction client
  * @param transactionId - the mirror Transaction id, or null/undefined when the entry has none
+ * @param reconciledMessage - error message when the mirror is reconciled (default: the delete wording)
  */
 export async function assertMirrorNotReconciledTx(
   tx: Prisma.TransactionClient,
   transactionId: number | null | undefined,
+  reconciledMessage: string = RECONCILED_DELETE_ERROR,
 ): Promise<void> {
   if (transactionId == null) return
   // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
   const locked = await tx.$queryRaw<{ reconciled: boolean }[]>`
     SELECT reconciled FROM "Transaction" WHERE id = ${transactionId} FOR UPDATE`
-  if (locked[0]?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
+  if (locked[0]?.reconciled) throw new SessionClosedError(reconciledMessage)
 }
 
 // Pure builders: shape the create payloads (with at-rest encryption) without

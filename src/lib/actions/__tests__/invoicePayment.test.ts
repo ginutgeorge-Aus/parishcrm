@@ -4,14 +4,14 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAuditTx } from "@/lib/audit"
 import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
-import { assertUnlocked, getAccountingLockDate } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx, getAccountingLockDate } from "@/lib/accountingLock"
 import { sendEmail } from "@/lib/email"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn(async () => null), getAccountingLockDate: jest.fn(async () => null) }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), holdAccountingLock: jest.fn(async () => undefined), assertUnlocked: jest.fn(async () => null), getAccountingLockDate: jest.fn(async () => null) }))
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn(async () => undefined) }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 jest.mock("@/lib/churchSettings", () => ({ getChurchSettingsFresh: jest.fn(async () => ({ name: "Live Church" })) }))
@@ -121,6 +121,13 @@ describe("markInvoicePaid — link", () => {
     ;(assertUnlocked as jest.Mock).mockResolvedValueOnce("Period locked")
     expect(await markInvoicePaid(11, link)).toEqual({ error: "Period locked" })
   })
+  it("re-checks the lock inside the transaction, before the flip (AUD-3-08)", async () => {
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("Period locked")
+    expect(await markInvoicePaid(11, link)).toEqual({ error: "Period locked" })
+    expect(assertUnlockedTx).toHaveBeenCalledWith(prisma, income.date)
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+  })
   it("rejects when not SENT", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...inv, status: "DRAFT" })
     expect(await markInvoicePaid(11, link)).toEqual({ error: "Only sent invoices can be marked paid" })
@@ -151,6 +158,14 @@ describe("markInvoicePaid — link", () => {
 
 describe("markInvoicePaid — create", () => {
   const create = { mode: "create" as const, date: "2026-10-20", paymentAccountId: 2, sendReceipt: true }
+  it("re-checks the lock inside the transaction and writes nothing when it is now locked (AUD-3-08)", async () => {
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("Period locked")
+    expect(await markInvoicePaid(11, create)).toEqual({ error: "Period locked" })
+    expect(assertUnlockedTx).toHaveBeenCalledWith(prisma, new Date("2026-10-20"))
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
   it("creates an income transaction, links it, emails a payment-received note", async () => {
     expect(await markInvoicePaid(11, create)).toEqual({ success: "INV-0007 marked paid" })
     expect(prisma.transaction.create).toHaveBeenCalledWith({ data: {
@@ -291,7 +306,7 @@ describe("unmarkInvoicePaid", () => {
   it("still checks the paid date's lock for a no-audit unlink-only row", async () => {
     ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
     ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: false, amount: dec("330.00"), accountId: 4, paymentAccountId: null, fundId: null, personId: null, date: new Date("2026-10-20") })
-    ;(assertUnlocked as jest.Mock).mockResolvedValueOnce("Period locked")
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("Period locked")
     expect(await unmarkInvoicePaid(11)).toEqual({ error: "Period locked" })
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
@@ -302,27 +317,27 @@ describe("unmarkInvoicePaid", () => {
     expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
   })
   it("refuses when today's reversal date is in a locked period", async () => {
-    ;(assertUnlocked as jest.Mock).mockResolvedValueOnce("Period locked")
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("Period locked")
     expect(await unmarkInvoicePaid(11)).toEqual({ error: "Period locked" })
-    expect(assertUnlocked).toHaveBeenCalledTimes(1)
+    expect(assertUnlockedTx).toHaveBeenCalledTimes(1)
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
     expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
   it("refuses to unmark a created payment whose paid date is in a locked period, writing nothing", async () => {
-    ;(assertUnlocked as jest.Mock).mockImplementation(async (d: Date) => (d.getTime() === new Date("2026-10-20").getTime() ? "Period locked" : null))
+    ;(assertUnlockedTx as jest.Mock).mockImplementation(async (_tx: unknown, d: Date) => (d.getTime() === new Date("2026-10-20").getTime() ? "Period locked" : null))
     const res = await unmarkInvoicePaid(11)
-    ;(assertUnlocked as jest.Mock).mockImplementation(async () => null)
+    ;(assertUnlockedTx as jest.Mock).mockImplementation(async () => null)
     expect(res).toEqual({ error: expect.stringContaining("locked accounting period") })
-    expect(assertUnlocked).toHaveBeenCalledWith(new Date("2026-10-20"))
+    expect(assertUnlockedTx).toHaveBeenCalledWith(prisma, new Date("2026-10-20"))
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
     expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
     expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
   it("refuses when the created payment row's own date is locked even if the invoice paidAt is open", async () => {
     ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 51, reconciled: false, amount: dec("120.00"), accountId: 4, paymentAccountId: 2, fundId: 3, personId: null, date: new Date("2026-09-01") })
-    ;(assertUnlocked as jest.Mock).mockImplementation(async (d: Date) => (d.getTime() === new Date("2026-09-01").getTime() ? "Period locked" : null))
+    ;(assertUnlockedTx as jest.Mock).mockImplementation(async (_tx: unknown, d: Date) => (d.getTime() === new Date("2026-09-01").getTime() ? "Period locked" : null))
     const res = await unmarkInvoicePaid(11)
-    ;(assertUnlocked as jest.Mock).mockImplementation(async () => null)
+    ;(assertUnlockedTx as jest.Mock).mockImplementation(async () => null)
     expect(res).toEqual({ error: expect.stringContaining("locked accounting period") })
     expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
@@ -348,9 +363,9 @@ describe("unmarkInvoicePaid", () => {
   it("checks the paid date's lock when unlinking a linked row", async () => {
     ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { mode: "link", transactionId: 50 } })
     ;(prisma.transaction.findFirst as jest.Mock).mockResolvedValue({ id: 50, reconciled: false })
-    ;(assertUnlocked as jest.Mock).mockResolvedValueOnce("Period locked")
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("Period locked")
     expect(await unmarkInvoicePaid(11)).toEqual({ error: "Period locked" })
-    expect(assertUnlocked).toHaveBeenCalledWith(new Date("2026-10-20"))
+    expect(assertUnlockedTx).toHaveBeenCalledWith(prisma, new Date("2026-10-20"))
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
   it("rejects when not PAID", async () => {

@@ -2,14 +2,15 @@
 
 jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null),
   getAccountingLockDate: jest.fn(),
   isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked,
 }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     transaction: { create: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
-    $transaction: jest.fn(),
+    // Interactive transaction (the plain-row insert re-checks the lock in one, AUD-3-08): run on the same mock.
+    $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(jest.requireMock("@/lib/prisma").prisma)),
     account: { findMany: jest.fn() },
     family: { findMany: jest.fn() },
     person: { findMany: jest.fn() },

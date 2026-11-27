@@ -7,7 +7,7 @@ import { XFER_OUT_PREFIX, XFER_WINDOW_MS, xferOutRef } from "@/lib/xferRefs"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { hasDuplicateDonorSplit } from "@/lib/bankSplit"
-import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
+import { assertUnlockedTx, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { isP2034 } from "@/lib/validation"
 import { moneyAmountSchema } from "@/lib/actions/transactionValidation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
@@ -38,6 +38,28 @@ export type BankImportResult =
       imported?: number
       duplicates?: number
     }
+
+/**
+ * User-facing message for an import with rows in the locked period.
+ * @param lockDate the accounting lock date
+ */
+function periodLockedMessage(lockDate: Date): string {
+  return `One or more transactions fall in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}). Adjust the lock date or exclude those rows.`
+}
+
+/** Thrown inside an import write transaction when its rows fall in a period locked since the pre-check; rolls that write back. */
+class ImportPeriodLockedError extends Error {}
+
+/**
+ * In-transaction period-lock re-check for one import write (AUD-3-08). Throws
+ * ImportPeriodLockedError (rolling the write back) when `date` is locked.
+ * @param tx the write's transaction client
+ * @param date the earliest date the write inserts
+ */
+async function assertUnlockedInImport(tx: Prisma.TransactionClient, date: Date): Promise<void> {
+  const lockError = await assertUnlockedTx(tx, date, periodLockedMessage)
+  if (lockError) throw new ImportPeriodLockedError(lockError)
+}
 
 /** Static, PII-free reason codes for a rejected bank import (safe for the audit log). */
 type BankImportFailureCode =
@@ -79,6 +101,8 @@ const RowSchema = z.object({
   bankRef: z.string().min(1).max(200),
   accountId: z.number().int().positive().nullable(),
   skip: z.boolean(),
+  // Reviewer un-skipped a row flagged as a duplicate: "import anyway" (AUD-3-14).
+  importAnyway: z.boolean().optional(),
   paymentAccountId: z.number().int().positive(),
   familyId: z.number().int().positive().optional().nullable(),
   personId: z.number().int().positive().optional().nullable(),
@@ -180,6 +204,26 @@ function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
   }
 }
 
+/** Suffix appended to the stored bankRef of a row the reviewer chose to "import anyway". */
+const IMPORT_ANYWAY_SUFFIX = "#dup"
+
+/**
+ * Give every un-skipped "import anyway" row a distinct stored bankRef (so it can
+ * neither collide with the original it duplicates nor be re-imported twice) and
+ * return those rows. The suffix lives in the last ref segment, so
+ * `contentKeyFromBankRef` still recovers the same content key from them.
+ * Applied BEFORE hashing on purpose: the suffixed ref is then hashed and gets its
+ * legacy full-number variant like any other ref, so dual-format dedup covers it.
+ *
+ * @param rows - confirm rows with restored (full-number) refs
+ * @returns the suffixed rows, whose hashed refs skip the content-key duplicate check
+ */
+function suffixImportAnywayRefs(rows: ConfirmRow[]): ConfirmRow[] {
+  const forced = rows.filter((r) => !r.skip && r.importAnyway)
+  for (const r of forced) r.bankRef = `${r.bankRef}${IMPORT_ANYWAY_SUFFIX}`
+  return forced
+}
+
 /**
  * Core bank-statement confirm pipeline. `rawBody` is the already-parsed JSON body
  * (`{ rows, accountToken? }`, or a bare row array). Masked bankRefs are restored
@@ -200,6 +244,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
     return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again.", code: "SESSION_EXPIRED" }
   }
+  const forcedRows = suffixImportAnywayRefs(rows)
   let refVariants: (ref: string) => string[]
   try {
     refVariants = hashRowBankRefs(rows)
@@ -208,20 +253,17 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     // Fail closed: never insert unhashed refs, never throw past the result contract.
     return { ok: false, status: 500, error: BANKREF_HASH_ERROR, code: "BANKREF_HASH" }
   }
+  const forcedRefs = new Set(forcedRows.map((r) => r.bankRef))
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
 
   // Gate: reject the whole import if any row falls in the locked accounting period.
+  // Pre-check only: each write transaction below re-checks the lock (AUD-3-08).
   const lockDate = await getAccountingLockDate()
   if (lockDate) {
     const locked = toImport.some((r) => isDateLocked(new Date(r.date), lockDate))
     if (locked) {
-      return {
-        ok: false,
-        status: 400,
-        code: "PERIOD_LOCKED",
-        error: `One or more transactions fall in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}). Adjust the lock date or exclude those rows.`,
-      }
+      return { ok: false, status: 400, code: "PERIOD_LOCKED", error: periodLockedMessage(lockDate) }
     }
   }
 
@@ -462,6 +504,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   const isDuplicate = (bankRef: string, type: "INCOME" | "EXPENSE"): boolean =>
     refVariants(bankRef).some((ref) => {
       if (existingRefs.has(ref)) return true
+      // "Import anyway": the reviewer overrode the lossy content-key match.
+      if (forcedRefs.has(bankRef)) return false
       const key = contentKeyFromBankRef(ref)
       return key !== null && existingContentKeys.has(`${key}|${type}`)
     })
@@ -508,6 +552,16 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     imported,
     duplicates,
   })
+  // The lock date moved over these rows after the pre-check (AUD-3-08): the rejected write rolled back,
+  // but earlier writes in this import may have committed, so report the partial counts like dbFault.
+  const lockedFault = (e: ImportPeriodLockedError): BankImportResult => ({
+    ok: false,
+    status: 400,
+    code: "PERIOD_LOCKED",
+    error: imported > 0 ? `${e.message} ${imported} transaction${imported === 1 ? " was" : "s were"} saved before the lock date changed.` : e.message,
+    imported,
+    duplicates,
+  })
 
   // Plain rows (no splits, not a petty-cash pairing) need no linked write, so
   // batch them into one createMany round trip instead of up to 1000 sequential
@@ -551,7 +605,12 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     // 500 like the split/petty-cash loops below, not an unhandled rejection that
     // breaks this module's "never throws for a caller-visible error" contract.
     try {
-      const { count } = await prisma.transaction.createMany({ data: plainInputs, skipDuplicates: true })
+      // Period-lock re-check in the same transaction as the insert (AUD-3-08), on the earliest row date.
+      const earliest = plainInputs.reduce((m, r) => ((r.date as Date) < m ? (r.date as Date) : m), plainInputs[0].date as Date)
+      const { count } = await prisma.$transaction(async (tx) => {
+        await assertUnlockedInImport(tx, earliest)
+        return tx.transaction.createMany({ data: plainInputs, skipDuplicates: true })
+      })
       imported += count
       // Any row skipped by skipDuplicates lost a same-instant concurrent-insert
       // race on its bankRef — it is a duplicate, not an import. Attribute the gap
@@ -559,6 +618,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // adding plainInputs.length blindly over-reported the imported count.
       duplicates += plainInputs.length - count
     } catch (e: unknown) {
+      if (e instanceof ImportPeriodLockedError) return lockedFault(e)
       console.error("Bank import DB error", e instanceof Error ? e.message : String(e))
       return dbFault()
     }
@@ -581,9 +641,11 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // mid-loop failure must never leave siblings that don't sum to the line.
       const refs = splits.map((_, i) => (i === 0 ? row.bankRef : `${row.bankRef}#${i + 1}`))
       try {
-        await prisma.$transaction(
-          splits.map((s, i) =>
-            prisma.transaction.create({
+        // Interactive transaction so the period lock is re-checked with the inserts (AUD-3-08).
+        await prisma.$transaction(async (tx) => {
+          await assertUnlockedInImport(tx, new Date(row.date))
+          for (const [i, s] of splits.entries()) {
+            await tx.transaction.create({
               data: {
                 date: new Date(row.date),
                 description: encrypt(row.description),
@@ -601,8 +663,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
                 notes: encrypt(`${row.details ? `${row.details} ` : ""}(split ${i + 1}/${splits.length})`),
               },
             })
-          )
-        )
+          }
+        })
         refs.forEach((ref) => existingRefs.add(ref))
         // Count one imported bank line, not one per split allocation — a
         // single statement line that fans out into N Transaction rows must still
@@ -611,6 +673,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         // line, not per Transaction row written).
         imported++
       } catch (e: unknown) {
+        if (e instanceof ImportPeriodLockedError) return lockedFault(e)
         const msg = e instanceof Error ? e.message : String(e)
         if (msg.includes("UniqueConstraintViolation") || msg.includes("Unique constraint")) {
           duplicates++
@@ -660,6 +723,9 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
             toCents(m.amount) === rowCents &&
             Math.abs(new Date(m.date).getTime() - rowTime) <= XFER_WINDOW_MS
         )
+        // Period-lock re-check before the pair's first insert (AUD-3-08). After the mirror read on
+        // purpose: that read, not the advisory lock's wait, fixes this Serializable snapshot (see below).
+        await assertUnlockedInImport(tx, new Date(row.date))
         await tx.transaction.create({
           data: {
             date: new Date(row.date),
@@ -734,6 +800,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         existingRefs.add(pairRef)
         imported++
       } catch (e: unknown) {
+        if (e instanceof ImportPeriodLockedError) return lockedFault(e)
         const msg = e instanceof Error ? e.message : String(e)
         if (msg.includes("UniqueConstraintViolation") || msg.includes("Unique constraint")) {
           duplicates++
