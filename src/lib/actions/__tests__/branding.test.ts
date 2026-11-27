@@ -14,6 +14,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: { brandingAsset: { upsert: jest.fn(),
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), revalidateTag: jest.fn() }))
 
+import sharp from "sharp"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { uploadBranding, resetBranding } from "@/lib/actions/branding"
@@ -63,6 +64,25 @@ test("admin upserts a valid png with dimensions", async () => {
     where: { slot: "LOGO" },
     create: expect.objectContaining({ slot: "LOGO", mimeType: "image/png", width: 2, height: 2 }),
   }))
+})
+
+test("rejects a real GIF declared as image/png (AUD-2-13)", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  const gif = await sharp(PNG_2x2).gif().toBuffer()
+  const r = await uploadBranding("logo", fd(fileOf(gif, "image/png")))
+  expect(r).toEqual({ error: "Unsupported image type." })
+  expect(prisma.brandingAsset.upsert).not.toHaveBeenCalled()
+})
+
+test("rejects an image over the pixel limit (AUD-2-13)", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  // 8000x8000 = 64 MP, solid colour so the file stays far under the 2 MB byte cap.
+  const big = await sharp({ create: { width: 8000, height: 8000, channels: 3, background: "#fff" } })
+    .png({ compressionLevel: 9 }).toBuffer()
+  expect(big.length).toBeLessThan(2 * 1024 * 1024)
+  const r = await uploadBranding("logo", fd(fileOf(big)))
+  expect(r).toEqual({ error: "Could not read image." })
+  expect(prisma.brandingAsset.upsert).not.toHaveBeenCalled()
 })
 
 test("reset deletes the row (admin)", async () => {

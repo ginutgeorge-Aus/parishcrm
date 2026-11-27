@@ -1,4 +1,38 @@
-import { escapeMarkdown, buildIssueTitle, buildIssueBody } from "@/lib/feedbackIssue"
+import { escapeMarkdown, escapeLine, buildIssueTitle, buildIssueBody } from "@/lib/feedbackIssue"
+
+describe("AUD-2-05 mention and line-break hardening", () => {
+  it("defuses @mentions with a zero-width space", () => {
+    expect(escapeMarkdown("ping @octocat")).toBe("ping @\u200boctocat")
+  })
+
+  it("leaves emails and user@host URLs intact", () => {
+    expect(escapeMarkdown("a@example.com https://u@host/x")).toBe("a@example.com https://u@host/x")
+  })
+
+  it("defuses a mention at the start and after punctuation", () => {
+    expect(escapeMarkdown("@a (@b)")).toBe("@​a (@​b)")
+  })
+
+  it("defuses a mention after a dot (foo.@bar)", () => {
+    expect(escapeMarkdown("foo.@bar")).toBe("foo.@​bar")
+    expect(escapeMarkdown("(@bar)")).toBe("(@​bar)")
+  })
+
+  it("defuses an @ path segment in a URL and a standalone mention", () => {
+    expect(escapeMarkdown("see https://example.org/@octocat")).toBe("see https://example.org/@\u200boctocat")
+    expect(escapeMarkdown("x/@bob and @octocat")).toBe("x/@\u200bbob and @\u200boctocat")
+  })
+
+  it("defuses mentions that follow URL punctuation or whitespace", () => {
+    expect(escapeMarkdown("https://x/a,@user")).toBe("https://x/a,@\u200buser")
+    expect(escapeMarkdown("https://x/a)@bob")).toBe("https://x/a)@\u200bbob")
+    expect(escapeMarkdown("https://x/ @bob")).toBe("https://x/ @\u200bbob")
+  })
+
+  it("escapeLine collapses CR/LF so a forged line cannot start", () => {
+    expect(escapeLine("a\r\n- Reporter: admin")).toBe("a - Reporter: admin")
+  })
+})
 
 describe("escapeMarkdown", () => {
   it("escapes markdown control characters", () => {

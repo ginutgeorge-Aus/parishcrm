@@ -2,7 +2,7 @@
 
 jest.mock("@/lib/github", () => ({ createIssue: jest.fn() }))
 jest.mock("@/lib/turnstile", () => ({ verifyTurnstile: jest.fn() }))
-jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn() }))
+jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(), dbRateLimitRefund: jest.fn() }))
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findUnique: jest.fn() } } }))
 jest.mock("next/headers", () => ({
@@ -12,13 +12,14 @@ jest.mock("next/headers", () => ({
 import { submitPublicFeedback } from "@/lib/actions/publicFeedback"
 import { createIssue } from "@/lib/github"
 import { verifyTurnstile } from "@/lib/turnstile"
-import { dbRateLimit } from "@/lib/dbRateLimit"
+import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 import { sendEmail } from "@/lib/email"
 import { prisma } from "@/lib/prisma"
 
 const mockCreateIssue = createIssue as jest.Mock
 const mockVerify = verifyTurnstile as jest.Mock
 const mockRateLimit = dbRateLimit as jest.Mock
+const mockRefund = dbRateLimitRefund as jest.Mock
 const mockSendEmail = sendEmail as jest.Mock
 const mockSetting = prisma.appSetting.findUnique as jest.Mock
 
@@ -85,6 +86,14 @@ it("blocks when rate-limited", async () => {
   const r = await submitPublicFeedback(bug)
   expect(r).toEqual({ error: "Too many reports. Please try again later." })
   expect(mockCreateIssue).not.toHaveBeenCalled()
+})
+
+it("blocks when the site-wide daily cap is hit (AUD-2-05)", async () => {
+  mockRateLimit.mockImplementation(async (key: string) => key !== "pubfeedback:global")
+  const r = await submitPublicFeedback(bug)
+  expect(r).toEqual({ error: "Too many reports. Please try again later." })
+  expect(mockCreateIssue).not.toHaveBeenCalled()
+  expect(mockRefund).toHaveBeenCalledWith("pubfeedback:ip:10.0.0.1")
 })
 
 it("returns a generic error when createIssue throws, nothing emailed", async () => {

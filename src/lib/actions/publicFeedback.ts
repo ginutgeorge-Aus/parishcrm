@@ -5,9 +5,9 @@ import { headers } from "next/headers"
 import { prisma } from "@/lib/prisma"
 import { createIssue } from "@/lib/github"
 import { verifyTurnstile } from "@/lib/turnstile"
-import { dbRateLimit } from "@/lib/dbRateLimit"
+import { dbRateLimit, dbRateLimitRefund } from "@/lib/dbRateLimit"
 import { sendEmail } from "@/lib/email"
-import { escapeMarkdown, buildIssueTitle, buildIssueBody, type IssueClientContext } from "@/lib/feedbackIssue"
+import { escapeLine, buildIssueTitle, buildIssueBody, type IssueClientContext } from "@/lib/feedbackIssue"
 import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
@@ -16,6 +16,9 @@ import { resolveClientIp } from "@/lib/clientIp"
 
 const RATE_LIMIT = 5
 const RATE_WINDOW_MS = 60 * 60 * 1000
+/** Site-wide daily cap on public reports (all IPs): bounds issue spam through the church token (AUD-2-05). */
+const GLOBAL_DAILY_LIMIT = 100
+const GLOBAL_WINDOW_MS = 24 * 60 * 60 * 1000
 
 const guided = (label: string) =>
   z.string().trim().min(1, `${label} is required`).max(500, `${label} is too long`)
@@ -117,6 +120,11 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
   if (!(await verifyTurnstile(data.turnstileToken, ip))) return { error: "Verification failed. Please try again." }
   if (!(await dbRateLimit(`pubfeedback:ip:${rateKey}`, RATE_LIMIT, RATE_WINDOW_MS)))
     return { error: "Too many reports. Please try again later." }
+  if (!(await dbRateLimit("pubfeedback:global", GLOBAL_DAILY_LIMIT, GLOBAL_WINDOW_MS))) {
+    // Denied by the site-wide cap: give back this visitor's per-IP slot.
+    await dbRateLimitRefund(`pubfeedback:ip:${rateKey}`)
+    return { error: "Too many reports. Please try again later." }
+  }
 
   const submittedAt = new Date()
   const timestamp = new Intl.DateTimeFormat(APP_LOCALE, {
@@ -148,7 +156,7 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
 
   // GitHub issue body: markdown-formatted, values escaped. The email in
   // notifyChurch renders `details` raw as HTML instead.
-  const lead = details.map((d) => `**${d.label}:** ${escapeMarkdown(d.value)}`)
+  const lead = details.map((d) => `**${d.label}:** ${escapeLine(d.value)}`)
 
   const title = buildIssueTitle(typeLabel, summary)
   const body = buildIssueBody({

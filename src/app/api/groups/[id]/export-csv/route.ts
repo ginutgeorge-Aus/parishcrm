@@ -7,6 +7,7 @@ import { auditIpFromRequest } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { escapeCsv } from "@/lib/csvUtils"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { filenameSlug } from "@/lib/filenameSlug"
 import { parseRouteId } from "@/lib/validation"
 import { prisma } from "@/lib/prisma"
 import { groupCsvCells } from "@/lib/groups"
@@ -14,11 +15,6 @@ import { loadMemberExportRows } from "@/lib/groupMembers"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-/** Filename-safe slug of a group name ("Youth & Choir" → "youth-choir"). */
-function slug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "group"
-}
 
 /**
  * Member CSV for one group (name, family, role, title, joined, email, mobile).
@@ -45,7 +41,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv",
-      "Content-Disposition": `attachment; filename="group-${slug(group.name)}-${sydneyTodayYMD()}.csv"`,
+      "Content-Disposition": `attachment; filename="group-${filenameSlug(group.name, "group")}-${sydneyTodayYMD()}.csv"`,
       "Cache-Control": "no-store",
     },
   })

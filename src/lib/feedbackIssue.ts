@@ -14,13 +14,30 @@ export type IssueClientContext = {
 // Neutralise markdown control characters before embedding user-controlled text
 // into an issue body. `<` too: `\<` is a CommonMark literal, so
 // user text can't open or close raw HTML such as the `</details>` wrapper below.
+// Every `@` before a handle character is defused unless preceded by a word character
+// (emails, `user@host`). Not exempting `/`: GitHub mention behaviour after a path
+// separator is not guaranteed.
+const MENTION = /(?<!\w)@(?=[\w-])/g
+
+// A mention gets a zero-width space after the `@` so GitHub does not ping that
+// user from the church's token (AUD-2-05).
+/**
+ * Escape markdown control characters and defuse `@mentions` in user text.
+ * @param value untrusted text bound for a GitHub issue body
+ * @returns text safe to embed in the issue markdown
+ */
 export function escapeMarkdown(value: string): string {
-  return value.replace(/[\\`|[\]*_~<>#]/g, (c) => `\\${c}`)
+  return value.replace(/[\\`|[\]*_~<>#]/g, (c) => `\\${c}`).replace(MENTION, "@\u200b")
 }
 
 // Technical context values each sit on one list line inside <details>; collapse
 // CR/LF so a crafted value can't start forged metadata lines.
-function escapeLine(value: string): string {
+/**
+ * Escape a value for one issue line: CR/LF collapsed, then markdown-escaped.
+ * @param value untrusted text
+ * @returns one-line escaped text
+ */
+export function escapeLine(value: string): string {
   return escapeMarkdown(value.replace(/[\r\n]+/g, " "))
 }
 

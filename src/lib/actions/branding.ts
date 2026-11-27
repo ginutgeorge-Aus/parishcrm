@@ -18,6 +18,10 @@ import { assertNotDemo } from "@/lib/demoMode"
 // trusted code, not user uploads. sharp validates every raster below.
 const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp"])
 const MAX_BYTES = 2 * 1024 * 1024 // 2 MB
+/** Real decoded formats accepted, whatever MIME the browser declared. */
+const ALLOWED_FORMATS = new Set(["png", "jpeg", "webp"])
+/** Decoder pixel ceiling (40 megapixels). */
+const SHARP_OPTS = { limitInputPixels: 40e6 }
 // Upper bound on stored image dimensions (px, longest side). Ample for logos,
 // crests, icons, and letterhead banners while capping decoded/stored size.
 const MAX_DIMENSION = 2048
@@ -56,7 +60,11 @@ export async function uploadBranding(param: string, formData: FormData): Promise
   let width: number | null = null
   let height: number | null = null
   try {
-    const out = await sharp(input)
+    // The browser-declared type is not trusted: check the decoded format, and cap the
+    // pixel count so a small file cannot expand into a huge bitmap (AUD-2-13).
+    const format = (await sharp(input, SHARP_OPTS).metadata()).format
+    if (!format || !ALLOWED_FORMATS.has(format)) return { error: "Unsupported image type." }
+    const out = await sharp(input, SHARP_OPTS)
       .rotate()
       .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: "inside", withoutEnlargement: true })
       .png()

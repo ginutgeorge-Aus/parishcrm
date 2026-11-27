@@ -12,6 +12,10 @@ import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { parseRouteId } from "@/lib/validation"
 import { featureNotFound } from "@/lib/featureFlags"
+import { filenameSlug } from "@/lib/filenameSlug"
+
+/** Most ledger rows one export reads; one more is fetched to detect truncation. */
+const EXPORT_ROW_CAP = 10000
 
 /** GET /api/accounting/reports/general-ledger/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
@@ -49,12 +53,14 @@ export async function GET(req: NextRequest) {
   })
   if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 })
 
-  const txs = await prisma.transaction.findMany({
+  const fetched = await prisma.transaction.findMany({
     where: { accountId, date: { gte: fyStart, lt: fyEnd } },
     orderBy: [{ date: "asc" }, { id: "asc" }],
-    take: 10000, // hard cap — bounds memory; descriptions decrypted in-process
+    take: EXPORT_ROW_CAP + 1, // hard cap — bounds memory; the extra row detects truncation (AUD-2-08)
     select: { date: true, description: true, reference: true, type: true, amount: true },
   })
+  const truncated = fetched.length > EXPORT_ROW_CAP
+  const txs = truncated ? fetched.slice(0, EXPORT_ROW_CAP) : fetched
 
   const rows = withRunningBalance(
     txs.map((t) => ({
@@ -68,17 +74,23 @@ export async function GET(req: NextRequest) {
     })),
   )
 
-  const csv = generateGeneralLedgerCsv(rows)
+  // A browser download hides response headers, so a truncated ledger also ends with a visible
+  // note: the running balance in a cut-off file would otherwise look final.
+  let csv = generateGeneralLedgerCsv(rows)
+  if (truncated) {
+    csv += `\nExport truncated at ${EXPORT_ROW_CAP} rows (oldest first); the running balance is incomplete and later rows are not included.\n`
+  }
 
   const ip = auditIpFromRequest(req)
-  await logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "GeneralLedger", undefined, { report: "general-ledger", accountId, year, rowCount: rows.length }, ip)
+  await logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "GeneralLedger", undefined, { report: "general-ledger", accountId, year, rowCount: rows.length, truncated }, ip)
 
   const today = sydneyTodayYMD()
   return new NextResponse(csv, {
     headers: {
       "content-type": "text/csv",
-      "content-disposition": `attachment; filename="general-ledger-${account.code}-${today}.csv"`,
+      "content-disposition": `attachment; filename="general-ledger-${filenameSlug(account.code, "account")}-${today}.csv"`,
       "cache-control": "no-store",
+      ...(truncated && { "x-export-truncated": "true" }),
     },
   })
 }
