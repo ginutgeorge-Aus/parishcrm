@@ -7,13 +7,14 @@ import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { __resetRateLimit } from "@/lib/rateLimit"
 import { createBankRefHasher } from "@/lib/bankRefHash"
+import { assertUnlockedTx } from "@/lib/accountingLock"
 
 /** Hashed at-rest form of a stored ref (one-off hasher). */
 const hashStoredBankRef = (ref: string) => createBankRefHasher().stored(ref)
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null),
   getAccountingLockDate: jest.fn().mockResolvedValue(null),
   isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked,
 }))
@@ -397,9 +398,23 @@ describe("POST /api/import/bank-statement/confirm", () => {
     ])
     await POST(makeRequest([splitRow]))
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    // Interactive form: the period lock is re-checked in the same transaction as the inserts (AUD-3-08).
     const arg = (prisma.$transaction as jest.Mock).mock.calls[0][0]
-    expect(Array.isArray(arg)).toBe(true)
-    expect(arg).toHaveLength(2)
+    expect(typeof arg).toBe("function")
+    expect(assertUnlockedTx).toHaveBeenCalledTimes(1)
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(2)
+  })
+
+  test("split row: a lock set after the pre-check rejects the row with PERIOD_LOCKED and writes nothing", async () => {
+    ;(prisma.account.findMany as jest.Mock).mockResolvedValue([
+      { id: 1, type: "INCOME", isActive: true },
+      { id: 3, type: "INCOME", isActive: true },
+    ])
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce("One or more transactions fall in a locked accounting period (on or before 2026-12-31).")
+    const res = await POST(makeRequest([splitRow]))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual(expect.objectContaining({ error: expect.stringContaining("locked accounting period") }))
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
 
   test("split row: returns 400 when the same member is assigned twice in the same category", async () => {

@@ -64,9 +64,38 @@ export function lockedPeriodMessage(lock: Date): string {
 /**
  * Returns a user-facing error string when `date` is in the locked period,
  * else null. Callers return `{ error }` (actions) or a 400 (API routes).
+ * This is a pre-check only: a write must re-check with assertUnlockedTx inside
+ * its transaction, or a lock change committed in between lets it land.
  */
 export async function assertUnlocked(date: Date): Promise<string | null> {
   const lock = await getAccountingLockDate()
   if (lock === null || !isDateLocked(date, lock)) return null
   return lockedPeriodMessage(lock)
+}
+
+/**
+ * In-transaction period-lock check (AUD-3-08). Takes the shared accounting
+ * advisory lock (held until the transaction ends), then reads the lock date.
+ * A concurrent setAccountingLockDate (exclusive) therefore either committed
+ * before this read, so the read sees it, or waits until this transaction
+ * commits, so no write can land in a period locked meanwhile.
+ * The lock date is read through the shared client, not `tx`: under Serializable
+ * the transaction's snapshot predates the wait for the advisory lock and could
+ * miss a lock change committed while it waited (see holdAccountingLock).
+ * Call it before the transaction's first write, so returning the error (rather
+ * than throwing) never commits a partial write.
+ * @param tx the write's transaction client
+ * @param date the earliest date the write touches (the lock is inclusive, so the earliest date decides)
+ * @param message builds the user-facing message from the lock date (default: lockedPeriodMessage)
+ * @returns the user-facing error when `date` is locked, else null
+ */
+export async function assertUnlockedTx(
+  tx: Prisma.TransactionClient,
+  date: Date,
+  message: (lock: Date) => string = lockedPeriodMessage,
+): Promise<string | null> {
+  await holdAccountingLock(tx, "shared")
+  const lock = await getAccountingLockDate()
+  if (lock === null || !isDateLocked(date, lock)) return null
+  return message(lock)
 }

@@ -25,7 +25,7 @@ jest.mock("@/lib/crypto", () => ({
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
-jest.mock("@/lib/accountingLock", () => ({
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null),
   getAccountingLockDate: jest.fn().mockResolvedValue(null),
   isDateLocked: jest.requireActual("@/lib/accountingLock").isDateLocked,
 }))
@@ -35,7 +35,7 @@ jest.mock("@/lib/accountingLock", () => ({
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { previewImport, commitImport } from "@/lib/actions/pettyCashImport"
-import { getAccountingLockDate } from "@/lib/accountingLock"
+import { assertUnlockedTx, getAccountingLockDate } from "@/lib/accountingLock"
 import { dedupeKey } from "@/lib/pettyCashImport"
 import { decrypt, safeDecrypt } from "@/lib/crypto"
 import { logAuditTx } from "@/lib/audit"
@@ -214,6 +214,25 @@ describe("commitImport", () => {
       error: "One or more rows fall in a locked accounting period (on or before 2026-06-30). Adjust the lock date or exclude those rows.",
     })
     expect(mockTx).not.toHaveBeenCalled()
+  })
+
+  it("re-checks the lock inside the transaction and writes nothing when it now covers a row (AUD-3-08)", async () => {
+    const fakeTx = {
+      pettyCashSession: { findMany: jest.fn(), upsert: jest.fn(), updateMany: jest.fn() },
+      pettyCashReceipt: { createManyAndReturn: jest.fn() },
+      pettyCashExpense: { createManyAndReturn: jest.fn() },
+      transaction: { createMany: jest.fn() },
+    }
+    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
+    const msg = "One or more rows fall in a locked accounting period (on or before 2026-06-30). Adjust the lock date or exclude those rows."
+    ;(assertUnlockedTx as jest.Mock).mockResolvedValueOnce(msg)
+    const res = await commitImport(commitFd(`${HEADER}\n2025-09-07,receipt,Sunday Offertory,,122,`))
+    expect(res).toEqual({ error: msg })
+    // Earliest row date, with the import's own message builder.
+    expect(assertUnlockedTx).toHaveBeenCalledWith(fakeTx, new Date("2025-09-07"), expect.any(Function))
+    expect(fakeTx.pettyCashSession.upsert).not.toHaveBeenCalled()
+    expect(fakeTx.pettyCashReceipt.createManyAndReturn).not.toHaveBeenCalled()
   })
 
   it("rejects an archived person as custodian", async () => {

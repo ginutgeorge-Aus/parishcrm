@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { isP2034 } from "@/lib/validation"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
 import { isReversalPairRow } from "@/lib/reversalPair"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
@@ -25,6 +25,9 @@ function mapReconcileWriteError(e: unknown, label: string): { error: string } | 
   if (isP2034(e)) return { error: "Conflict while saving — please try again." }
   return null
 }
+
+/** Shown when the row's reconciled flag changed between the read and the toggle write. */
+const TOGGLE_CHANGED_ERROR = "This transaction was changed by someone else since you opened it. Reload the page and try again."
 
 /** Flip a transaction's reconciled flag. ADMIN/PASTOR only. */
 export async function toggleReconciled(
@@ -55,16 +58,23 @@ export async function toggleReconciled(
   if (!next && (await isReversalPairRow(prisma, id)))
     return { error: "This transaction is part of an invoice reversal and must stay reconciled." }
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.transaction.update({
-        where: { id },
+    const txError = await prisma.$transaction(async (tx): Promise<{ error: string } | null> => {
+      // Period-lock re-check inside the write (AUD-3-08): a lock set after the pre-check must still block the flip.
+      const lockErrorTx = await assertUnlockedTx(tx, existing.date)
+      if (lockErrorTx) return { error: lockErrorTx }
+      // Guarded on the flag as read above: a concurrent toggle matches 0 rows instead of being silently flipped back.
+      const res = await tx.transaction.updateMany({
+        where: { id, reconciled: existing.reconciled },
         data: { reconciled: next },
       })
+      if (res.count === 0) return { error: TOGGLE_CHANGED_ERROR }
       await logAuditGuardedTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", id, {
         reconciled: next,
         paymentAccountId: existing.paymentAccountId,
       })
+      return null
     })
+    if (txError) return txError
   } catch (e) {
     const failed = mapReconcileWriteError(e, "toggleReconciled")
     if (failed) return failed
@@ -126,7 +136,10 @@ export async function reconcileMany(
   let reconciledCount = 0
   if (toReconcile.length > 0) {
     try {
-      reconciledCount = await prisma.$transaction(async (tx) => {
+      const outcome = await prisma.$transaction(async (tx): Promise<{ error: string } | { count: number }> => {
+        // Period-lock re-check inside the write (AUD-3-08), on the earliest selected date as above.
+        const lockErrorTx = await assertUnlockedTx(tx, minDate)
+        if (lockErrorTx) return { error: lockErrorTx }
         // `reconciled: false` guard + the returned count keep the audit row accurate
         // if a concurrent toggle flipped some of these rows after the read above.
         const res = await tx.transaction.updateMany({
@@ -140,8 +153,10 @@ export async function reconcileMany(
             paymentAccountId: expectedPaymentAccountId,
             count: res.count,
           })
-        return res.count
+        return { count: res.count }
       })
+      if ("error" in outcome) return outcome
+      reconciledCount = outcome.count
     } catch (e) {
       const failed = mapReconcileWriteError(e, "reconcileMany")
       if (failed) return failed

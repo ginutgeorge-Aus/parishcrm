@@ -17,7 +17,7 @@ import {
 import { receiptCreateData, expenseCreateData, receiptMirrorData, expenseMirrorData, SessionClosedError } from "./pettyCashEntry"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { Prisma } from "@/lib/generated/prisma/client"
-import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
+import { assertUnlockedTx, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber } from "@/lib/formatting"
 import { revalidatePath } from "next/cache"
@@ -100,11 +100,20 @@ function parseImportRows(csv: string): { error: string } | { rows: ReturnType<ty
 // Period lock: the whole import is rejected if any row is dated on/before the
 // lock date — same gate as the single-entry and bank-import write paths. Row
 // dates are Date at UTC midnight (resolveRows), matching the lock's anchor.
+// This is the pre-check; commitImport re-checks inside its transaction (AUD-3-08).
 async function findLockedRowsMessage(rows: ResolvedRow[]): Promise<string | null> {
   const lockDate = await getAccountingLockDate()
   if (lockDate && rows.some((r) => isDateLocked(r.date!, lockDate)))
-    return `One or more rows fall in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}). Adjust the lock date or exclude those rows.`
+    return lockedRowsMessage(lockDate)
   return null
+}
+
+/**
+ * User-facing message for an import with rows in the locked period.
+ * @param lockDate the accounting lock date
+ */
+function lockedRowsMessage(lockDate: Date): string {
+  return `One or more rows fall in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}). Adjust the lock date or exclude those rows.`
 }
 
 // Validates client-supplied donor overrides against ACTIVE people — the
@@ -398,6 +407,9 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
     // session id yields the safe import error instead of an unhandled throw.
     const userId = actorId(session)
     await prisma.$transaction(async (tx) => {
+      // Period-lock re-check inside the write (AUD-3-08), on the earliest row date (the lock is inclusive).
+      const txLockError = await assertUnlockedTx(tx, minDate, lockedRowsMessage)
+      if (txLockError) throw new SessionClosedError(txLockError)
       const sessionByTitle = await ensureImportSessions(tx, dates, custodianId)
 
       const built = buildImportInputs(rows, sessionByTitle, overrides, seen)

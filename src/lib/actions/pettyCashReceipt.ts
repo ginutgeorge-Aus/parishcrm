@@ -10,7 +10,7 @@ import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, isOversizeMoney, isP2034 } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -217,6 +217,9 @@ export async function createReceipt(
       // Re-assert OPEN inside the tx — a concurrent close between the check
       // above and this write must not post into a closed session.
       await assertSessionOpenTx(tx, sessionId)
+      // Period-lock re-check inside the write (AUD-3-08): a lock set after the pre-check must still block it.
+      const txLockError = await assertUnlockedTx(tx, sessionDate)
+      if (txLockError) return { error: txLockError }
       const fresh = await accountMatches(tx, parsed.data.accountId, "INCOME")
       if (!fresh) return { error: "Invalid account" }
       const id = await createReceiptEntry(tx, {
@@ -245,7 +248,7 @@ async function loadEditableReceipt(id: number) {
     where: { id },
     include: {
       session: { select: { id: true, status: true, title: true } },
-      transaction: { select: { reconciled: true } },
+      transaction: { select: { id: true, reconciled: true } },
     },
   })
   if (!receipt) return { error: "Receipt not found" }
@@ -356,6 +359,11 @@ export async function updateReceipt(
       // Re-assert OPEN inside the tx — a concurrent close must not let an edit
       // land in a now-closed session.
       await assertSessionOpenTx(tx, receipt.sessionId, "Cannot edit in closed session")
+      // In-tx re-checks (AUD-3-08): a lock change or reconcile after the pre-checks must still block the edit.
+      // The mirror row lock (FOR UPDATE) holds off a reconcile until this edit commits.
+      const txLockError = await assertUnlockedTx(tx, sessionDate)
+      if (txLockError) return { error: txLockError }
+      await assertMirrorNotReconciledTx(tx, receipt.transaction?.id, RECONCILED_EDIT_ERROR)
       const fresh = await accountMatches(tx, parsed.data.accountId, "INCOME", { allowInactive: true })
       if (!fresh) return { error: "Invalid account" }
       await tx.pettyCashReceipt.update({
@@ -380,8 +388,9 @@ export async function updateReceipt(
       ? await tx.person.findUnique({ where: { id: parsed.data.personId }, select: { familyId: true } })
       : null
     // updateMany: pre- receipts have no mirrored ledger row — must not throw
-    await tx.transaction.updateMany({
-      where: { pettyCashReceiptId: id },
+    // reconciled: false — never rewrite a reconciled mirror; a mirror read above that now matches nothing rolls the edit back.
+    const mirror = await tx.transaction.updateMany({
+      where: { pettyCashReceiptId: id, reconciled: false },
       data: {
         date: sessionDate,
         amount: parsed.data.amount,
@@ -399,6 +408,7 @@ export async function updateReceipt(
         isGiving: !!family?.familyId,
       },
     })
+    if (receipt.transaction && mirror.count === 0) throw new SessionClosedError(RECONCILED_EDIT_ERROR)
     await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "UPDATED", id, parsed.data, receipt.sessionId)
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
@@ -442,6 +452,9 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
   try {
     await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, receipt.session.id, "Cannot delete from closed session")
+      // Period-lock re-check inside the delete (AUD-3-08): a lock set after the pre-check must still block it.
+      const txLockError = await assertUnlockedTx(tx, receiptSessionDate)
+      if (txLockError) throw new SessionClosedError(txLockError)
       // Audit metadata comes from the row as read INSIDE the tx (not the pre-read), so a
       // concurrent edit between the two can't leave the DELETED row describing stale values.
       const row = await tx.pettyCashReceipt.findUnique({

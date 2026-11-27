@@ -11,7 +11,7 @@ jest.mock("next/navigation", () => ({
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), assertUnlocked: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -211,7 +211,7 @@ describe("updateTransaction on an invoice payment", () => {
   })
   it("pins an edit of a linked row to its invoiceId (an unlink in between conflicts)", async () => {
     await expect(updateTransaction(1, undefined, validForm({ description: "Hall hire, Oct" }))).rejects.toThrow("REDIRECT")
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1, invoiceId: 11 } }))
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1, invoiceId: 11, reconciled: false } }))
   })
   it("allows a description-only edit", async () => {
     await expect(updateTransaction(1, undefined, validForm({ description: "Hall hire, Oct" }))).rejects.toThrow("REDIRECT")

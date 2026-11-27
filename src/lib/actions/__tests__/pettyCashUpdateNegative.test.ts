@@ -20,7 +20,7 @@ jest.mock("@/lib/crypto", () => ({
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
-jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
+jest.mock("@/lib/accountingLock", () => ({ assertUnlockedTx: jest.fn(async () => null), assertUnlocked: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/retention", () => ({ retentionFloor: jest.fn(), retentionError: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/actions/transaction", () => ({ validateAccount: jest.fn().mockResolvedValue({ name: "Cat" }) }))
@@ -30,6 +30,7 @@ jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolv
 jest.mock("@/lib/actions/pettyCashEntry", () => ({
   revalidatePettyCashPaths: jest.fn(),
   assertSessionOpenTx: jest.fn(),
+  assertMirrorNotReconciledTx: jest.fn(),
   PETTY_CASH_BUSY: { error: "busy" },
   PETTY_CASH_GONE: { error: "gone" },
   SessionClosedError: class SessionClosedError extends Error {},
