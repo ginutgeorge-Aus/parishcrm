@@ -8,7 +8,7 @@ import { schedulerEnabled } from "@/lib/schedulerFlag"
  */
 export const HEARTBEAT_KEY = "scheduler.heartbeat"
 /** Three missed 5-minute ticks: the timer is stuck or the process is down. */
-export const HEARTBEAT_STALE_MS = 15 * 60_000
+const HEARTBEAT_STALE_MS = 15 * 60_000
 /** This process's start: a heartbeat older than it is from a previous run, not evidence of a stuck timer. */
 const BOOT_AT = Date.now()
 /** First tick runs 60s after boot (schedulerRunner FIRST_TICK_MS); allow a minute of slack. */
@@ -19,7 +19,7 @@ const BOOT_GRACE_MS = 2 * 60_000
  * @param job - Scheduler job name.
  * @returns The setting key.
  */
-export function lastSuccessKey(job: string): string {
+function lastSuccessKey(job: string): string {
   return `job.lastSuccess.${job}`
 }
 
