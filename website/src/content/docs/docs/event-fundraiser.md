@@ -85,11 +85,16 @@ To correct a mistake, delete the manual payment and record it again.
   recorded automatically when Stripe confirms it, and the row's status updates (for example to
   **Paid**).
 
-Card payments are marked **Online**. **Online payments cannot be deleted or adjusted in the
+Card payments are marked **Online**. **Online payments cannot be deleted or adjusted by hand in the
 app.** A refund must be made in the Stripe dashboard. The parish's no-refund policy still applies;
-see [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/). After a refund or dispute, the
-payment still counts as paid in the app. The app sends ops an alert, and whoever runs the server
-must correct the fundraiser payment directly in the database.
+see [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/).
+
+- **Full refund**: when Stripe reports a full refund, the app removes the card payment from the
+  order automatically, writes an audit entry (no user, system action) and emails ops an alert. The
+  buyer then shows as owing again and the fundraiser totals drop accordingly.
+- **Partial refund**: the payment is left unchanged and ops get an alert to adjust by hand.
+- **Dispute (chargeback)**: the payment is left unchanged and ops get an alert. Adjust the order by
+  hand if the dispute is lost.
 
 ## Sending reminders
 

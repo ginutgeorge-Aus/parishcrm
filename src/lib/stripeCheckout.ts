@@ -13,7 +13,7 @@ import { persistRegistration } from "@/lib/eventRegistrationPersist"
 import type { PricedRegistration, EventWithTickets } from "@/lib/eventRegistrationPricing"
 import { EVENT_CAPACITY_INCLUDE } from "@/lib/eventCapacityInclude"
 import { notifyStripeAlert } from "@/lib/notifications"
-import { completeFundraiserPayment } from "@/lib/fundraiserWebhook"
+import { completeFundraiserPayment, reverseFundraiserPayment } from "@/lib/fundraiserWebhook"
 import { recordWebhookVerificationFailure } from "@/lib/stripeWebhookAlert"
 import { logger } from "@/lib/logger"
 import {
@@ -441,10 +441,21 @@ export async function handleStripeWebhook(
         return cancelRegistrationByPaymentIntent(piOf(charge.payment_intent), "refund")
       } else {
         console.error(`Stripe webhook: partial refund on charge ${charge.id}; no cancel, manual review`)
-        await notifyStripeAlert(
-          "partial refund — no auto-cancel",
-          `Charge ${charge.id}: partial refund (${charge.amount_refunded} of ${charge.amount}). Seat left active; church refunds are all-or-nothing — review manually.`,
-        )
+        const partialPi = piOf(charge.payment_intent)
+        const fundraiserPayment = partialPi
+          ? await prisma.fundraiserPayment.findUnique({ where: { stripePaymentRef: partialPi }, select: { id: true, entryId: true } })
+          : null
+        if (fundraiserPayment) {
+          await notifyStripeAlert(
+            "fundraiser card payment: partial refund",
+            `Charge ${charge.id}: partial refund (${charge.amount_refunded} of ${charge.amount}) on fundraiser entry ${fundraiserPayment.entryId}. The payment is unchanged in the app; adjust by hand if needed.`,
+          )
+        } else {
+          await notifyStripeAlert(
+            "partial refund — no auto-cancel",
+            `Charge ${charge.id}: partial refund (${charge.amount_refunded} of ${charge.amount}). Seat left active; church refunds are all-or-nothing — review manually.`,
+          )
+        }
       }
       return { status: 200 }
     }
@@ -1012,7 +1023,7 @@ async function cancelRegistrationByPaymentIntent(pi: string | null, reason: stri
     })
   let reg = await findReg()
   if (!reg) {
-    if (await checkoutInFlight(pi)) {
+    if (await checkoutInFlight(pi, reason)) {
       console.error(`Stripe webhook: ${reason} for PI ${pi} arrived before its checkout completed; deferring for Stripe redelivery`)
       return { status: 500 }
     }
@@ -1037,10 +1048,10 @@ async function cancelRegistrationByPaymentIntent(pi: string | null, reason: stri
 // PI (unknown PI, expired, unfulfilled, or a second charge on an already-settled
 // booking) — the caller re-checks paymentRef once, then acknowledges.
 // A fundraiser card payment never gets a registration or a publicToken, so its
-// COMPLETED row is settled, not in flight: alert ops (the recorded ONLINE
-// payment can't be removed in-app; ops corrects it in the database) and let the
-// caller acknowledge.
-async function checkoutInFlight(pi: string): Promise<boolean> {
+// COMPLETED row is settled, not in flight: a full refund removes the recorded ONLINE
+// payment (reverseFundraiserPayment) and alerts ops; a dispute only alerts. The
+// caller then acknowledges.
+async function checkoutInFlight(pi: string, reason: string): Promise<boolean> {
   const { data } = await getStripe().checkout.sessions.list({ payment_intent: pi, limit: 1 })
   if (!data[0]) return false
   const staging = await prisma.checkoutSession.findUnique({
@@ -1057,13 +1068,26 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
     const recorded = staging?.status === "COMPLETED"
       ? await prisma.fundraiserPayment.findUnique({ where: { stripePaymentRef: pi }, select: { id: true, entryId: true } })
       : null
-    if (recorded) {
-      console.error(`Stripe webhook: refund/dispute on fundraiser card payment PI ${pi}; fundraiser ledger not adjusted, database correction needed`)
+    if (recorded && reason === "refund") {
+      // Full refund (partials never reach here): Stripe is authoritative, so take the payment off the order.
+      const rev = await reverseFundraiserPayment(pi, "refund")
+      if (rev.kind === "busy") return true // 500 so Stripe redelivers
+      console.error(`Stripe webhook: full refund on fundraiser card payment PI ${pi}; payment ${recorded.id} removed from entry ${recorded.entryId}`)
+      if (rev.kind === "reversed") {
+        await notifyStripeAlert(
+          "fundraiser card payment refunded",
+          head +
+            `The payment was removed from the fundraiser order; the buyer now shows as owing. ` +
+            `Check the entry's balance and tell the treasurer if totals were already handed over.`,
+        )
+      }
+    } else if (recorded) {
+      console.error(`Stripe webhook: dispute on fundraiser card payment PI ${pi}; payment left in place`)
       await notifyStripeAlert(
-        "fundraiser card payment refunded or disputed",
+        "fundraiser card payment disputed",
         head +
-          `The payment stays counted as paid in the app, and online payments cannot be removed in-app. ` +
-          `Ops must correct the ledger directly in the database: FundraiserPayment ${recorded.id} (stripePaymentRef = ${pi}) on entry ${recorded.entryId}.`,
+          `The payment is unchanged in the app until Stripe closes the dispute. ` +
+          `If it is lost, adjust fundraiser entry ${recorded.entryId} by hand (FundraiserPayment ${recorded.id}, stripePaymentRef = ${pi}).`,
       )
     } else if (staging?.status === "COMPLETED") {
       console.error(`Stripe webhook: refund/dispute on fundraiser card payment PI ${pi}; checkout COMPLETED but no payment row found`)

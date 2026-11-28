@@ -25,6 +25,7 @@ jest.mock("@/lib/stripe", () => {
 jest.mock("@/lib/eventRegistrationPersist", () => ({ persistRegistration: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({ prisma: {
   checkoutSession: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn(), count: jest.fn() },
+  fundraiserPayment: { findUnique: jest.fn().mockResolvedValue(null) },
   event: { findUnique: jest.fn() },
   registration: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
 } }))

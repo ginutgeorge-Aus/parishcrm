@@ -10,7 +10,8 @@ import { toCents } from "@/lib/formatting"
 import { toStripeAmount } from "@/lib/stripeAmount"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { notifyStripeAlert } from "@/lib/notifications"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
+import { serializableWrite } from "@/lib/serializableWrite"
 import { isP2002, isP2034 } from "@/lib/validation"
 // Value import (isolation-level enum), not the @/lib/prisma re-export — see serializableWrite.ts.
 import { Prisma } from "@/lib/generated/prisma/client"
@@ -274,4 +275,44 @@ async function alertEntryMissing(sessionId: string): Promise<void> {
     "fundraiser card payment: entry missing — money retained",
     `Session ${sessionId}: payment settled but its fundraiser entry no longer exists. No payment recorded; resolve manually.`,
   )
+}
+
+/** Result of {@link reverseFundraiserPayment}. */
+export type ReverseResult =
+  | { kind: "reversed"; paymentId: number; entryId: number }
+  | { kind: "none" }
+  | { kind: "busy" }
+
+/**
+ * Remove the ONLINE payment for a fully refunded PaymentIntent (AUD-4-04). The Stripe
+ * event is authoritative, so the row goes in one Serializable transaction together with a
+ * null-actor audit row (a failed audit rolls the removal back and Stripe redelivers).
+ * The staging CheckoutSession row stays COMPLETED on purpose: a replayed
+ * `checkout.session.completed` then returns early and cannot re-insert the payment.
+ * Idempotent: a second delivery finds no row and returns `none`.
+ * @param pi Stripe PaymentIntent id (the payment's `stripePaymentRef`)
+ * @param reason why it is reversed (only "refund" today; disputes stay alert-only)
+ * @returns reversed (with ids), none (nothing to remove), or busy (conflicts; caller returns 500)
+ */
+export async function reverseFundraiserPayment(pi: string, reason: "refund"): Promise<ReverseResult> {
+  const out = await serializableWrite<ReverseResult>(async (tx) => {
+    const payment = await tx.fundraiserPayment.findUnique({
+      where: { stripePaymentRef: pi },
+      select: { id: true, entryId: true, amount: true },
+    })
+    if (!payment) return { kind: "none" as const }
+    const del = await tx.fundraiserPayment.deleteMany({ where: { id: payment.id, stripePaymentRef: pi } })
+    if (del.count === 0) return { kind: "none" as const }
+    await logAuditTx(tx, null, "FUNDRAISER_PAYMENT_REFUNDED", "FundraiserPayment", payment.id, {
+      entryId: payment.entryId,
+      amount: String(payment.amount),
+      stripePaymentRef: pi,
+    })
+    return { kind: "reversed" as const, paymentId: payment.id, entryId: payment.entryId }
+  }, { error: "busy" })
+  if ("error" in out) {
+    console.warn(`Stripe webhook: ${reason} reversal of fundraiser payment for PI ${pi} hit repeated conflicts; Stripe will retry`)
+    return { kind: "busy" }
+  }
+  return out
 }

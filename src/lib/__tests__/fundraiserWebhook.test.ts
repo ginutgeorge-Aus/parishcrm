@@ -12,7 +12,7 @@ jest.mock("@/lib/prisma", () => {
   const p = {
     checkoutSession: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
     fundraiserEntry: { findUnique: jest.fn() },
-    fundraiserPayment: { create: jest.fn(), findUnique: jest.fn() },
+    fundraiserPayment: { create: jest.fn(), findUnique: jest.fn(), deleteMany: jest.fn() },
     event: { findUnique: jest.fn() },
     registration: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     $queryRaw: jest.fn(),
@@ -23,7 +23,7 @@ jest.mock("@/lib/prisma", () => {
 })
 jest.mock("@/lib/crypto", () => ({ decrypt: (s: string) => s, encrypt: (s: string) => s }))
 jest.mock("@/lib/notifications", () => ({ notifyStripeAlert: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 
 import { completeFundraiserPayment } from "@/lib/fundraiserWebhook"
 import { handleStripeWebhook } from "@/lib/stripeCheckout"
@@ -31,7 +31,7 @@ import { entryTotals } from "@/lib/fundraiserMath"
 const { prisma } = require("@/lib/prisma")
 const { getStripe } = require("@/lib/stripe")
 const { notifyStripeAlert } = require("@/lib/notifications")
-const { logAudit } = require("@/lib/audit")
+const { logAudit, logAuditTx } = require("@/lib/audit")
 const { persistRegistration } = require("@/lib/eventRegistrationPersist")
 
 type Staging = { id: number; status: string; fundraiserEntryId: number | null; totalAmount: string; surchargeCents: number }
@@ -258,27 +258,88 @@ describe("routing through handleStripeWebhook", () => {
 describe("refund/dispute of a fundraiser card payment", () => {
   beforeEach(() => { process.env.STRIPE_WEBHOOK_SECRET = "whsec_x" })
 
-  it("alerts ops and acknowledges (no 500 retry loop on a COMPLETED fundraiser row)", async () => {
-    getStripe().webhooks.constructEvent.mockReturnValue({
-      type: "charge.refunded",
-      data: { object: { id: "ch_1", payment_intent: "pi_f", amount: 3000, amount_refunded: 3000 } },
-    })
+  const refundEvent = (over: Record<string, unknown> = {}) => ({
+    type: "charge.refunded",
+    data: { object: { id: "ch_1", payment_intent: "pi_f", amount: 3000, amount_refunded: 3000, ...over } },
+  })
+  const completedFundraiser = () => {
     prisma.registration.findFirst.mockResolvedValue(null)
     getStripe().checkout.sessions.list.mockResolvedValue({ data: [{ id: "cs_f", metadata: { fundraiserEntryId: "7" } }] })
     prisma.checkoutSession.findUnique.mockResolvedValue({ status: "COMPLETED", publicToken: null, fundraiserEntryId: 7 })
-    prisma.fundraiserPayment.findUnique.mockResolvedValue({ id: 99, entryId: 7 })
+    prisma.fundraiserPayment.findUnique.mockResolvedValue({ id: 99, entryId: 7, amount: "30.00" })
+    prisma.fundraiserPayment.deleteMany.mockResolvedValue({ count: 1 })
+  }
+
+  it("full refund deletes the ONLINE payment and writes a null-actor audit row", async () => {
+    getStripe().webhooks.constructEvent.mockReturnValue(refundEvent())
+    completedFundraiser()
     jest.spyOn(console, "error").mockImplementation(() => {})
     expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
-    expect(prisma.fundraiserPayment.findUnique).toHaveBeenCalledWith({ where: { stripePaymentRef: "pi_f" }, select: { id: true, entryId: true } })
-    expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringMatching(/fundraiser/), expect.any(String))
-    // No in-app adjustment exists: the alert must say so and point ops at the DB row.
+    expect(prisma.fundraiserPayment.deleteMany).toHaveBeenCalledWith({ where: { id: 99, stripePaymentRef: "pi_f" } })
+    expect(logAuditTx).toHaveBeenCalledWith(
+      expect.anything(), null, "FUNDRAISER_PAYMENT_REFUNDED", "FundraiserPayment", 99,
+      { entryId: 7, amount: "30.00", stripePaymentRef: "pi_f" },
+    )
     const body = notifyStripeAlert.mock.calls[0][1] as string
-    expect(body).toContain("stays counted as paid")
-    expect(body).toContain("directly in the database")
+    expect(body).toContain("removed from the fundraiser order")
     expect(body).toContain("fundraiser entry 7")
-    expect(body).toContain("FundraiserPayment 99 (stripePaymentRef = pi_f) on entry 7")
-    expect(body).not.toMatch(/adjust the fundraiser manually/)
+    expect(body).not.toContain("directly in the database")
     expect(prisma.registration.update).not.toHaveBeenCalled()
+  })
+
+  it("second delivery of the full refund is a quiet no-op", async () => {
+    getStripe().webhooks.constructEvent.mockReturnValue(refundEvent())
+    completedFundraiser()
+    prisma.fundraiserPayment.findUnique.mockResolvedValue(null)
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(prisma.fundraiserPayment.deleteMany).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("a lost race (deleteMany count 0) writes no audit row", async () => {
+    getStripe().webhooks.constructEvent.mockReturnValue(refundEvent())
+    completedFundraiser()
+    prisma.fundraiserPayment.deleteMany.mockResolvedValue({ count: 0 })
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("partial refund leaves the payment and alerts with fundraiser wording", async () => {
+    getStripe().webhooks.constructEvent.mockReturnValue(refundEvent({ amount_refunded: 1000 }))
+    completedFundraiser()
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(prisma.fundraiserPayment.deleteMany).not.toHaveBeenCalled()
+    const body = notifyStripeAlert.mock.calls[0][1] as string
+    expect(body).toContain("fundraiser entry 7")
+    expect(body).toContain("adjust by hand")
+    expect(body).not.toContain("Seat left active")
+  })
+
+  it("dispute opened leaves the payment (alert only, fundraiser wording)", async () => {
+    getStripe().webhooks.constructEvent.mockReturnValue({ type: "charge.dispute.created", data: { object: { payment_intent: "pi_f" } } })
+    completedFundraiser()
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(prisma.fundraiserPayment.deleteMany).not.toHaveBeenCalled()
+    const body = notifyStripeAlert.mock.calls[0][1] as string
+    expect(body).toContain("dispute")
+    expect(body).toContain("fundraiser entry 7")
+    expect(body).not.toContain("directly in the database")
+  })
+
+  it("replayed checkout.session.completed after a refund does not re-insert the payment", async () => {
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_x"
+    getStripe().webhooks.constructEvent.mockReturnValue({
+      type: "checkout.session.completed",
+      data: { object: { ...(session() as object), payment_status: "paid" } },
+    })
+    // The refund left the staging row COMPLETED.
+    prisma.checkoutSession.findUnique.mockResolvedValue({ ...staging({ status: "COMPLETED" }), registrationId: null, payload: "", eventId: 3, publicToken: null })
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(prisma.fundraiserPayment.create).not.toHaveBeenCalled()
   })
 
   it("a reversal on an unrecorded charge (staging not COMPLETED) does not claim a payment row exists", async () => {
