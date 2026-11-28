@@ -14,6 +14,7 @@ import { fmtAUD as fmt, formatDMY, toCents, centsToNumber, sumCents } from "@/li
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { sydneyToday, endOfDayUTC } from "@/lib/dates"
 import { getPaymentAccounts, type PaymentAccountLite } from "@/lib/paymentAccounts"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -122,20 +123,21 @@ export default async function BalanceSheetPage(props: Readonly<{
 
   return (
     <div className="max-w-3xl">
-      <div className="flex items-center justify-between mb-6 print:hidden">
-        <h2 className="text-2xl font-semibold text-foreground">
-          Balance Sheet — As at {toDMY(asAtDate)}
-        </h2>
-        <div className="flex items-center gap-3">
-          <Suspense fallback={<div className="h-8 w-32 rounded bg-muted animate-pulse" />}>
-            <BalanceSheetDatePicker value={dateStr} />
-          </Suspense>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/api/accounting/reports/balance-sheet/export-csv?date=${dateStr}`}>Export CSV</Link>
-          </Button>
-          <PrintButton />
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6 print:hidden"
+        title={<>Balance Sheet — As at {toDMY(asAtDate)}</>}
+        actions={
+          <>
+            <Suspense fallback={<div className="h-8 w-32 rounded bg-muted animate-pulse" />}>
+              <BalanceSheetDatePicker value={dateStr} />
+            </Suspense>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/api/accounting/reports/balance-sheet/export-csv?date=${dateStr}`}>Export CSV</Link>
+            </Button>
+            <PrintButton />
+          </>
+        }
+      />
       <h2 className="hidden print:block text-xl font-semibold mb-4">
         Balance Sheet — As at {toDMY(asAtDate)}
       </h2>

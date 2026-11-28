@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 type Props = { searchParams: Promise<{ category?: string; archived?: string }> }
 
@@ -46,12 +47,10 @@ export default async function GroupsPage(props: Readonly<Props>) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-semibold text-foreground">{archived ? "Archived groups" : "Groups"}</h2>
-        {manager && !archived && (
-          <Button asChild><Link href="/groups/new">New group</Link></Button>
-        )}
-      </div>
+      <PageHeader
+        title={archived ? "Archived groups" : "Groups"}
+        actions={manager && !archived ? <Button asChild><Link href="/groups/new">New group</Link></Button> : undefined}
+      />
 
       <nav aria-label="Filter by category" className="flex flex-wrap gap-2">
         <Link href={href(null, archived)} className={chip(category === null)} aria-current={category === null ? "page" : undefined}>All</Link>

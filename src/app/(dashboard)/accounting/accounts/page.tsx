@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DeleteAccountButton } from "@/components/accounting/DeleteAccountButton"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 type AccountRow = {
   id: number
@@ -147,21 +148,24 @@ export default async function AccountsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-semibold text-foreground">Categories</h2>
-        <div className="flex gap-3">
-          {userIsAdmin && (
-            <Button variant="outline" asChild>
-              <Link href="/accounting/accounts/groups">Manage groups</Link>
-            </Button>
-          )}
-          {userIsAdmin && (
-            <Button asChild>
-              <Link href="/accounting/accounts/new">New category</Link>
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6"
+        title="Categories"
+        actions={
+          <>
+            {userIsAdmin && (
+              <Button variant="outline" asChild>
+                <Link href="/accounting/accounts/groups">Manage groups</Link>
+              </Button>
+            )}
+            {userIsAdmin && (
+              <Button asChild>
+                <Link href="/accounting/accounts/new">New category</Link>
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <div className="space-y-8">
         {groups.map((group) => (

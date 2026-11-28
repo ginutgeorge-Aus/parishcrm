@@ -12,6 +12,7 @@ import { getBudgetVsActualData, resolveBudgetYear } from "@/lib/reports/budgetVs
 import { BudgetVsActualTable } from "@/components/accounting/BudgetVsActualTable"
 import { BudgetVsActualMobileCards } from "@/components/accounting/BudgetVsActualMobileCards"
 import { fyRangeLabel } from "@/lib/fiscalYear"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 type Props = {
   searchParams: Promise<{ year?: string; threshold?: string }>
@@ -36,18 +37,19 @@ export default async function BudgetVsActualPage(props: Readonly<Props>) {
 
   return (
     <div className="max-w-5xl">
-      <div className="flex items-center justify-between mb-6 print:hidden">
-        <h2 className="text-2xl font-semibold text-foreground">
-          Budget vs Actual — FY {fyRangeLabel(year)}
-        </h2>
-        <div className="flex items-center gap-3">
-          <YearSelector currentYear={year} />
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/api/accounting/reports/budget-vs-actual/export-csv?year=${year}`}>Export CSV</Link>
-          </Button>
-          <PrintButton />
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6 print:hidden"
+        title={<>Budget vs Actual — FY {fyRangeLabel(year)}</>}
+        actions={
+          <>
+            <YearSelector currentYear={year} />
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/api/accounting/reports/budget-vs-actual/export-csv?year=${year}`}>Export CSV</Link>
+            </Button>
+            <PrintButton />
+          </>
+        }
+      />
       <h2 className="hidden print:block text-xl font-semibold mb-4">
         Budget vs Actual — FY {fyRangeLabel(year)}
       </h2>

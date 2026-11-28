@@ -22,6 +22,7 @@ import { RevokePasskeysButton } from "@/components/users/RevokePasskeysButton"
 import { ResendWelcomeButton } from "@/components/users/ResendWelcomeButton"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { DemoNotice } from "@/components/DemoNotice"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 const roleVariant: Record<UserRole, "default" | "secondary" | "outline"> = {
   ADMIN: "default",
@@ -113,12 +114,15 @@ export default async function UsersPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-semibold text-foreground">Users</h2>
-        <Button asChild>
-          <Link href="/users/new">New user</Link>
-        </Button>
-      </div>
+      <PageHeader
+        className="mb-6"
+        title="Users"
+        actions={
+          <Button asChild>
+            <Link href="/users/new">New user</Link>
+          </Button>
+        }
+      />
       <DemoNotice />
 
       {/* Mobile: card per user (avoids sideways scroll to reach row actions) */}

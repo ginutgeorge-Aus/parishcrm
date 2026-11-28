@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/shared/EmptyState"
 import { Building2 } from "lucide-react"
 import { CustomerActiveToggle } from "./CustomerActiveToggle"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 /** Saved outside customers that invoices can be addressed to. */
 export default async function CustomersPage() {
@@ -19,14 +20,16 @@ export default async function CustomersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-semibold text-foreground">Customers</h2>
-        <div className="flex gap-2">
-          <Button asChild variant="outline"><Link href="/accounting/invoices">Invoices</Link></Button>
-          {/* With no customers the empty state carries New customer. */}
-          {canManage && result.length > 0 && <Button asChild><Link href="/accounting/customers/new">New customer</Link></Button>}
-        </div>
-      </div>
+      <PageHeader
+        title="Customers"
+        actions={
+          <>
+            <Button asChild variant="outline"><Link href="/accounting/invoices">Invoices</Link></Button>
+            {/* With no customers the empty state carries New customer. */}
+            {canManage && result.length > 0 && <Button asChild><Link href="/accounting/customers/new">New customer</Link></Button>}
+          </>
+        }
+      />
       <p className="text-sm text-muted-foreground">
         Outside people or organisations you invoice (hall hire, venue fees). Church members are picked from People instead.
       </p>
