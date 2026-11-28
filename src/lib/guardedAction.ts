@@ -6,6 +6,7 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 import type { FeatureKey } from "@/lib/features"
 import { isValidPgId } from "@/lib/validation"
+import { logger } from "@/lib/logger"
 
 // One entry point for every exported Server Action (audit idea 83, #3333/#3334).
 // TypeScript types vanish at runtime: any client can call an exported action
@@ -131,7 +132,14 @@ export async function guardedAction<A extends ArgsSchema, R>(
   }
 
   const parsed = spec.args.safeParse(input)
-  if (!parsed.success) return refuse(parsed.error.issues[0]?.message ?? "Invalid input")
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    // Readers return `denied`, which looks like "no permission"; log so a mis-declared tuple is findable.
+    // Paths only, never the rejected values (they may be PII).
+    if (reader) logger.warn("guardedAction: reader arguments rejected", { paths: parsed.error.issues.map((i) => i.path.join(".")) })
+    // An empty path is a tuple-level issue (arity); zod's own text is internal, so use a fixed message.
+    return refuse(issue && issue.path.length > 0 && issue.message ? issue.message : "Invalid input")
+  }
 
   return (handler as Handler<A, ActionContext, R>)({ session }, parsed.data)
 }

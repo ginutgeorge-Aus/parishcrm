@@ -11,6 +11,8 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { isAdmin, canViewAccounting } from "@/lib/roleGuard"
 import { guardedAction, pgIdArg, formDataArg, prevStateArg } from "../guardedAction"
 
+import { logger } from "@/lib/logger"
+
 const mockAuth = auth as jest.Mock
 const mockFeatureGuard = featureGuard as jest.Mock
 const mockAssertFeature = assertFeature as jest.Mock
@@ -81,7 +83,7 @@ describe("guardedAction", () => {
   it("rejects extra arguments beyond the tuple", async () => {
     const handler = jest.fn()
     const r = await guardedAction({ guard: isAdmin, args: z.tuple([pgIdArg]) }, [7, { extra: 1 }], handler)
-    expect(r).toEqual({ error: expect.any(String) })
+    expect(r).toEqual({ error: "Invalid input" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -137,6 +139,13 @@ describe("guardedAction", () => {
       await expect(list(1)).resolves.toEqual([])
       mockAuth.mockResolvedValue(admin)
       await expect(list("1")).resolves.toEqual([])
+    })
+
+    it("logs rejected reader arguments (paths only, never values)", async () => {
+      const warn = jest.spyOn(logger, "warn").mockImplementation(() => {})
+      await expect(list("secret@example.com")).resolves.toEqual([])
+      expect(warn).toHaveBeenCalledWith("guardedAction: reader arguments rejected", { paths: ["0"] })
+      warn.mockRestore()
     })
 
     it("uses the throwing feature check (no { error } shape to return)", async () => {
