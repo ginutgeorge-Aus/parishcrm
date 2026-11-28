@@ -15,6 +15,7 @@ import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
+import { pgIdFormField } from "@/lib/formFieldSchemas"
 import { encrypt } from "@/lib/crypto"
 import { serializableWrite } from "@/lib/serializableWrite"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -29,7 +30,7 @@ const CreateSessionSchema = z.object({
     // The title is built from these digits, so 2025-02-31 would become an
     // impossible "31-FEB-2025" session.
     .refine(isRealCalendarDate, "Invalid date"),
-  custodianId: z.string().min(1, "Custodian is required").transform(Number),
+  custodianId: pgIdFormField("Custodian is required"),
   openingBalance: z
     .string()
     .optional()
@@ -96,7 +97,7 @@ export async function createSession(
 }
 
 const UpdateCustodianSchema = z.object({
-  custodianId: z.string().min(1, "Custodian is required").transform(Number),
+  custodianId: pgIdFormField("Custodian is required"),
 })
 
 /**
@@ -112,6 +113,7 @@ export async function updateSessionCustodian(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
 
   const parsed = UpdateCustodianSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -397,6 +399,7 @@ export async function closeSession(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
   // Fast-path checks only; the figures are re-read inside the close transaction.
   const existing = await prisma.pettyCashSession.findUnique({ where: { id }, select: { status: true } })
   if (!existing) return { error: "Session not found" }

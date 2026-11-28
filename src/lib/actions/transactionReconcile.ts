@@ -7,7 +7,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
-import { isP2034 } from "@/lib/validation"
+import { isP2034, isValidPgId } from "@/lib/validation"
 import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
 import { isReversalPairRow } from "@/lib/reversalPair"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -38,6 +38,8 @@ export async function toggleReconciled(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("reconciliation")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
+  if (!isValidPgId(expectedPaymentAccountId)) return { error: "Invalid account" }
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
@@ -90,7 +92,7 @@ export async function toggleReconciled(
 const RECONCILE_MANY_MAX_IDS = 1000
 
 const ReconcileManySchema = z.object({
-  ids: z.array(z.number().int().positive()).min(1).max(RECONCILE_MANY_MAX_IDS),
+  ids: z.array(z.number().int().positive().max(2147483647)).min(1).max(RECONCILE_MANY_MAX_IDS),
 })
 
 /**
@@ -107,6 +109,7 @@ export async function reconcileMany(
   const off = await featureGuard("reconciliation")
   if (off) return off
 
+  if (!isValidPgId(expectedPaymentAccountId)) return { error: "Invalid account" }
   const parsed = ReconcileManySchema.safeParse({ ids })
   if (!parsed.success) return { error: "Invalid selection" }
   const uniqueIds = Array.from(new Set(parsed.data.ids))

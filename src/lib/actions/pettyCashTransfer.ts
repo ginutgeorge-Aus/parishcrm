@@ -23,6 +23,7 @@ import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, RECONCILED_EDIT_ERROR, assertSessionOpenTx, assertMirrorNotReconciledTx, SessionClosedError } from "./pettyCashEntry"
 import { makeReplayDone } from "./pettyCashWriteErrors"
 import { featureGuard } from "@/lib/featureFlags"
+import { dateOnlyFormField } from "@/lib/formFieldSchemas"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { utcDayRange, utcYmd } from "@/lib/dates"
@@ -253,13 +254,8 @@ async function assertNoImportedLegConflict(
 // Transfers keep a user-entered date (unlike receipts/expenses, which are forced
 // to the session date) — a bank deposit can happen days after the session.
 const TransferSchema = z.object({
-  date: z
-    .string()
-    .min(1, "Date is required")
-    .transform((v) => new Date(v))
-    // Zod does not validate transform output — a malformed string yields an
-    // Invalid Date (NaN) that Postgres rejects with an unhandled 500.
-    .refine((d) => !Number.isNaN(d.getTime()), "Invalid date"),
+  // Real YYYY-MM-DD within MIN_YEAR..MAX_YEAR (AUD-3-19); malformed values would 500 at Postgres.
+  date: dateOnlyFormField("Invalid date"),
   amount: z
     .string()
     .min(1, "Amount is required")
@@ -644,6 +640,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
   const transfer = await prisma.pettyCashTransfer.findUnique({
     where: { id },
     include: { session: { select: { id: true, status: true } }, transaction: { select: { id: true, reconciled: true } } },

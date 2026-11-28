@@ -12,7 +12,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked, assertUnlockedTx, holdAccountingLock } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE, isOversizeMoney, hasEncryptedFieldMatch, isP2034 } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isOversizeMoney, hasEncryptedFieldMatch, isP2034, isValidPgId } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
@@ -23,12 +23,13 @@ import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CA
 import { makeReplayDone, makeOrReplay, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashWriteErrors"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
+import { optionalPgIdFormField, pgIdFormField } from "@/lib/formFieldSchemas"
 
 // --- Expenses ---
 
 const ExpenseSchema = z.object({
   payee: z.string().min(1, "Payee is required").max(200),
-  accountId: z.string().min(1, "Select a category").transform((v) => Number.parseInt(v, 10)).refine((v) => v > 0, "Select a category"),
+  accountId: pgIdFormField("Select a category"),
   amount: z
     .string()
     .min(1, "Amount is required")
@@ -43,7 +44,7 @@ const ExpenseSchema = z.object({
     .refine((v) => toCents(v) > 0, "Amount must be positive"),
   description: z.string().min(1, "Description is required").max(500),
   receiptRef: z.string().max(100).optional().transform((v) => v || undefined),
-  fundId: z.string().optional().transform((v) => (v && v !== "" ? Number(v) : null)),
+  fundId: optionalPgIdFormField("Invalid fund", null),
   // Likely-duplicate confirmation: set by the "Post anyway" resubmit
   // when createExpense has already warned about a matching prior entry in
   // this session. Never persisted — createExpenseEntry only reads named
@@ -296,6 +297,7 @@ export async function updateExpense(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
   const expense = await prisma.pettyCashExpense.findUnique({
     where: { id },
     include: {
@@ -414,6 +416,7 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
   const expense = await prisma.pettyCashExpense.findUnique({
     where: { id },
     include: { session: { select: { id: true, status: true, title: true } }, transaction: { select: { id: true, reconciled: true } } },
