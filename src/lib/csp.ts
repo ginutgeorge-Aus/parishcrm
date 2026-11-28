@@ -1,5 +1,6 @@
 // Content-Security-Policy helpers shared by middleware.
 // Kept free of next-auth imports so it can be unit-tested in isolation.
+import { ROSTER_RESPOND_TOKEN_SOURCE } from "@/lib/rosterRespondPath"
 
 // Routes that do not require authentication. Mirrors the public routes the
 // old middleware matcher excluded; used by middleware to decide redirects now
@@ -74,6 +75,10 @@ export const PUBLIC_FUNDRAISER_PAY = /^\/pay\/fundraiser\/[A-Za-z0-9_-]+$/
 // gate (hashed lookup + constant-time compare in the route). Other /api/roster
 // paths stay behind the middleware gate.
 export const PUBLIC_ROSTER_FEED = /^\/api\/roster\/feed\/[A-Za-z0-9_-]+(?:\.ics)?$/
+// Public roster confirm/decline page: /roster/respond/[token] (#626). The signed,
+// expiring token (`payload.signature`) is the only gate; the submit is a server
+// action. Bare "/roster" and deeper paths stay behind the middleware gate.
+export const PUBLIC_ROSTER_RESPOND = new RegExp(`^\\/roster\\/respond\\/${ROSTER_RESPOND_TOKEN_SOURCE}$`)
 
 // Static security headers applied to every dynamic response by middleware
 // (AUDIT-054). next.config `headers()` does not reach App-Router Route
@@ -118,7 +123,8 @@ export function isPublicPath(pathname: string): boolean {
     PUBLIC_FAMILY_UPDATE.test(path) ||
     PUBLIC_VENUE_CALENDAR.test(path) ||
     PUBLIC_FUNDRAISER_PAY.test(path) ||
-    PUBLIC_ROSTER_FEED.test(path)
+    PUBLIC_ROSTER_FEED.test(path) ||
+    PUBLIC_ROSTER_RESPOND.test(path)
   )
 }
 
