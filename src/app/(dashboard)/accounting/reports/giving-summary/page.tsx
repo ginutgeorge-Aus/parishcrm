@@ -10,6 +10,7 @@ import { YearSelector } from "@/components/accounting/YearSelector"
 import { getGivingSummary } from "@/lib/givingSummary"
 import { currentFYYear, fyRangeLabel } from "@/lib/fiscalYear"
 import { fmtAUDAccounting, formatDMY, centsToNumber } from "@/lib/formatting"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 type Props = {
   searchParams: Promise<{ year?: string }>
@@ -40,20 +41,21 @@ export default async function GivingSummaryPage(props: Readonly<Props>) {
 
   return (
     <div className="max-w-5xl">
-      <div className="flex items-center justify-between mb-6 print:hidden">
-        <h2 className="text-2xl font-semibold text-foreground">
-          Giving Summary — FY {fyRangeLabel(year)}
-        </h2>
-        <div className="flex items-center gap-3">
-          <YearSelector currentYear={year} />
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/api/accounting/reports/giving-summary/export-csv?year=${year}`}>
-              Export CSV
-            </a>
-          </Button>
-          <PrintButton />
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6 print:hidden"
+        title={<>Giving Summary — FY {fyRangeLabel(year)}</>}
+        actions={
+          <>
+            <YearSelector currentYear={year} />
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/api/accounting/reports/giving-summary/export-csv?year=${year}`}>
+                Export CSV
+              </a>
+            </Button>
+            <PrintButton />
+          </>
+        }
+      />
       <h2 className="hidden print:block text-xl font-semibold mb-4">
         Giving Summary — FY {fyRangeLabel(year)}
       </h2>

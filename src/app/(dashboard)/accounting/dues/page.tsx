@@ -12,6 +12,7 @@ import { PrintButton } from "@/components/ui/PrintButton"
 import { currentFYYear, fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { computeFamilyDues } from "@/lib/reports/duesHelpers"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 // The income account that subscription payments are booked against (seeded as
 // "Church Subscription Fees"). Resolved by code so a renamed account still works.
@@ -106,21 +107,22 @@ export default async function DuesReportPage(props: Readonly<Props>) {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex items-center justify-between mb-6 print:hidden">
-        <h2 className="text-2xl font-semibold text-foreground">
-          Subscription Dues: FY {fyRangeLabel(year)}
-        </h2>
-        <div className="flex items-center gap-3">
-          <Link
-            href={`/accounting/dues?year=${year}${owingOnly ? "" : "&filter=owing"}`}
-            className="text-sm underline text-muted-foreground whitespace-nowrap"
-          >
-            {owingOnly ? "Show all" : "Owing only"}
-          </Link>
-          <YearSelector currentYear={year} />
-          <PrintButton />
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6 print:hidden"
+        title={<>Subscription Dues: FY {fyRangeLabel(year)}</>}
+        actions={
+          <>
+            <Link
+              href={`/accounting/dues?year=${year}${owingOnly ? "" : "&filter=owing"}`}
+              className="text-sm underline text-muted-foreground whitespace-nowrap"
+            >
+              {owingOnly ? "Show all" : "Owing only"}
+            </Link>
+            <YearSelector currentYear={year} />
+            <PrintButton />
+          </>
+        }
+      />
       <h2 className="hidden print:block text-xl font-semibold mb-4">
         Subscription Dues: FY {fyRangeLabel(year)}
       </h2>

@@ -5,6 +5,7 @@ import { HeadcountForm } from "@/components/attendance/HeadcountForm"
 import { getActiveServiceTypes, getRecentHeadcounts } from "@/lib/attendanceQueries"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { canEditAttendance, canViewAttendance } from "@/lib/roleGuard"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 /** How many recent headcounts the entry page loads (edit list + pre-fill lookup). */
 const RECENT_LIMIT = 100
@@ -23,12 +24,14 @@ export default async function AttendancePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-semibold text-foreground">Attendance</h2>
-        <Link href="/attendance/trends" className="text-sm underline">
-          View trends
-        </Link>
-      </div>
+      <PageHeader
+        title="Attendance"
+        actions={
+          <Link href="/attendance/trends" className="text-sm underline">
+            View trends
+          </Link>
+        }
+      />
       <HeadcountForm serviceTypes={serviceTypes} rows={rows} today={sydneyTodayYMD()} />
     </div>
   )

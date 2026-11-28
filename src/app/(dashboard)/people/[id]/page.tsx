@@ -37,6 +37,7 @@ import { buildClearanceCard, clearanceSelectFor, type ClearanceCardData } from "
 import { DEFAULT_WWCC_VERIFY_URL, getWwccVerifyUrl } from "@/lib/clearanceSettings"
 import { sydneyToday, utcYmd } from "@/lib/dates"
 import { PersonSacramentsCard } from "@/components/sacraments/PersonSacramentsCard"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 function field(label: string, value: string | null | undefined) {
   return (
@@ -64,7 +65,7 @@ function PersonHeaderActions({
   fullName: string
 }>) {
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       {userCanEdit && (
         <Button variant="outline" size="sm" asChild>
           <Link href={`/people/${personId}/edit`}>Edit</Link>
@@ -383,10 +384,11 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <PageHeader
+        title={fullName}
+        eyebrow={
           <p className="text-sm text-muted-foreground mb-1">
-            <Link href="/families"className="hover:underline">Families</Link>
+            <Link href="/families" className="hover:underline">Families</Link>
             {" / "}
             <Link href={`/families/${person.family.id}`} className="hover:underline">
               {person.family.name}
@@ -394,20 +396,23 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
             {" / "}
             {fullName}
           </p>
-          <h2 className="text-2xl font-semibold text-foreground">{fullName}</h2>
-          <div className="flex gap-2 mt-1">
+        }
+        meta={
+          <div className="flex flex-wrap gap-2 mt-1">
             <Badge variant="outline">{FAMILY_ROLE_LABELS[person.role]}</Badge>
             <Badge {...CLASSIFICATION_BADGE[person.classification]}>{CLASSIFICATION_LABELS[person.classification]}</Badge>
           </div>
-        </div>
-        <PersonHeaderActions
-          userCanEdit={userCanEdit}
-          userIsAdmin={userIsAdmin}
-          personId={person.id}
-          familyId={person.family.id}
-          fullName={fullName}
-        />
-      </div>
+        }
+        actions={
+          <PersonHeaderActions
+            userCanEdit={userCanEdit}
+            userIsAdmin={userIsAdmin}
+            personId={person.id}
+            familyId={person.family.id}
+            fullName={fullName}
+          />
+        }
+      />
 
       <PersonInfoCards
         person={person}

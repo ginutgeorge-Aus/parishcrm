@@ -13,6 +13,7 @@ import { fmtAUD as fmt, formatDMY, centsToNumber } from "@/lib/formatting"
 import { withRunningBalance, signedCents } from "@/lib/generalLedgerExport"
 import { currentFYYear, fyDateRange, parseFyYearParam, fyRangeLabel } from "@/lib/fiscalYear"
 import { parseRouteId } from "@/lib/validation"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 type Props = { searchParams: Promise<{ account?: string; year?: string }> }
 
@@ -69,20 +70,23 @@ export default async function GeneralLedgerPage(props: Readonly<Props>) {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 print:hidden">
-        <h2 className="text-2xl font-semibold text-foreground">General Ledger — FY {fyRangeLabel(year)}</h2>
-        <div className="flex items-center gap-3">
-          <GeneralLedgerControls accounts={accounts} accountId={validAccountId} year={year} />
-          {selectedAccount && (
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/api/accounting/reports/general-ledger/export-csv?account=${selectedAccount.id}&year=${year}`}>
-                Export CSV
-              </Link>
-            </Button>
-          )}
-          <PrintButton />
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6 print:hidden"
+        title={<>General Ledger — FY {fyRangeLabel(year)}</>}
+        actions={
+          <>
+            <GeneralLedgerControls accounts={accounts} accountId={validAccountId} year={year} />
+            {selectedAccount && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/api/accounting/reports/general-ledger/export-csv?account=${selectedAccount.id}&year=${year}`}>
+                  Export CSV
+                </Link>
+              </Button>
+            )}
+            <PrintButton />
+          </>
+        }
+      />
       <h2 className="hidden print:block text-xl font-semibold mb-4">
         General Ledger{selectedAccount ? ` — ${selectedAccount.code} ${selectedAccount.name}` : ""} — FY {fyRangeLabel(year)}
       </h2>

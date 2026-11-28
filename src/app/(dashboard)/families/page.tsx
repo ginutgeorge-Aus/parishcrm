@@ -11,6 +11,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { FamilyStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { FAMILY_CAP, LEGACY_SUBURB_SCAN_CAP, findFamiliesBySuburb } from "@/lib/familySuburbFilter"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 export default async function FamiliesPage(
   props: Readonly<{ searchParams: Promise<{ q?: string; status?: string; suburb?: string }> }>
@@ -77,21 +78,23 @@ export default async function FamiliesPage(
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-semibold text-foreground">Families</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          {userIsAdmin && (
-            <Link href="/families/archived" className="text-sm text-muted-foreground underline hover:text-foreground">
-              View archived
-            </Link>
-          )}
-          {userIsAdmin && (
-            <Link href="/families/merge" className="text-sm text-muted-foreground underline hover:text-foreground">
-              Merge duplicates
-            </Link>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Families"
+        actions={
+          <>
+            {userIsAdmin && (
+              <Link href="/families/archived" className="text-sm text-muted-foreground underline hover:text-foreground">
+                View archived
+              </Link>
+            )}
+            {userIsAdmin && (
+              <Link href="/families/merge" className="text-sm text-muted-foreground underline hover:text-foreground">
+                Merge duplicates
+              </Link>
+            )}
+          </>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-3 print:hidden">
         <Suspense>

@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { canViewAccounting, canEdit } from "@/lib/roleGuard"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 export const metadata = { title: "Help & Getting Started" }
 
@@ -11,10 +12,10 @@ export default async function HelpPage() {
 
   return (
     <div className="max-w-2xl space-y-8">
-      <h2 className="text-2xl font-semibold text-foreground">Help &amp; Getting Started</h2>
+      <PageHeader title="Help &amp; Getting Started" />
 
       <section className="space-y-2">
-        <h3 className="text-lg font-medium">Login &amp; password</h3>
+        <h2 className="text-lg font-medium">Login &amp; password</h2>
         <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
           <li>Log in with your email. On a new device you&apos;ll get a one-time code by email.</li>
           <li>Tick &ldquo;Remember this device&rdquo; to skip the code for 14 days on that device.</li>
@@ -25,7 +26,7 @@ export default async function HelpPage() {
 
       {showContent && (
         <section className="space-y-2">
-          <h3 className="text-lg font-medium">People &amp; Families</h3>
+          <h2 className="text-lg font-medium">People &amp; Families</h2>
           <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
             <li>Add a family from Families &rarr; &ldquo;New family&rdquo;, then add members to it.</li>
             <li>Edit a family or person from their detail page.</li>
@@ -35,7 +36,7 @@ export default async function HelpPage() {
       )}
 
       <section className="space-y-2">
-        <h3 className="text-lg font-medium">Feedback &amp; bug reports</h3>
+        <h2 className="text-lg font-medium">Feedback &amp; bug reports</h2>
         <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
           <li>Use the &ldquo;Feedback&rdquo; button in the sidebar — choose Bug, Feature, or Idea.</li>
           <li>Track what you&apos;ve sent and its status (Open / Resolved / Won&apos;t-fix) under &ldquo;My Feedback&rdquo;.</li>
@@ -43,7 +44,7 @@ export default async function HelpPage() {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-lg font-medium">Events</h3>
+        <h2 className="text-lg font-medium">Events</h2>
         <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
           <li>Browse events in the Events section.</li>
           {showContent && <li>Create events and manage registrations.</li>}
@@ -52,7 +53,7 @@ export default async function HelpPage() {
 
       {showAccounting && (
         <section className="space-y-2">
-          <h3 className="text-lg font-medium">Accounting</h3>
+          <h2 className="text-lg font-medium">Accounting</h2>
           <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
             <li>View transactions and financial reports from the Accounting section (entry depends on your role).</li>
           </ul>

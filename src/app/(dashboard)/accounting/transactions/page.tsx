@@ -12,6 +12,7 @@ import { TransactionTable } from "@/components/accounting/TransactionTable"
 import { TransactionPagination } from "@/components/accounting/TransactionPagination"
 import { transactionExportQuery, transactionListQuery } from "@/lib/transactionFilters"
 import { getTransactionsData, TX_CAP, SEARCH_SCAN_CAP, type TransactionsSearchParams } from "@/lib/reports/transactionsQuery"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 export default async function TransactionsPage(
   props: Readonly<{
@@ -65,19 +66,21 @@ export default async function TransactionsPage(
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Transactions</h2>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <a href={exportHref} download>Export CSV</a>
-          </Button>
-          {userCanEdit && (
-            <Button asChild size="sm">
-              <Link href="/accounting/transactions/new">New transaction</Link>
+      <PageHeader
+        title="Transactions"
+        actions={
+          <>
+            <Button variant="outline" size="sm" asChild>
+              <a href={exportHref} download>Export CSV</a>
             </Button>
-          )}
-        </div>
-      </div>
+            {userCanEdit && (
+              <Button asChild size="sm">
+                <Link href="/accounting/transactions/new">New transaction</Link>
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <Suspense fallback={<div className="h-10 rounded bg-muted animate-pulse" />}>
         <TransactionFilters accounts={accounts} families={families} paymentAccounts={paymentAccounts} months={months} />

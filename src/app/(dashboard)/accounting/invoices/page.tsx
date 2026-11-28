@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
 import { EmptyState } from "@/components/shared/EmptyState"
 import { FileText } from "lucide-react"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 type Props = { searchParams: Promise<{ status?: string; from?: string; to?: string; after?: string; before?: string }> }
 
@@ -138,14 +139,16 @@ export default async function InvoicesPage(props: Readonly<Props>) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-semibold text-foreground">Invoices</h2>
-        <div className="flex gap-2">
-          <Button asChild variant="outline"><Link href="/accounting/customers">Customers</Link></Button>
-          {/* On a first run the empty state carries New invoice. */}
-          {canManage && !noInvoicesYet && <Button asChild><Link href="/accounting/invoices/new">New invoice</Link></Button>}
-        </div>
-      </div>
+      <PageHeader
+        title="Invoices"
+        actions={
+          <>
+            <Button asChild variant="outline"><Link href="/accounting/customers">Customers</Link></Button>
+            {/* On a first run the empty state carries New invoice. */}
+            {canManage && !noInvoicesYet && <Button asChild><Link href="/accounting/invoices/new">New invoice</Link></Button>}
+          </>
+        }
+      />
 
       <form method="GET" className="flex flex-wrap items-end gap-3 text-sm">
         <label className="space-y-1">

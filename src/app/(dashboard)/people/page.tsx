@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { safeDecrypt } from "@/lib/crypto"
 import { Classification, FamilyRole } from "@/lib/generated/prisma/enums"
 import { parseMinistryRoleFilter } from "@/lib/ministryRoles"
+import { PageHeader } from "@/components/shared/PageHeader"
 
 const PEOPLE_CAP = 500
 const MAX_QUERY_LENGTH = 100
@@ -90,9 +91,7 @@ export default async function PeoplePage(
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-foreground">People</h2>
-      </div>
+      <PageHeader title="People" />
 
       <div className="flex flex-wrap items-center gap-3 print:hidden">
         <Suspense>
