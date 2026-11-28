@@ -482,7 +482,7 @@ it("unclaims back to OPEN and returns 500 when persisting throws unexpectedly â€
   // 31-min window leaves too little runway for Stripe's retry before the
   // hourly sweep expires the row out from under it.
   expect(prisma.checkoutSession.updateMany).toHaveBeenNthCalledWith(2,
-    { where: { id: 5, status: "COMPLETED" }, data: { status: "OPEN", completedAt: null, expiresAt: expect.any(Date) } })
+    { where: { id: 5, status: "COMPLETED" }, data: { status: "OPEN", completedAt: null, expiresAt: expect.any(Date), expiredAt: null } })
   const unclaimArg = prisma.checkoutSession.updateMany.mock.calls[1][0]
   expect(unclaimArg.data.expiresAt.getTime()).toBeGreaterThan(Date.now())
   expect(prisma.checkoutSession.update).not.toHaveBeenCalled()
@@ -683,14 +683,17 @@ it("does NOT create a registration when payment_status is not 'paid' (async meth
   // late, after the sweep) keeps its EXPIRED status (no resurrection) and only
   // has expiresAt pushed out, so the 72h scrub can't wipe it before settlement.
   expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
-    where: {
-      stripeSessionId: "cs_async",
-      OR: [{ status: "OPEN" }, { status: "EXPIRED", registrationId: null, payload: { not: "" } }],
-    },
+    where: { stripeSessionId: "cs_async", status: "OPEN" },
     data: { expiresAt: expect.any(Date) }, // status untouched: never re-opened
+  })
+  expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
+    where: { stripeSessionId: "cs_async", status: "EXPIRED", registrationId: null, payload: { not: "" } },
+    data: { expiredAt: expect.any(Date) }, // late-claimable row: push the scrub window only
   })
   const arg = prisma.checkoutSession.updateMany.mock.calls[0][0]
   expect(arg.data.expiresAt.getTime()).toBeGreaterThan(Date.now() + 60 * 60 * 1000)
+  const lateArg = prisma.checkoutSession.updateMany.mock.calls[1][0]
+  expect(lateArg.data.expiredAt.getTime()).toBeGreaterThan(Date.now() + 60 * 60 * 1000)
 })
 
 it("persists on checkout.session.async_payment_succeeded", async () => {

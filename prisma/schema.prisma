@@ -706,6 +706,10 @@ model CheckoutSession {
   surchargeCents  Int            @default(0)
   publicToken     String? // set by webhook on success → lets the success page resolve the created Registration
   expiresAt       DateTime
+  // When the sweep marked the row EXPIRED (#813). The payload scrub window runs from here (a
+  // delayed-settlement `completed` pushes it forward). Null on rows EXPIRED before this column
+  // existed: the sweep falls back to `expiresAt` for those.
+  expiredAt       DateTime?
   createdAt       DateTime       @default(now())
   completedAt     DateTime?
   // Set by the retention purge when `payload` has been scrubbed for an

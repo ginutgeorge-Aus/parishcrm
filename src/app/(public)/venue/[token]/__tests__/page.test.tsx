@@ -5,6 +5,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { notFound } from "next/navigation"
 import { readCalendarToken } from "@/lib/venueCalendarToken"
+import { hashToken } from "@/lib/tokenHash"
 
 jest.mock("next/navigation", () => ({ notFound: jest.fn() }))
 jest.mock("next/headers", () => ({
@@ -34,7 +35,7 @@ beforeEach(() => {
   })
   ;(rateLimit as jest.Mock).mockReturnValue(true)
   ;(readVenueUsageSettings as jest.Mock).mockResolvedValue({ enabled: true, venueName: "Example Hall" })
-  ;(readCalendarToken as jest.Mock).mockResolvedValue("good-token")
+  ;(readCalendarToken as jest.Mock).mockResolvedValue(hashToken("good-token"))
   ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([])
 })
 
@@ -54,7 +55,7 @@ it("404s when the feature is off or no token is set (indistinguishable)", async 
   await expect(run("good-token")).rejects.toThrow("NEXT_NOT_FOUND")
 })
 it("a reset token invalidates the old link", async () => {
-  ;(readCalendarToken as jest.Mock).mockResolvedValue("new-token")
+  ;(readCalendarToken as jest.Mock).mockResolvedValue(hashToken("new-token"))
   await expect(run("good-token")).rejects.toThrow("NEXT_NOT_FOUND")
   await expect(run("new-token")).resolves.toBeTruthy()
 })

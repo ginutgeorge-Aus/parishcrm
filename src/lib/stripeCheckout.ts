@@ -406,13 +406,17 @@ export async function handleStripeWebhook(
         // its expiry pushed out. An EXPIRED row that still holds its payload
         // (this delivery arrived after the sweep) keeps its EXPIRED status
         // (never resurrected: it stays out of the OPEN-only paths and cannot
-        // be re-swept) and only gets expiresAt pushed out, which moves the
+        // be re-swept) and only gets expiredAt pushed out, which moves the
         // sweep's 72h payload scrub window so it cannot wipe the payload
         // before settlement.
-        const expiresAt = new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS)
+        const pushed = new Date(Date.now() + DELAYED_SETTLEMENT_EXPIRY_MS)
         await prisma.checkoutSession.updateMany({
-          where: { stripeSessionId: session.id, OR: [{ status: "OPEN" }, LATE_CLAIMABLE_WHERE] },
-          data: { expiresAt },
+          where: { stripeSessionId: session.id, status: "OPEN" },
+          data: { expiresAt: pushed },
+        })
+        await prisma.checkoutSession.updateMany({
+          where: { stripeSessionId: session.id, ...LATE_CLAIMABLE_WHERE },
+          data: { expiredAt: pushed },
         })
         return { status: 200 }
       }
@@ -549,7 +553,7 @@ async function handleNonOpenStaging(
       // lets only one concurrent redelivery win the reopen.
       const reopened = await prisma.checkoutSession.updateMany({
         where: { id: staging.id, status: "COMPLETED", publicToken: null, completedAt: { lt: strandedCutoff() } },
-        data: { status: "OPEN", completedAt: null, expiresAt: new Date(Date.now() + CHECKOUT_EXPIRY_MS) },
+        data: { status: "OPEN", completedAt: null, expiresAt: new Date(Date.now() + CHECKOUT_EXPIRY_MS), expiredAt: null },
       })
       if (reopened.count === 0) return { status: 500 } // another delivery changed it; retry
       // Known limitation: if a registration WAS saved but its token write
@@ -910,7 +914,7 @@ async function completePaidCheckout(
       // to protect) so the sweep never has to re-handle it.
       data: payNowLate
         ? { status: "EXPIRED", completedAt: null }
-        : { status: "OPEN", completedAt: null, expiresAt: new Date(Date.now() + CHECKOUT_EXPIRY_MS) },
+        : { status: "OPEN", completedAt: null, expiresAt: new Date(Date.now() + CHECKOUT_EXPIRY_MS), expiredAt: null },
     })
     return { status: 500 }
   }

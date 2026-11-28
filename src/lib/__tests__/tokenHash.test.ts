@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { canonicalStoredToken, hashToken, isHashedToken, storedTokenMatches, tokenLookupCandidates } from "@/lib/tokenHash"
+import { canonicalStoredToken, hashToken, isHashedToken, storedTokenMatches } from "@/lib/tokenHash"
 
 describe("tokenHash", () => {
   it("hashes to 64 hex chars, deterministically", () => {
@@ -17,14 +17,8 @@ describe("tokenHash", () => {
     expect(storedTokenMatches("secret", hashToken("secret"))).toBe(true)
     expect(storedTokenMatches("other", hashToken("secret"))).toBe(false)
   })
-  it("still matches a legacy raw stored token until the backfill hashes it", () => {
-    expect(storedTokenMatches("secret", "secret")).toBe(true)
-    expect(storedTokenMatches("other", "secret")).toBe(false)
-  })
-  it("lookup candidates: digest plus legacy raw, but never a raw 64-hex token", () => {
-    expect(tokenLookupCandidates("secret")).toEqual([hashToken("secret"), "secret"])
-    const hex = hashToken("secret")
-    expect(tokenLookupCandidates(hex)).toEqual([hashToken(hex)])
+  it("no longer matches a legacy raw stored token (sunset, #800)", () => {
+    expect(storedTokenMatches("secret", "secret")).toBe(false)
   })
   it("canonicalStoredToken hashes a raw token, lowercases an uppercased digest, and leaves a canonical digest alone", () => {
     const digest = hashToken("secret")
