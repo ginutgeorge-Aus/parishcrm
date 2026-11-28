@@ -10,3 +10,9 @@ export const REMEMBERED_IDLE_MINUTES = 7 * 24 * 60
  * without this a stolen cookie used weekly would never expire (AUD-1-08).
  */
 export const REMEMBERED_MAX_DAYS = 30
+
+/**
+ * JWT cookie lifetime in seconds (7 days). Shared by auth.ts and the middleware's auth.config.ts so
+ * the two NextAuth instances cannot re-issue cookies with different lifetimes (AUD-1-06).
+ */
+export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
