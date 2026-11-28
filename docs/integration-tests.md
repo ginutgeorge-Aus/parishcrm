@@ -12,6 +12,7 @@ Postgres *delivers* it under parallel load.
 | `bank-import-race.test.ts` | same bank statement confirmed in parallel: no duplicate transactions |
 | `db-rate-limit-race.test.ts` | `dbRateLimit` burst: exactly `limit` allowed, never more |
 | `login-lockout-race.test.ts` | parallel wrong passwords: exactly 5 compare, account locks, no lost counter |
+| `sunday-school-enrolment-race.test.ts` | first enrolment of one child into several classes at once: exactly one row, no raw error (#960/#961) |
 
 ## Opt-in
 
