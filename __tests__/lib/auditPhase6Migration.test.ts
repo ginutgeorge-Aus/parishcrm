@@ -18,3 +18,20 @@ describe("audit phase 6 lows migration", () => {
   it.each(["TicketType_eventId_idx", "CheckoutSession_eventId_idx", "PettyCashReceipt_personId_idx", "Registration_paymentRef_idx"])(
     "adds index %s (AUD-6-11)", (name) => expect(sql).toContain(`CREATE INDEX "${name}"`))
 })
+
+const dropSql = readdirSync(dir)
+  .filter((d) => d.endsWith("_audit_phase6_drop_redundant_indexes"))
+  .map((d) => readFileSync(join(dir, d, "migration.sql"), "utf8"))
+  .join("\n")
+const schema = readFileSync(join(process.cwd(), "prisma", "schema.prisma"), "utf8")
+
+describe("redundant index clean-up (AUD-6-12)", () => {
+  it.each([
+    "Person_mobile_idx", "Transaction_paymentAccountId_idx", "Transaction_familyId_idx",
+    "Transaction_personId_idx", "Transaction_isGiving_idx", "Registration_eventId_idx",
+    "ServiceHeadcount_serviceDate_idx", "AuditLog_action_idx",
+  ])("drops %s", (name) => expect(dropSql).toContain(`DROP INDEX "${name}"`))
+  it("schema no longer declares a single-column index on Person.mobile", () => {
+    expect(schema).not.toMatch(/@@index\(\[mobile\]\)/)
+  })
+})

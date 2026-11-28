@@ -113,9 +113,9 @@ model Person {
   // a leading-wildcard ILIKE and can't use a b-tree, so no index helps there.
   @@index([lastName, firstName])
   // /people role filter always rides archivedAt:null; composite narrows before the
-  // (lastName,firstName) sort. mobile is exact-match lookup in membership import.
+  // (lastName,firstName) sort. No index on the encrypted mobile column: it is never
+  // looked up by equality (equality uses mobileHash).
   @@index([archivedAt, role])
-  @@index([mobile])
 }
 
 model User {
@@ -388,13 +388,9 @@ model Transaction {
 
   @@index([date])
   @@index([accountId])
-  @@index([familyId])
-  @@index([personId])
   @@index([type])
   @@index([fundId])
-  @@index([paymentAccountId])
   @@index([reconciled])
-  @@index([isGiving])
   @@index([paymentAccountId, reconciled, date])
   @@index([paymentAccountId, type, date])
   @@index([isGiving, type, date])
@@ -816,7 +812,6 @@ model Registration {
   // FK + per-event filter indexes. Postgres does not auto-index FK
   // scalars; every per-event path filters by eventId, and CANCELLED-excluding
   // capacity checks filter (eventId, paymentStatus).
-  @@index([eventId])
   @@index([eventId, paymentStatus])
   // Stripe webhook / refund lookups by payment reference (AUD-6-11). Not unique: legacy rows may repeat.
   @@index([paymentRef])
@@ -904,7 +899,6 @@ model ServiceHeadcount {
   updatedAt     DateTime    @updatedAt
 
   @@unique([serviceDate, serviceTypeId])
-  @@index([serviceDate])
 }
 
 model PettyCashSession {
@@ -1066,7 +1060,6 @@ model AuditLog {
   createdAt    DateTime @default(now())
 
   @@index([userId])
-  @@index([action])
   @@index([createdAt])
   @@index([resourceType, resourceId])
   // getFamilyLastUpdate filters resourceType+action then evaluates a metadata JSON path in
