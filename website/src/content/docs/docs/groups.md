@@ -61,6 +61,14 @@ They see names, families, roles and titles, never contact details, and cannot pr
 the list. Opening any other group's page shows "not found". Unlinking the login, archiving the
 group or changing the login's role away from Event organiser removes the access.
 
+### Volunteer roster
+
+If a roster role (for example Readers) is tied to a group, a linked login also sees **Roster** in the
+organiser portal (`/my-roster`). It lists upcoming services that have a slot for a role of their
+group, and on each service they can roster and remove people for those roles only. A role tied to a
+group they do not lead is not shown, and the assign and remove actions refuse it. A person who has
+declined a service can only be cleared by staff.
+
 ## Who can do what
 
 | | ADMIN / PASTOR / OFFICE_ADMIN | VIEWER | EVENT_ORGANISER | AUDITOR |

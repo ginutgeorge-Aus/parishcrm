@@ -39,6 +39,14 @@ it("brands with the home resolved by the layout", () => {
   expect(screen.queryByRole("link", { name: "My Events" })).not.toBeInTheDocument()
 })
 
+it("shows the Roster link by default and hides it when showRoster is false", () => {
+  const { unmount } = render(<OrganiserHeader home={eventsHome} />)
+  expect(screen.getByRole("link", { name: "Roster" })).toHaveAttribute("href", "/my-roster")
+  unmount()
+  render(<OrganiserHeader showRoster={false} home={eventsHome} />)
+  expect(screen.queryByRole("link", { name: "Roster" })).not.toBeInTheDocument()
+})
+
 it("shows only the Classes link for a teacher (no Events, no Groups)", () => {
   render(<OrganiserHeader showEvents={false} showGroups={false} home={CLASSES_HOME} />)
   expect(screen.getByRole("link", { name: "Classes" })).toHaveAttribute("href", "/my-classes")

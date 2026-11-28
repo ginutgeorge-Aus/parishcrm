@@ -10,6 +10,8 @@ export function isOrganiserAllowedPath(pathname: string): boolean {
   if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return true
   // /my-groups pages self-gate on GroupLeaderAccess (canManageGroupMembers).
   if (pathname === "/my-groups" || pathname.startsWith("/my-groups/")) return true
+  // /my-roster pages self-gate on GroupLeaderAccess (roles of the groups they lead).
+  if (pathname === "/my-roster" || pathname.startsWith("/my-roster/")) return true
   if (isConfinedInfraPath(pathname)) return true
 
   // Membership-gated export + print entry points (self-gated downstream).
