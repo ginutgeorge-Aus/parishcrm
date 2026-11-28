@@ -250,6 +250,9 @@ describe("submitFamilyUpdate", () => {
     const res = await submitFamilyUpdate(goodInput)
     expect(res).toEqual({ error: expect.stringMatching(/already awaiting review/i) })
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1)
+    // The lock must be taken BEFORE the PENDING check, or the race returns.
+    expect((prisma.$queryRaw as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan((prisma.familyUpdateSubmission.findFirst as jest.Mock).mock.invocationCallOrder[0])
     expect(prisma.familyUpdateSubmission.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { familyId: 1, status: "PENDING" } })
     )
