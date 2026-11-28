@@ -5,8 +5,10 @@ import { prisma } from "@/lib/prisma"
 // ~3 days, so a paid confirmation that lands late (app down or restarting
 // when Stripe first called) can still build the booking from the payload.
 // After this window the payload is scrubbed. The window is measured from
-// `expiresAt`, which the sweep rewrites to the moment it marks a row EXPIRED
-// (and which a delayed-settlement `completed` delivery pushes forward).
+// `expiredAt`, which the sweep stamps when it marks a row EXPIRED (and which a
+// delayed-settlement `completed` delivery pushes forward). Rows that were
+// EXPIRED before that column existed have `expiredAt` null; for those the
+// window falls back to `expiresAt`, which the old sweep rewrote the same way.
 export const PAYLOAD_GRACE_MS = 72 * 60 * 60 * 1000
 
 // Prisma filter for an EXPIRED new-registration ticket row that still holds
@@ -43,7 +45,7 @@ export function isLateClaimable(row: { status: string; registrationId: number | 
  * Expire abandoned pay-now staging rows, then scrub the PII payload of rows
  * that an earlier run marked EXPIRED more than PAYLOAD_GRACE_MS ago (the
  * window runs from the moment of expiry, or from the last delayed-settlement
- * push of expiresAt, not from the original Stripe expiry). A row is OPEN only
+ * push of expiredAt, not from the original Stripe expiry). A row is OPEN only
  * until either the webhook completes it or its Stripe session lapses;
  * anything still OPEN past expiresAt was abandoned mid-checkout, or its paid
  * confirmation is late. Expiry keeps the payload so `completePaidCheckout`
@@ -57,16 +59,22 @@ export async function sweepExpiredCheckouts(): Promise<{ expired: number; scrubb
   // the next run, so a late paid delivery still gets at least one sweep
   // interval to claim it. Only rows already EXPIRED by an earlier run are
   // scrubbed here.
+  const cutoff = new Date(now - PAYLOAD_GRACE_MS)
   const scrubbed = await prisma.checkoutSession.updateMany({
-    where: { status: "EXPIRED", payload: { not: "" }, expiresAt: { lt: new Date(now - PAYLOAD_GRACE_MS) } },
+    where: {
+      status: "EXPIRED",
+      payload: { not: "" },
+      // expiredAt null = EXPIRED before the column existed (expiresAt then held the expiry moment).
+      OR: [{ expiredAt: { lt: cutoff } }, { expiredAt: null, expiresAt: { lt: cutoff } }],
+    },
     data: { payload: "" },
   })
   const expired = await prisma.checkoutSession.updateMany({
     where: { status: "OPEN", expiresAt: { lt: new Date(now) } },
-    // expiresAt doubles as "when the row became EXPIRED" from here on, so the
-    // payload grace window above is measured from this moment, not from the
-    // (possibly days-old) Stripe session expiry the sweep only noticed late.
-    data: { status: "EXPIRED", expiresAt: new Date(now) },
+    // expiredAt records when the row became EXPIRED, so the payload grace window
+    // above is measured from this moment, not from the (possibly days-old)
+    // Stripe session expiry the sweep only noticed late. expiresAt stays as is.
+    data: { status: "EXPIRED", expiredAt: new Date(now) },
   })
   return { expired: expired.count, scrubbed: scrubbed.count }
 }

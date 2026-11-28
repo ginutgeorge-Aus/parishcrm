@@ -31,26 +31,15 @@ export function canonicalStoredToken(stored: string): string | null {
 }
 
 /**
- * Constant-time check of a URL token against a stored value. Accepts a legacy raw (pre-hash)
- * stored token until the backfill has hashed it; raw tokens are 24-32 base64url chars, never 64 hex.
+ * Constant-time check of a URL token against a stored digest. The legacy raw (pre-hash) stored-token
+ * branch is gone (#800): a stored value that is not a 64-hex digest never matches.
  * @param provided token from the URL
- * @param stored digest (or legacy raw token) from the database
+ * @param stored digest from the database
  */
 export function storedTokenMatches(provided: string, stored: string): boolean {
-  if (!provided || !stored) return false
+  if (!provided || !stored || !isHashedToken(stored)) return false
   // Both sides are 64-hex digests, so the buffers are equal length and can be compared directly.
-  const expected = Buffer.from(isHashedToken(stored) ? stored.toLowerCase() : hashToken(stored), "hex")
+  const expected = Buffer.from(stored.toLowerCase(), "hex")
   const actual = Buffer.from(hashToken(provided), "hex")
   return timingSafeEqual(actual, expected)
-}
-
-/**
- * Stored values a URL token may match in a DB lookup: its digest, plus the raw token for legacy rows
- * not yet backfilled. A 64-hex URL token is never taken as raw: it would match a stolen digest.
- * Used for DB lookups (crew page); `storedTokenMatches` applies the same rule to an already-fetched value.
- * Sunset both raw branches together once the backfill is confirmed on every deployment.
- * @param token the raw token from the URL
- */
-export function tokenLookupCandidates(token: string): string[] {
-  return isHashedToken(token) ? [hashToken(token)] : [hashToken(token), token]
 }

@@ -37,6 +37,7 @@ type Row = {
   registrationId: number | null
   payload: string
   expiresAt: Date
+  expiredAt: Date | null
   completedAt: Date | null
   surchargeCents: number
 }
@@ -54,7 +55,7 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
     if (v !== null && typeof v === "object") {
       const f = v as { not?: unknown; lt?: Date }
       if ("not" in f) return actual !== f.not
-      if (f.lt) return (actual as Date).getTime() < f.lt.getTime()
+      if (f.lt) return actual != null && (actual as Date).getTime() < f.lt.getTime()
     }
     return actual === v
   })
@@ -68,7 +69,7 @@ beforeEach(() => {
 it("keeps the payload through the sweep and an unpaid completed, then builds the booking on settlement", async () => {
   const row: Row = {
     id: 5, stripeSessionId: "cs_becs", eventId: 7, status: "OPEN", registrationId: null, surchargeCents: 0, completedAt: null,
-    expiresAt: new Date(Date.now() - 60_000),
+    expiresAt: new Date(Date.now() - 60_000), expiredAt: null,
     payload: "enc:" + JSON.stringify({ firstName: "A", totalAmount: 20, items: [], capacityChecks: [] }),
   }
   prisma.checkoutSession.updateMany.mockImplementation(async ({ where, data }: { where: Record<string, unknown>; data: Partial<Row> }) => {
@@ -90,7 +91,7 @@ it("keeps the payload through the sweep and an unpaid completed, then builds the
     data: { object: { id: "cs_becs", payment_intent: "pi_b", amount_total: 2000, payment_status: "unpaid" } } })
   expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
   expect(row.status).toBe("EXPIRED")
-  expect(row.expiresAt.getTime()).toBeGreaterThan(Date.now() + 60 * 60 * 1000)
+  expect(row.expiredAt!.getTime()).toBeGreaterThan(Date.now() + 60 * 60 * 1000)
   expect(persistRegistration).not.toHaveBeenCalled()
 
   // 3. A sweep right after must not scrub the pushed-out row.
@@ -105,4 +106,24 @@ it("keeps the payload through the sweep and an unpaid completed, then builds the
   expect(persistRegistration).toHaveBeenCalledWith(expect.anything(), expect.anything(),
     { paymentStatus: "PAID", paymentRef: "pi_b" })
   expect(notifyStripeAlert).not.toHaveBeenCalled()
+})
+
+it("scrubs a legacy EXPIRED row (expiredAt null) by expiresAt, and spares a fresh sweep-expired row whose expiresAt is old", async () => {
+  const day = 24 * 60 * 60 * 1000
+  const mk = (id: number, over: Partial<Row>): Row => ({
+    id, stripeSessionId: `cs_${id}`, eventId: 7, status: "EXPIRED", registrationId: null, surchargeCents: 0, completedAt: null,
+    payload: "enc:x", expiresAt: new Date(), expiredAt: null, ...over,
+  })
+  const rows = [
+    mk(1, { expiresAt: new Date(Date.now() - 4 * day) }), // legacy, old: scrub
+    mk(2, { expiresAt: new Date(Date.now() - 5 * day), expiredAt: new Date(Date.now() - 1 * day) }), // new, recent: keep
+  ]
+  prisma.checkoutSession.updateMany.mockImplementation(async ({ where, data }: { where: Record<string, unknown>; data: Partial<Row> }) => {
+    let count = 0
+    for (const r of rows) if (matches(r, where)) { Object.assign(r, data); count++ }
+    return { count }
+  })
+  expect(await sweepExpiredCheckouts()).toEqual({ expired: 0, scrubbed: 1 })
+  expect(rows[0].payload).toBe("")
+  expect(rows[1].payload).toBe("enc:x")
 })
