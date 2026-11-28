@@ -1,13 +1,14 @@
 /** @jest-environment jsdom */
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { updateEntryQuantity, updateEntryDelivery, deleteEntry } from "@/lib/actions/fundraiser"
+import { updateEntryQuantity, updateEntryPrice, updateEntryDelivery, deleteEntry } from "@/lib/actions/fundraiser"
 import { EntryTable } from "@/components/events/fundraiser/EntryTable"
 import type { FundraiserRow } from "@/lib/fundraiserQueries"
 
 jest.mock("next/navigation", () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
 jest.mock("@/lib/actions/fundraiser", () => ({
   updateEntryQuantity: jest.fn(),
+  updateEntryPrice: jest.fn(),
   updateEntryDelivery: jest.fn(),
   deleteEntry: jest.fn(),
   recordPayment: jest.fn(),
@@ -16,6 +17,7 @@ jest.mock("@/lib/actions/fundraiser", () => ({
 
 const mUpdate = updateEntryQuantity as jest.Mock
 const mDelete = deleteEntry as jest.Mock
+const mPrice = updateEntryPrice as jest.Mock
 
 const base = { familyId: null, quantity: 2, unitPrice: "10.00", delivery: false, bankRef: "REF1" }
 const rows: FundraiserRow[] = [
@@ -59,7 +61,7 @@ test("each row shows its own snapshot price", () => {
 
 const one = [rows[0]]
 
-beforeEach(() => { jest.clearAllMocks(); mUpdate.mockResolvedValue({}); mDelete.mockResolvedValue({}) })
+beforeEach(() => { jest.clearAllMocks(); mUpdate.mockResolvedValue({}); mDelete.mockResolvedValue({}); mPrice.mockResolvedValue({}) })
 
 test("shows the empty state", () => {
   render(<EntryTable rows={[]} canManage={false} payments={{}} />)
@@ -163,4 +165,52 @@ test("a thrown delivery switch shows an inline error", async () => {
   render(<EntryTable rows={one} canManage payments={{}} hasDelivery />)
   fireEvent.change(screen.getAllByLabelText("Pickup or delivery for Anna")[0], { target: { value: "delivery" } })
   expect((await screen.findAllByText("Could not change pickup/delivery. Please try again.")).length).toBeGreaterThan(0)
+})
+
+const priceInput = () => screen.getAllByLabelText("Price for Anna")[0] as HTMLInputElement
+
+test("saving a changed price calls the action and normalises the value", async () => {
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  await user.clear(priceInput())
+  await user.type(priceInput(), "12.5")
+  fireEvent.blur(priceInput())
+  await waitFor(() => expect(mPrice).toHaveBeenCalledWith(1, "12.5"))
+  await waitFor(() => expect(priceInput().value).toBe("12.50"))
+})
+
+test("price blur without change does not call the action", () => {
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  fireEvent.blur(priceInput())
+  expect(mPrice).not.toHaveBeenCalled()
+})
+
+test("price error is shown and the value reverts", async () => {
+  mPrice.mockResolvedValue({ error: "Bad price" })
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  await user.clear(priceInput())
+  await user.type(priceInput(), "abc")
+  fireEvent.blur(priceInput())
+  expect((await screen.findAllByText("Bad price")).length).toBeGreaterThan(0)
+  await waitFor(() => expect(priceInput().value).toBe("10.00"))
+})
+
+test("a thrown price save shows a generic error and restores the value", async () => {
+  mPrice.mockRejectedValue(new Error("network"))
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  await user.clear(priceInput())
+  await user.type(priceInput(), "11")
+  fireEvent.blur(priceInput())
+  expect((await screen.findAllByText("Could not save the price. Please try again.")).length).toBeGreaterThan(0)
+  await waitFor(() => expect(priceInput().value).toBe("10.00"))
+})
+
+test("price input resyncs when the row price changes and is locked once paid", () => {
+  const { rerender } = render(<EntryTable rows={one} canManage payments={{}} />)
+  rerender(<EntryTable rows={[{ ...one[0], unitPrice: "15.00" }]} canManage payments={{}} />)
+  expect(priceInput().value).toBe("15.00")
+  rerender(<EntryTable rows={[{ ...one[0], paidCents: 500 }]} canManage payments={{}} />)
+  expect(priceInput()).toBeDisabled()
 })

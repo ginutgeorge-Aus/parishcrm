@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { updateEntryQuantity, updateEntryDelivery, deleteEntry } from "@/lib/actions/fundraiser"
+import { updateEntryQuantity, updateEntryPrice, updateEntryDelivery, deleteEntry } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PaymentsPanel } from "./PaymentsPanel"
@@ -33,7 +33,7 @@ function StatusBadge({ status }: Readonly<{ status: FundraiserRow["status"] }>) 
 }
 
 /**
- * Inline quantity editor + pickup/delivery switch + delete + payments controls
+ * Inline quantity and price editors + pickup/delivery switch + delete + payments controls
  * for one entry (managers only). Server errors are shown via FormFeedback.
  * @param props.row - The entry row.
  * @param props.hasDelivery - Fundraiser has a delivery price: show the switch.
@@ -41,6 +41,8 @@ function StatusBadge({ status }: Readonly<{ status: FundraiserRow["status"] }>) 
  */
 function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRow; payments: FundraiserPaymentItem[]; hasDelivery: boolean }>) {
   const [qty, setQty] = useState(String(row.quantity))
+  const priceStr = (toCents(row.unitPrice) / 100).toFixed(2)
+  const [price, setPrice] = useState(priceStr)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
 
@@ -49,6 +51,12 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
   if (seenQty !== row.quantity) {
     setSeenQty(row.quantity)
     setQty(String(row.quantity))
+  }
+  // Same resync for the price draft.
+  const [seenPrice, setSeenPrice] = useState(priceStr)
+  if (seenPrice !== priceStr) {
+    setSeenPrice(priceStr)
+    setPrice(priceStr)
   }
 
   /** Save a changed quantity; on a server error or a thrown call, show it and reset the draft. */
@@ -62,6 +70,24 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
       } catch {
         setError("Could not save the quantity. Please try again.")
         setQty(String(row.quantity))
+      }
+    })
+  }
+
+  /** Save a changed unit price; on a server error or a thrown call, show it and reset the draft. */
+  function savePrice() {
+    const original = priceStr
+    const next = price.trim()
+    if (next === original) return
+    setError(null)
+    start(async () => {
+      try {
+        const res = await updateEntryPrice(row.id, next)
+        if (res?.error) { setError(res.error); setPrice(original) }
+        else if (/^\d+(\.\d{1,2})?$/.test(next)) setPrice((toCents(next) / 100).toFixed(2))
+      } catch {
+        setError("Could not save the price. Please try again.")
+        setPrice(original)
       }
     })
   }
@@ -94,6 +120,17 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
         disabled={pending}
         onChange={(e) => setQty(e.target.value)}
         onBlur={saveQty}
+      />
+      <Input
+        aria-label={`Price for ${row.name}`}
+        placeholder="Price $"
+        inputMode="decimal"
+        className="h-8 w-24"
+        value={price}
+        disabled={pending || row.paidCents > 0}
+        title={row.paidCents > 0 ? "Price cannot change once a payment is recorded" : undefined}
+        onChange={(e) => setPrice(e.target.value)}
+        onBlur={savePrice}
       />
       {hasDelivery && (
         <select
