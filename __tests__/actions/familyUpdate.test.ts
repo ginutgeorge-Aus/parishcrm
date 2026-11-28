@@ -11,6 +11,7 @@ jest.mock("@/lib/prisma", () => ({
     familyUpdateInvite: { updateMany: jest.fn(), create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     familyUpdateSubmission: { create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   },
 }))
 jest.mock("@/lib/email", () => ({ sendFamilyUpdateInviteEmail: jest.fn() }))
@@ -239,6 +240,20 @@ describe("submitFamilyUpdate", () => {
     expect(prisma.familyUpdateSubmission.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ familyId: 2, inviteId: 7 }) })
     )
+  })
+
+  it("locks the family and stores nothing when a PENDING submission already exists", async () => {
+    ;(prisma.familyUpdateInvite.findUnique as jest.Mock).mockResolvedValue(liveInvite)
+    ;(prisma.familyUpdateInvite.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    ;(prisma.familyUpdateSubmission.findFirst as jest.Mock).mockResolvedValue({ id: 3 })
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn) => fn(prisma))
+    const res = await submitFamilyUpdate(goodInput)
+    expect(res).toEqual({ error: expect.stringMatching(/already awaiting review/i) })
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.familyUpdateSubmission.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { familyId: 1, status: "PENDING" } })
+    )
+    expect(prisma.familyUpdateSubmission.create).not.toHaveBeenCalled()
   })
 
   it("rolls back the claim when the invite's family was archived after the pre-check", async () => {
