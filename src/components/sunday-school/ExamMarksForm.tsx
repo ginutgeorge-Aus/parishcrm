@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { Check } from "lucide-react"
 import { setExamScore } from "@/lib/actions/sundaySchoolExam"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Input } from "@/components/ui/input"
@@ -56,6 +57,9 @@ export function ExamMarksForm({
 
   return (
     <div className="flex flex-col gap-3">
+      {!readOnly && rows.length > 0 && (
+        <p className="text-sm text-muted-foreground">Marks save as you go. A tick shows each saved mark.</p>
+      )}
       <FormFeedback state={feedback} />
       <ul className="flex flex-col gap-2">
         {rows.map(r => (
@@ -80,6 +84,9 @@ export function ExamMarksForm({
                   className="min-h-11 w-24"
                 />
                 <span className="text-sm text-muted-foreground">/ {totalMarks}</span>
+                {saved[r.personId] !== "" && saved[r.personId] === (values[r.personId] ?? "").trim() && (
+                  <Check aria-label="Saved" role="img" className="size-4 text-income" />
+                )}
               </div>
             )}
             {errors[r.personId] && <p role="alert" className="w-full text-xs text-destructive">{errors[r.personId]}</p>}

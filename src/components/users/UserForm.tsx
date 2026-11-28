@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -103,9 +104,7 @@ export function UserForm({
 
       <div className="flex gap-3 pt-2">
         <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : user ? "Save changes" : "Create user"}</Button>
-        <Button type="button" variant="outline" onClick={() => history.back()}>
-          Cancel
-        </Button>
+        <Button asChild variant="outline"><Link href="/users">Cancel</Link></Button>
       </div>
     </form>
   )

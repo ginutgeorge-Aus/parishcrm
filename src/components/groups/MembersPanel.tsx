@@ -5,6 +5,7 @@ import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import {
   addGroupMember, removeGroupMember, searchGroupCandidates, updateGroupMember, type GroupCandidate,
@@ -173,10 +174,16 @@ function MemberItem({ groupId, member: m, readOnly, linkPeople, disabled, run }:
           onClick={() => run(() => updateGroupMember(groupId, m.personId, role, title))}>
           Save
         </Button>
-        <Button size="sm" variant="ghost" className="min-h-11 flex-1 text-destructive hover:text-destructive sm:min-h-0 sm:flex-none" disabled={disabled}
-          onClick={() => run(() => removeGroupMember(groupId, m.personId))}>
-          Remove
-        </Button>
+        <DeleteConfirmButton
+          title={`Remove ${m.name} from this group?`}
+          description="Their role and title in this group will be lost."
+          triggerLabel="Remove"
+          confirmLabel="Remove"
+          pendingLabel="Removing…"
+          triggerClassName="min-h-11 flex-1 text-destructive hover:text-destructive sm:min-h-0 sm:flex-none"
+          disabled={disabled}
+          onConfirm={async () => { run(() => removeGroupMember(groupId, m.personId)) }}
+        />
       </div>
     </li>
   )

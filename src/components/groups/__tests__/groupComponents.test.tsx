@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 const push = jest.fn()
@@ -89,14 +89,13 @@ describe("GroupForm", () => {
     expect(fd.get("category")).toBe("MINISTRY")
   })
 
-  it("prefills edit mode and Cancel goes back", async () => {
-    render(<GroupForm action={jest.fn()} group={{ name: "Youth", category: "COMMITTEE", description: "Fri" }} />)
+  it("prefills edit mode and Cancel links to the group", () => {
+    render(<GroupForm action={jest.fn()} group={{ id: 7, name: "Youth", category: "COMMITTEE", description: "Fri" }} />)
     expect(screen.getByLabelText("Name")).toHaveValue("Youth")
     expect(screen.getByLabelText("Category")).toHaveValue("COMMITTEE")
     expect(screen.getByLabelText(/Description/)).toHaveValue("Fri")
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
-    expect(back).toHaveBeenCalled()
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/groups/7")
   })
 })
 
@@ -136,6 +135,13 @@ describe("LeaderAccessPanel", () => {
   })
 })
 
+/** Open the first row's Remove confirm dialog and confirm it. */
+async function confirmRemoveFirst() {
+  await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0])
+  const dialog = await screen.findByRole("alertdialog")
+  await userEvent.click(within(dialog).getByRole("button", { name: "Remove" }))
+}
+
 describe("MembersPanel", () => {
   const members = [
     { personId: 3, name: "Jo Doe", familyName: "Doe", role: "LEADER" as const, title: "Chair" },
@@ -165,17 +171,17 @@ describe("MembersPanel", () => {
     await userEvent.type(screen.getByLabelText("Title for Al Roe"), "Sec")
     await userEvent.click(save)
     await waitFor(() => expect(a.updateGroupMember).toHaveBeenCalledWith(4, 5, "LEADER", "Sec"))
-    await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0])
+    await confirmRemoveFirst()
     await waitFor(() => expect(a.removeGroupMember).toHaveBeenCalledWith(4, 3))
   })
 
   it("shows an action error and a thrown failure", async () => {
     a.removeGroupMember.mockResolvedValueOnce({ error: "Not a member of this group" })
     render(<MembersPanel groupId={4} members={members} />)
-    await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0])
+    await confirmRemoveFirst()
     expect(await screen.findByText("Not a member of this group")).toBeInTheDocument()
     a.removeGroupMember.mockRejectedValueOnce(new Error("x"))
-    await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0])
+    await confirmRemoveFirst()
     expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument()
   })
 

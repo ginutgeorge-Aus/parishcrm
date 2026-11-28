@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { Check } from "lucide-react"
 import { setAttendance, markUnmarkedPresent } from "@/lib/actions/sundaySchoolAttendance"
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums"
 import { ATTENDANCE_LABELS, ATTENDANCE_STATUSES, rollCounts, type RollRow } from "@/lib/sundaySchoolRollView"
@@ -201,8 +202,9 @@ export function RollList({
                       aria-pressed={current === s}
                       disabled={pendingIds.has(r.personId) || bulkPending}
                       onClick={() => mark(r, s)}
-                      className={`min-h-11 min-w-20 ${current === s ? ACTIVE[s] : ""}`}
+                      className={`min-h-11 min-w-20 ${current === s ? `border-2 font-semibold ${ACTIVE[s]}` : ""}`}
                     >
+                      {current === s && <Check aria-hidden="true" className="size-4" />}
                       {ATTENDANCE_LABELS[s]}
                     </Button>
                   ))}

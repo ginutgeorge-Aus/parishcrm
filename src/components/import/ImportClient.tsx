@@ -275,7 +275,7 @@ export function ImportClient() {
           )}
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={handleConfirm} disabled={loading || newFamilyCount === 0}>
+            <Button onClick={handleConfirm} disabled={loading || newFamilyCount === 0} className="h-auto min-h-9 max-w-full whitespace-normal text-left">
               {loading
                 ? "Importing..."
                 : `Import ${newFamilyCount} ${newFamilyCount === 1 ? "family" : "families"}${duplicateSet.size > 0 ? ` (${duplicateSet.size} duplicate${duplicateSet.size !== 1 ? "s" : ""} will be skipped)` : ""}`}

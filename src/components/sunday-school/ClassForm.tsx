@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import type { ActionResult } from "@/lib/actions/types"
 import { FormError } from "@/components/shared/FormError"
 import { useRetainedForm } from "@/components/shared/useRetainedForm"
 
-type ClassValues = { name: string; level: number; location: string }
+type ClassValues = { id?: number; name: string; level: number; location: string }
 
 /** Create/edit form for a Sunday School class. The school year is fixed (bound into `action`). */
 export function ClassForm({
@@ -21,7 +21,6 @@ export function ClassForm({
   year: number
   cls?: ClassValues
 }>) {
-  const router = useRouter()
   const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
   const submitLabel = cls ? "Save changes" : "Create class"
 
@@ -66,7 +65,7 @@ export function ClassForm({
         <Button type="submit" disabled={isPending}>
           {isPending ? "Saving…" : submitLabel}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
+        <Button asChild variant="outline"><Link href={cls?.id ? `/sunday-school/${cls.id}` : `/sunday-school?year=${year}`}>Cancel</Link></Button>
       </div>
     </form>
   )

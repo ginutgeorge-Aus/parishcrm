@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -79,10 +80,13 @@ export function PersonForm({
   action,
   person,
   canSeePastoralNotes,
+  cancelHref,
 }: Readonly<{
   action: (prev: ActionResult, formData: FormData) => Promise<ActionResult>
   person?: Person
   canSeePastoralNotes: boolean
+  /** Where Cancel goes; falls back to browser history when absent. */
+  cancelHref?: string
 }>) {
   const router = useRouter()
   const [state, onSubmit, isPending, errorSeq] = useRetainedForm(action)
@@ -286,9 +290,13 @@ export function PersonForm({
 
       <div className="flex gap-3">
         <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save"}</Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>
-          Cancel
-        </Button>
+        {cancelHref ? (
+          <Button asChild variant="outline"><Link href={cancelHref}>Cancel</Link></Button>
+        ) : (
+          <Button type="button" variant="outline" onClick={() => router.back()}>
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   )
