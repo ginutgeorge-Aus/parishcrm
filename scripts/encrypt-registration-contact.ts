@@ -52,7 +52,7 @@ async function main() {
         changedPhone++
       }
       if (APPLY && (data.email || data.phone)) {
-        ops.push(prisma.registration.update({ where: { id: row.id }, data }))
+        ops.push(prisma.registration.updateMany({ where: { id: row.id, email: row.email, phone: row.phone }, data }))
       }
     }
     if (ops.length) await prisma.$transaction(ops)

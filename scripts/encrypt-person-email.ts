@@ -44,7 +44,8 @@ async function main() {
       if (typeof row.email === "string" && keyIdOf(row.email) === null) {
         changed++
         if (APPLY) {
-          ops.push(prisma.person.update({ where: { id: row.id }, data: { email: encrypt(row.email) } }))
+          // Guarded: only if the email is still the value we read (AUD-7-11).
+          ops.push(prisma.person.updateMany({ where: { id: row.id, email: row.email }, data: { email: encrypt(row.email) } }))
         }
       }
     }

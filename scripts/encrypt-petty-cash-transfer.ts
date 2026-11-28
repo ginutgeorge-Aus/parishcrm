@@ -42,8 +42,8 @@ async function backfillTransfers(): Promise<number> {
       if (depositedByName !== null || notes !== null) {
         changed++
         if (APPLY) {
-          ops.push(prisma.pettyCashTransfer.update({
-            where: { id: row.id },
+          ops.push(prisma.pettyCashTransfer.updateMany({
+            where: { id: row.id, depositedByName: row.depositedByName, notes: row.notes },
             data: {
               ...(depositedByName !== null && { depositedByName }),
               ...(notes !== null && { notes }),

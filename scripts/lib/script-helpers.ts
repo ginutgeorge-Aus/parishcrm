@@ -38,8 +38,23 @@ export function dbHost(url: string | undefined): string {
 }
 
 /**
+ * Host, port and database name of a connection string (no credentials), or a
+ * safe placeholder if unparseable. Lets an operator spot a wrong database.
+ */
+export function dbTarget(url: string | undefined): string {
+  try {
+    const u = new URL(url!)
+    return `${u.host}${u.pathname}`
+  } catch {
+    return "(unparseable DATABASE_URL)"
+  }
+}
+
+/**
  * Enforce the dry-run-by-default guard: if `--apply` was passed without `--yes`,
  * print the refusal message, disconnect Prisma, and exit(1). No-op otherwise.
+ *
+ * Also honours an optional `--host <expected>` flag (AUD-7-12).
  *
  * The default message matches the wording the encrypt/set-default backfill
  * scripts used; `backfill-petty-cash-sundays` passes its own (slightly shorter)
@@ -55,5 +70,17 @@ export async function requireConfirmation(
     console.error(message)
     await disconnect()
     process.exit(1)
+  }
+  // AUD-7-12: optional `--host <expected>` pins the target. If given, a write is
+  // refused unless it equals the DATABASE_URL host (host:port). Omitted = old behaviour.
+  const idx = process.argv.indexOf("--host")
+  if (apply && idx !== -1) {
+    const expected = process.argv[idx + 1]
+    const actual = dbHost(process.env.DATABASE_URL)
+    if (expected !== actual) {
+      console.error(`Refusing to --apply: --host ${expected ?? "(missing)"} does not match target host ${actual} (database ${dbTarget(process.env.DATABASE_URL)}).`)
+      await disconnect()
+      process.exit(1)
+    }
   }
 }

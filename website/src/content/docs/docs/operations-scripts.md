@@ -22,7 +22,6 @@ write.
 | `create-admin-user` | Create an account with a given role (default `ADMIN`) from `USER_EMAIL` / `USER_PASSWORD` / `USER_ROLE`. The normal way to bootstrap a real deployment — see [Installation](/parishcrm/docs/installation/). |
 | `set-church-name` | One-time/ad-hoc: set the church name directly from the CLI (`CHURCH_FULL_NAME="…"`), dry-run unless `--apply --yes`. |
 | `set-maintenance` | Turn [maintenance mode](/parishcrm/docs/operations-scripts/#maintenance-mode) on or off: `npx tsx scripts/set-maintenance.ts <on\|off> [--eta-minutes N]` (default 6 minutes). Also the manual escape hatch if the flag ever gets stuck on. |
-| `set-default-monthly-dues` | One-time backfill: sets `Family.monthlyDues` for member families that have no amount set. |
 | `backfill-petty-cash-sundays` | Backfill the weekly petty-cash session for past Sundays that never had one auto-opened. |
 | `check-pettycash-importkey-dups` | **Read-only** pre-migration safety check — reports duplicate import keys before a uniqueness constraint is added. |
 | `backfill-email-hash` | Populate the email blind-index (used for lookups without decryption) for rows that predate it. |

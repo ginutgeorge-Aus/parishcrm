@@ -55,7 +55,7 @@ async function main() {
         changedPostcode++
       }
       if (APPLY && (data.state || data.postcode)) {
-        ops.push(prisma.family.update({ where: { id: row.id }, data }))
+        ops.push(prisma.family.updateMany({ where: { id: row.id, state: row.state, postcode: row.postcode }, data }))
       }
     }
     if (ops.length) await prisma.$transaction(ops)
