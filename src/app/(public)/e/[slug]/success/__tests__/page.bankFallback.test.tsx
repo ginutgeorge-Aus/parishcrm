@@ -49,6 +49,13 @@ it("blank BSB and account: shows the office-will-send sentence, no bank block", 
   expect(text).not.toContain("Account number")
 })
 
+it("blank bank, card unavailable: shows the amount owed alongside the office-will-send sentence", async () => {
+  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(event({ bankBsb: null, bankAccount: null }))
+  const text = await renderPage()
+  expect(text).toContain("Amount owed")
+  expect(text).toContain("$25.00")
+})
+
 it("bank details set: shows the bank block", async () => {
   ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(event({ bankBsb: "012-345", bankAccount: "99887766" }))
   const text = await renderPage()
