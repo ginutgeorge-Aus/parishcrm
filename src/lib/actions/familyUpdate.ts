@@ -116,6 +116,24 @@ type SubmitInput = {
 
 class InviteNoLongerValid extends Error {}
 
+// Thrown inside the submit transaction when the family already has a PENDING submission.
+// Rolls back the SENT→SUBMITTED invite claim so the link stays usable once staff review.
+class SubmissionAlreadyPending extends Error {}
+
+/**
+ * Take a per-family advisory lock until the transaction ends. Serialises concurrent submits
+ * for one family so the PENDING check-then-insert in {@link submitFamilyUpdate} cannot race
+ * (row locks can't help: the second PENDING row doesn't exist yet). A single-bigint key
+ * (the plain family id, an int4) never clashes with the two-int4 keys of accountingLock or
+ * the (year * 2^31 + personId) keys of the Sunday School enrolment lock.
+ * @param tx the open transaction client
+ * @param familyId the family whose submissions are serialised
+ */
+async function lockFamilySubmissions(tx: Prisma.TransactionClient, familyId: number): Promise<void> {
+  // nosemgrep: crm-no-raw-sql — advisory lock; Prisma has no locking API
+  await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(${String(familyId)}::bigint)` // nosemgrep: crm-no-raw-sql
+}
+
 /**
  * Applies a family's self-service update submitted through an invite link: validates the invite
  * and payload, throttles per client IP and records the change for staff review.
@@ -183,6 +201,13 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
         select: { familyId: true, family: { select: { archivedAt: true } } },
       })
       if (!current || current.family?.archivedAt) throw new InviteNoLongerValid()
+      // One PENDING submission per family: lock, then check, so two links used in the
+      // invite-resend window can't both insert (stale data could be approved out of order).
+      await lockFamilySubmissions(tx, current.familyId)
+      const pending = await tx.familyUpdateSubmission.findFirst({
+        where: { familyId: current.familyId, status: "PENDING" }, select: { id: true },
+      })
+      if (pending) throw new SubmissionAlreadyPending()
       await tx.familyUpdateSubmission.create({
         data: {
           familyId: current.familyId,
@@ -196,6 +221,8 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
       return true
     })
   } catch (e) {
+    if (e instanceof SubmissionAlreadyPending)
+      return { error: "An update for this family is already awaiting review. Please try again after the office has reviewed it." }
     if (!(e instanceof InviteNoLongerValid)) throw e
     submitted = false
   }

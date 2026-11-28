@@ -16,7 +16,7 @@ The family reviews the pre-filled form, makes any corrections, and submits. They
 - **Approve** — applies the submitted changes to the family and its members.
 - **Reject** — discards the submission, optionally with a note, and closes out the invite (the public link then shows "no longer valid").
 
-Only one unreviewed submission is allowed per family at a time — sending a new invite is blocked while an earlier one is still pending, so two submissions can never be approved out of order and overwrite each other.
+Only one unreviewed submission is allowed per family at a time — sending a new invite is blocked while an earlier one is still pending, so two submissions can never be approved out of order and overwrite each other. The same rule is enforced when a family submits: if a second link is used while an earlier submission is still pending, the submit is refused with "An update for this family is already awaiting review", the link stays usable, and the family can try again once the office has approved or rejected the pending one.
 
 ### Roles
 | Role | Access |
