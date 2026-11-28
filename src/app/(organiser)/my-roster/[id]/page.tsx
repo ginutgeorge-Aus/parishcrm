@@ -3,10 +3,8 @@ import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { requireOrganiserUserId, ledRoleWhere } from "@/lib/organiserSession"
 import { ServiceWhen } from "@/components/organiser/ServiceWhen"
-import { openPlaces } from "@/lib/roster"
 import { parseRouteId } from "@/lib/validation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { SlotCell } from "@/components/roster/SlotCell"
+import { SlotCard } from "@/components/roster/SlotCard"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -49,26 +47,9 @@ export default async function MyRosterServicePage(props: Readonly<Props>) {
         <ServiceWhen startsAt={service.startsAt} endsAt={service.endsAt} location={service.location} />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        {service.slots.map((sl) => {
-          const open = openPlaces(sl.needed, sl.assignments.map((a) => a.status))
-          return (
-            <Card key={sl.id}>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {sl.role.name} <span className="font-normal text-muted-foreground">({sl.needed - open}/{sl.needed})</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <SlotCell
-                  slotId={sl.id}
-                  open={open}
-                  canRemoveDeclined={false}
-                  assignments={sl.assignments.map((a) => ({ id: a.id, name: `${a.person.firstName} ${a.person.lastName}`, status: a.status }))}
-                />
-              </CardContent>
-            </Card>
-          )
-        })}
+        {service.slots.map((sl) => (
+          <SlotCard key={sl.id} slot={sl} canRemoveDeclined={false} />
+        ))}
       </div>
     </div>
   )

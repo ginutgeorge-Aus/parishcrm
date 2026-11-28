@@ -3,8 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireOrganiserUserId, ledRoleWhere } from "@/lib/organiserSession"
 import { sydneyToday } from "@/lib/dates"
 import { ServiceWhen } from "@/components/organiser/ServiceWhen"
-import { openPlaces } from "@/lib/roster"
-import { Badge } from "@/components/ui/badge"
+import { SlotBadges } from "@/components/roster/SlotBadges"
 import { Card, CardContent } from "@/components/ui/card"
 
 /** Most services listed at once: a defensive cap, the list is a rolling window. */
@@ -52,18 +51,7 @@ export default async function MyRosterPage() {
                       <p className="font-medium text-foreground">{s.title}</p>
                       <ServiceWhen startsAt={s.startsAt} endsAt={s.endsAt} location={s.location} />
                     </div>
-                    <ul className="flex flex-wrap gap-1.5">
-                      {s.slots.map((sl) => {
-                        const open = openPlaces(sl.needed, sl.assignments.map((a) => a.status))
-                        return (
-                          <li key={sl.id}>
-                            <Badge variant={open === 0 ? "secondary" : "outline"}>
-                              {sl.role.name}: {sl.needed - open}/{sl.needed}
-                            </Badge>
-                          </li>
-                        )
-                      })}
-                    </ul>
+                    <SlotBadges slots={s.slots} />
                   </CardContent>
                 </Card>
               </Link>

@@ -4,8 +4,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canManageRoster } from "@/lib/roleGuard"
 import { formatSydneyDate, formatSydneyTime, sydneyToday } from "@/lib/dates"
-import { openPlaces } from "@/lib/roster"
-import { Badge } from "@/components/ui/badge"
+import { SlotBadges } from "@/components/roster/SlotBadges"
 import { Card, CardContent } from "@/components/ui/card"
 
 type Props = { searchParams: Promise<{ past?: string }> }
@@ -62,18 +61,7 @@ export default async function RosterPage(props: Readonly<Props>) {
                   {s.slots.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No roles added yet.</p>
                   ) : (
-                    <ul className="flex flex-wrap gap-1.5">
-                      {s.slots.map((sl) => {
-                        const open = openPlaces(sl.needed, sl.assignments.map((a) => a.status))
-                        return (
-                          <li key={sl.id}>
-                            <Badge variant={open === 0 ? "secondary" : "outline"}>
-                              {sl.role.name}: {sl.needed - open}/{sl.needed}
-                            </Badge>
-                          </li>
-                        )
-                      })}
-                    </ul>
+                    <SlotBadges slots={s.slots} />
                   )}
                 </CardContent>
               </Card>
