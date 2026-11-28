@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { canBrowseSundaySchool, canManageSundaySchool, canViewClearanceStatus, canViewPeople } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
+import { isFeatureOn } from "@/lib/featureFlags"
 import { clearanceStatus } from "@/lib/clearanceStatus"
 import { sydneyToday } from "@/lib/dates"
 import { Badge } from "@/components/ui/badge"
@@ -32,7 +33,8 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
 
   // WWCC status is clearance data: HEADMASTER (and other roles without
   // canViewClearanceStatus) must not receive it, so the select takes none.
-  const showWwcc = canViewClearanceStatus(session.user.role)
+  // Also hidden while the Clearances feature is switched off.
+  const showWwcc = canViewClearanceStatus(session.user.role) && (await isFeatureOn("clearances"))
   const cls = await prisma.sundaySchoolClass.findUnique({
     where: { id },
     select: {

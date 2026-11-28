@@ -2,6 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/featureFlags", () => ({ isFeatureOn: jest.fn().mockResolvedValue(true) }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     sundaySchoolClass: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
@@ -37,6 +38,7 @@ jest.mock("@/lib/actions/sundaySchool", () => ({ createClass: jest.fn(), updateC
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { isFeatureOn } from "@/lib/featureFlags"
 import SundaySchoolPage from "@/app/(dashboard)/sunday-school/page"
 import NewClassPage from "@/app/(dashboard)/sunday-school/new/page"
 import EditClassPage from "@/app/(dashboard)/sunday-school/[id]/edit/page"
@@ -174,6 +176,17 @@ describe("/sunday-school/[id]", () => {
     expect(html).not.toContain('data-testid="markers"')
     expect(prisma.person.findMany).not.toHaveBeenCalled()
     expect(prisma.sundaySchoolRollMarker.findMany).not.toHaveBeenCalled()
+  })
+
+  it("hides teacher WWCC status and skips the clearance rows when the clearances flag is off", async () => {
+    as("ADMIN")
+    ;(isFeatureOn as jest.Mock).mockResolvedValueOnce(false)
+    ;(prisma.sundaySchoolClass.findUnique as jest.Mock).mockResolvedValue(cls())
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
+    const html = await renderClass()
+    expect(html).toContain("Jane Sample:null")
+    const select = (prisma.sundaySchoolClass.findUnique as jest.Mock).mock.calls[0][0].select
+    expect(select.teachers.select.person.select.clearances.take).toBe(0)
   })
 
   it("lists recent rolls with counts and shows roll markers to an editor", async () => {

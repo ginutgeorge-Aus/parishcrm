@@ -607,7 +607,7 @@ describe("archiveFamily", () => {
     mockUpdate.mockResolvedValue({})
     mockPersonUpdateMany.mockResolvedValue({})
     await archiveFamily(5)
-    expect(mockAudit).toHaveBeenCalledWith({
+    expect(mockTxAudit).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 3,
         action: "FAMILY_ARCHIVED",
@@ -647,7 +647,7 @@ describe("unarchiveFamily", () => {
     mockUpdate.mockResolvedValue({})
     mockPersonUpdateMany.mockResolvedValue({})
     await unarchiveFamily(5)
-    expect(mockAudit).toHaveBeenCalledWith({
+    expect(mockTxAudit).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 3,
         action: "FAMILY_UNARCHIVED",

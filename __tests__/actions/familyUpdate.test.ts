@@ -57,13 +57,23 @@ describe("sendFamilyUpdateInvite", () => {
     ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 1, name: "Smith" })
     expect(await sendFamilyUpdateInvite(1, "not-an-email")).toEqual({ error: "A valid email address is required" })
   })
-  it("revokes prior SENT invites, creates one, emails the link", async () => {
+  it("keeps the old invite and revokes the new one when the email fails", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 1, name: "Smith" })
+    ;(prisma.familyUpdateInvite.create as jest.Mock).mockResolvedValue({ id: 7 })
+    ;(sendFamilyUpdateInviteEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp down"))
+    const res = await sendFamilyUpdateInvite(1, "f@x.com")
+    expect(res).toEqual({ error: expect.stringMatching(/could not be sent/i) })
+    expect(prisma.familyUpdateInvite.update).toHaveBeenCalledWith({ where: { id: 7 }, data: { status: "REVOKED" } })
+    expect(prisma.familyUpdateInvite.updateMany).not.toHaveBeenCalled()
+  })
+  it("revokes prior SENT invites after emailing the new link", async () => {
     mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 1, name: "Smith" })
     ;(prisma.familyUpdateInvite.create as jest.Mock).mockResolvedValue({ id: 7 })
     const res = await sendFamilyUpdateInvite(1, "f@x.com")
     expect(prisma.familyUpdateInvite.updateMany).toHaveBeenCalledWith({
-      where: { familyId: 1, status: "SENT" }, data: { status: "REVOKED" },
+      where: { familyId: 1, status: "SENT", id: { lt: 7 } }, data: { status: "REVOKED" },
     })
     const createArg = (prisma.familyUpdateInvite.create as jest.Mock).mock.calls[0][0]
     expect(createArg.data.email).toBe("enc:f@x.com")
@@ -121,7 +131,14 @@ describe("submitFamilyUpdate", () => {
 
     mockRequestHeaders.clear()
     await submitFamilyUpdate(goodInput)
-    expect(rateLimit).toHaveBeenCalledWith("familyUpdate:unknown", 5, 10 * 60_000)
+    expect(rateLimit).toHaveBeenCalledWith(expect.stringMatching(/^familyUpdate:unknown:[0-9a-f]{16}$/), 5, 10 * 60_000)
+  })
+  it("gives each invite token its own allowance when the IP is unknown", async () => {
+    mockRequestHeaders.clear()
+    await submitFamilyUpdate(goodInput)
+    await submitFamilyUpdate({ ...goodInput, token: "othertoken" })
+    const keys = (rateLimit as jest.Mock).mock.calls.map((c) => c[0])
+    expect(new Set(keys).size).toBe(2)
   })
   it("checks honeypot and rate limit before the feature", async () => {
     ;(featureGuard as jest.Mock).mockClear()
