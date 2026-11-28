@@ -329,6 +329,9 @@ function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchNa
         <p className="text-xs text-muted-foreground mt-1">
           Your reference: <span className="font-bold text-primary">{resolvedRef}</span>
         </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Amount owed: <span className="font-bold text-foreground">{fmtAUD(centsToNumber(toCents(registration.totalAmount)))}</span>
+        </p>
         {cardAvailable && (
           <PayNowButton slug={slug} publicToken={registration.publicToken} passCardFee={event.passCardFee} churchEmail={churchEmail} />
         )}
