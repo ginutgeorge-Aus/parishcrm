@@ -139,9 +139,8 @@ const SHUTDOWN_GRACE_MS = 8_000
 /**
  * Graceful stop for SIGTERM (AUD-6-08): stop new ticks, give running jobs a short grace period to finish (so
  * their claims are released rather than left to time out), then close the database connections.
- * Best effort: in production Next's own SIGTERM handler owns process exit and does not await this, so the
- * process can exit once HTTP drain finishes, before the grace period elapses. A job cut off then keeps its
- * claim until the lease expires.
+ * Alone this does not hold the process up: Next's own SIGTERM handler owns process exit and does not await
+ * other listeners. {@link holdExitForJobs} adds that guarantee (#1002).
  * @param disconnect - Closes the DB pool; injectable for tests.
  * @param graceMs - Max time to wait for running jobs.
  */
@@ -159,6 +158,37 @@ export async function shutdownScheduler(
   } catch (err) {
     log("error", { message: `disconnect failed: ${err instanceof Error ? err.message : String(err)}` })
   }
+}
+
+/**
+ * Keeps the process alive until running jobs settle (#1002). Next's SIGTERM handler closes HTTP and then
+ * calls `process.exit(143)` without awaiting other listeners, so the grace in {@link shutdownScheduler} would
+ * be cut short. Next exposes no shutdown hook, so this wraps `exit` once: if jobs are running, the first
+ * call is deferred until {@link shutdownScheduler} finishes (bounded by `graceMs`), then forwarded with the
+ * original code. With no job in flight, exit is untouched. A second `exit` call goes straight through.
+ * @param disconnect - Closes the DB pool; injectable for tests.
+ * @param graceMs - Max time to wait for running jobs.
+ * @param proc - Process whose `exit` is wrapped; injectable for tests.
+ * @returns Promise that settles when shutdown work is done.
+ */
+export function holdExitForJobs(
+  disconnect: () => Promise<unknown>,
+  graceMs: number = SHUTDOWN_GRACE_MS,
+  proc: { exit: (code?: number) => never } = process,
+): Promise<void> {
+  const realExit = proc.exit.bind(proc)
+  let release!: () => void
+  const released = new Promise<void>((r) => { release = r })
+  if (inFlight.size > 0) {
+    let deferred = false
+    proc.exit = ((code?: number) => {
+      if (deferred) return realExit(code)
+      deferred = true
+      void released.then(() => realExit(code))
+      return undefined as never
+    }) as typeof proc.exit
+  }
+  return shutdownScheduler(disconnect, graceMs).finally(release)
 }
 
 /** Test hook: re-arm ticks after a shutdown test. */
@@ -180,9 +210,10 @@ export function startScheduler(jobs: Jobs = DEFAULT_JOBS): boolean {
     run()
     setInterval(run, TICK_MS).unref()
   }, FIRST_TICK_MS).unref()
-  // On SIGTERM stop ticking and let running jobs finish. Deliberately no $disconnect and no process.exit:
-  // Next's own SIGTERM handler drains HTTP requests and owns the exit, and closing the pool here would race it.
-  process.once("SIGTERM", () => void shutdownScheduler(async () => {}))
+  // On SIGTERM stop ticking and hold Next's process.exit until running jobs finish (bounded). Deliberately no
+  // $disconnect: Next's own SIGTERM handler drains HTTP requests and owns the exit, and closing the pool
+  // here would race in-flight requests.
+  process.once("SIGTERM", () => void holdExitForJobs(async () => {}))
   // The timer only fires while the process is up — say so once, since a host that
   // scales to zero would otherwise stop every job without a signal.
   log("info", { message: "in-app scheduler started — keep the app always on, or set IN_APP_CRON=false and call /api/cron/* externally" })
