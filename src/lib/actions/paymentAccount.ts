@@ -9,6 +9,7 @@ import { isAdmin } from "@/lib/roleGuard"
 import { logAuditGuardedTx, auditTxErrorResult } from "@/lib/auditGuard"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
+import { isValidPgId } from "@/lib/validation"
 
 const NameKindSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(60),
@@ -67,7 +68,7 @@ export async function renamePaymentAccount(
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("accounting")
   if (off) return off
-  if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
+  if (!isValidPgId(id)) return { error: "Invalid account" }
   const parsed = NameSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const uid = actorId(session)
@@ -89,7 +90,7 @@ export async function setDefaultAccount(id: number): Promise<ActionResultWithSuc
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("accounting")
   if (off) return off
-  if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
+  if (!isValidPgId(id)) return { error: "Invalid account" }
   const acct = await prisma.paymentAccount.findUnique({ where: { id } })
   if (!acct) return { error: "Account not found" }
   if (acct.kind !== "BANK") return { error: "The default account must be a bank account" }
@@ -136,7 +137,7 @@ export async function setAccountActive(id: number, active: boolean): Promise<Act
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("accounting")
   if (off) return off
-  if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
+  if (!isValidPgId(id)) return { error: "Invalid account" }
   const acct = await prisma.paymentAccount.findUnique({ where: { id } })
   if (!acct) return { error: "Account not found" }
   const activeChangeError = await checkAccountActiveChange(acct, active)

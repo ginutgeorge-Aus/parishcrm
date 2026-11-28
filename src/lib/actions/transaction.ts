@@ -13,7 +13,7 @@ import { assertUnlocked, assertUnlockedTx } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
 import { xferOutRef } from "@/lib/xferRefs"
 import { utcYmd } from "@/lib/dates"
-import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
+import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch, isValidPgId } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
 import { TransactionSchema, validateParties } from "./transactionValidation"
@@ -244,6 +244,7 @@ export async function updateTransaction(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("accounting")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
@@ -391,6 +392,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("accounting")
   if (off) return off
+  if (!isValidPgId(id)) return { error: "Invalid ID" }
 
   const existing = await prisma.transaction.findUnique({
     where: { id },

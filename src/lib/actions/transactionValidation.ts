@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
+import { dateOnlyFormField, optionalPgIdFormField, pgIdFormField } from "@/lib/formFieldSchemas"
 
 /**
  * Positive money amount string for a Decimal(10,2) column: regex-validated (never
@@ -23,16 +24,10 @@ export const moneyAmountSchema = z
   .refine((v) => Number.parseFloat(v) <= 99_999_999.99, "Amount too large")
 
 export const TransactionSchema = z.object({
-  date: z
-    .string()
-    .min(1, "Date is required")
-    .transform((v) => new Date(v))
-    // Zod does not validate transform output, so a malformed string ("foo",
-    // "2026-99-01") yields an Invalid Date that would reach Prisma and throw an
-    // unhandled 500 on the DateTime column. Reject it here.
-    .refine((d) => !Number.isNaN(d.getTime()), "Invalid date"),
+  // Real YYYY-MM-DD within MIN_YEAR..MAX_YEAR; "foo", "2026-99-01" and year 275760 are rejected (AUD-3-19).
+  date: dateOnlyFormField("Invalid date"),
   description: z.string().min(1, "Description is required").max(1000),
-  accountId: z.string().min(1, "Category is required").transform(Number),
+  accountId: pgIdFormField("Category is required"),
   type: z.enum(["INCOME", "EXPENSE"]),
   amount: moneyAmountSchema,
   // CASH-kind accounts excluded (enforced in transaction.ts's
@@ -40,12 +35,12 @@ export const TransactionSchema = z.object({
   // petty-cash actions (mirrored, FK-linked). A manual entry against the cash
   // account would be invisible to sessions yet counted in petty-cash report
   // aggregates.
-  paymentAccountId: z.coerce.number().int().positive(),
-  familyId: z.string().optional().transform((v) => (v && v !== "" ? Number(v) : null)),
-  personId: z.string().optional().transform((v) => (v && v !== "" ? Number(v) : null)),
+  paymentAccountId: pgIdFormField("Invalid payment account"),
+  familyId: optionalPgIdFormField("Invalid family", null),
+  personId: optionalPgIdFormField("Invalid person", null),
   reference: z.string().max(500).optional().transform((v) => v?.trim() || null),
   notes: z.string().max(1000).optional().transform((v) => v?.trim() || null),
-  fundId: z.string().optional().transform((v) => (v && v !== "" ? Number(v) : null)),
+  fundId: optionalPgIdFormField("Invalid fund", null),
   reconciled: z.string().optional().transform((v) => v === "on"),
   // Likely-duplicate confirmation: set by the "Post anyway" resubmit
   // when createTransaction has already warned about a matching prior row.
