@@ -42,8 +42,8 @@ async function backfillExpenses(): Promise<number> {
       if (payee !== null || description !== null) {
         changed++
         if (APPLY) {
-          ops.push(prisma.pettyCashExpense.update({
-            where: { id: row.id },
+          ops.push(prisma.pettyCashExpense.updateMany({
+            where: { id: row.id, payee: row.payee, description: row.description },
             data: { ...(payee !== null && { payee }), ...(description !== null && { description }) },
           }))
         }
@@ -71,7 +71,7 @@ async function backfillReceipts(): Promise<number> {
       const notes = maybeEncrypt(row.notes)
       if (notes !== null) {
         changed++
-        if (APPLY) ops.push(prisma.pettyCashReceipt.update({ where: { id: row.id }, data: { notes } }))
+        if (APPLY) ops.push(prisma.pettyCashReceipt.updateMany({ where: { id: row.id, notes: row.notes }, data: { notes } }))
       }
     }
     if (ops.length) await prisma.$transaction(ops)

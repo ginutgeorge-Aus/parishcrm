@@ -44,7 +44,7 @@ async function backfillNotes(): Promise<number> {
       const notes = maybeEncrypt(row.notes)
       if (notes !== null) {
         changed++
-        if (APPLY) ops.push(prisma.person.update({ where: { id: row.id }, data: { notes } }))
+        if (APPLY) ops.push(prisma.person.updateMany({ where: { id: row.id, notes: row.notes }, data: { notes } }))
       }
     }
     if (ops.length) await prisma.$transaction(ops)
