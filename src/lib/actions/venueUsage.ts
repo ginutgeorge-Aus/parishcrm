@@ -227,6 +227,9 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   const { date, ...rest } = parsed.data
 
   const userId = actorId(session)
+  // Set once any attempt saw an unclaimed row with a timing edit: a retry after a P2034 conflict that then finds the
+  // row venue-known was claimed meanwhile, so it must say so (not the generic "already asked" lock message).
+  let sawUnclaimedTimingEdit = false
   // Read the row inside the transaction so the old month is the one actually being replaced.
   const outcome = await serializableWrite(async (tx) => {
     const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true, startTime: true, endTime: true, status: true, venueNotifiedAt: true, bookingRequestedAt: true } })
@@ -239,7 +242,8 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     const pastDay = isPastDay(oldYmd, sydneyTodayYMD())
     // Past the day, a known row may have its hours corrected (date stays locked); the asked-on stamp is kept.
     const hoursCorrected = venueKnows && !dateChanged && timesChanged && pastDay
-    if (timingChanged && venueKnows && !hoursCorrected) return { locked: true } as const
+    if (timingChanged && !venueKnows) sawUnclaimedTimingEdit = true
+    if (timingChanged && venueKnows && !hoursCorrected) return sawUnclaimedTimingEdit ? ({ claimed: true } as const) : ({ locked: true } as const)
     if (venueKnows && existing.status !== "CANCELLED" && rest.status === "CANCELLED") return { cancelViaList: true } as const
     if (monthOfDate(existing.date) !== date.slice(0, 7) && (await monthWouldOverflow(tx, date.slice(0, 7), 1))) {
       return { full: true } as const

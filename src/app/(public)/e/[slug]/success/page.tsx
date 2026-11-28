@@ -327,6 +327,9 @@ function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchNa
         {/* The office-will-send sentence is only true when card is not an option. */}
         {!cardAvailable && <p className="text-sm text-foreground">{OFFICE_WILL_SEND_PAYMENT_DETAILS}</p>}
         <p className="text-xs text-muted-foreground mt-1">
+          Amount owed: <span className="font-bold text-foreground">{fmtAUD(centsToNumber(toCents(registration.totalAmount)))}</span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
           Your reference: <span className="font-bold text-primary">{resolvedRef}</span>
         </p>
         {cardAvailable && (

@@ -174,6 +174,16 @@ describe("usage row CRUD", () => {
     expect(logAuditTx).not.toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5, expect.anything())
   })
 
+  it("a P2034 retry that finds the row claimed meanwhile returns the claimed message, not the generic lock (#857)", async () => {
+    asRole("PASTOR")
+    const unclaimed = { id: 5, date: new Date("2099-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED", venueNotifiedAt: null, bookingRequestedAt: null }
+    const claimed = { ...unclaimed, bookingRequestedAt: new Date() }
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(unclaimed).mockResolvedValueOnce(claimed)
+    ;(prisma.venueUsage.update as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+    const r = await updateVenueUsage(5, { ...validInput, date: "2099-09-06", startTime: "18:00", endTime: "21:00", status: "REQUESTED" })
+    expect(r).toEqual({ error: expect.stringContaining("booking request for this date was just sent") })
+  })
+
   it("does not add the unclaimed guard to a status-only change", async () => {
     asRole("PASTOR")
     ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ id: 5, date: new Date("2099-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED", venueNotifiedAt: null, bookingRequestedAt: null })
