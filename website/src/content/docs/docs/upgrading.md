@@ -28,6 +28,33 @@ both the database schema and the running container to a new tag together.
    redeploy.
 5. **Check `<your-url>/api/health`** returns `200` after the restart.
 
+## Production: separate migration role
+
+By default the container migrates on boot with the app's own database role,
+which therefore needs DDL rights. For production, set `MIGRATE_ON_START=false`,
+give the app a least-privilege role (no DDL), and run `npx prisma migrate deploy`
+from a checkout at the same tag using a separate migration role before starting
+the new image (the Prisma config reads `DIRECT_URL` before `DATABASE_URL`, so
+point `DIRECT_URL` at the migration role if you set it). Grant the app role
+`SELECT/INSERT/UPDATE/DELETE` on tables and `USAGE, SELECT` on sequences, with
+`ALTER DEFAULT PRIVILEGES FOR ROLE <migration_role>` so tables added by later
+migrations are covered; the full SQL is in the self-hosting guide.
+
+Tables the app role already created are still owned by it, and grants do not move
+ownership, so the migration role cannot `ALTER` them. Either use the current owner as
+the migration role, or run `ALTER TABLE <table> OWNER TO <migration_role>;` once for each
+table (and sequences, enums and `_prisma_migrations`) before switching roles.
+
+A failed migration makes a `MIGRATE_ON_START=true` container restart in a loop. Stop it,
+then either:
+
+- **Restore the backup.** It predates the failed migration, so there is no failed record:
+  fix the original cause and re-run `npx prisma migrate deploy`. Do not run `migrate resolve`.
+- **Fix in place.** The failed record remains. Undo any objects the migration partly
+  created, then run `npx prisma migrate resolve --rolled-back <name>`. Use `--applied <name>`
+  only after you have run the rest of the migration's SQL by hand and verified the schema.
+  Then re-run `migrate deploy`.
+
 ## What to keep unchanged
 
 - **`ENCRYPTION_KEY*`** and **`AUTH_SECRET`** must stay exactly the same

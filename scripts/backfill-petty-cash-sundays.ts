@@ -13,7 +13,9 @@ import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpe
 // One-time backfill: create zero-balance petty cash sessions for every Sunday
 // from --from (default 2025-09-01) through --to (default the current week's
 // Sunday). ensureWeeklySession only ever opens the current week, so historical
-// Sundays never get a session; this fills the gap. Idempotent — sessions whose
+// Sundays never get a session; this fills the gap. Both dates are rounded back
+// to the Sunday of their week (so --from 2025-09-01, a Monday, starts on
+// 2025-08-31). Idempotent — sessions whose
 // title already exists are skipped, so it is safe to re-run. Dry-run unless
 // both --apply and --yes are passed.
 
@@ -43,6 +45,11 @@ async function resolveCustodianId(): Promise<number> {
   return parseInt(row.value, 10)
 }
 
+/**
+ * Creates the missing petty cash Sunday sessions between `--from` and `--to`; dry run unless `--apply --yes`.
+ * Logs the custodian by person id only (no name) so the public script never prints PII (AUD-7-13).
+ * @returns resolves when the dry run or write has finished
+ */
 async function main() {
   const from = flag("--from") ?? "2025-09-01"
   const to = flag("--to") ?? mostRecentSundayYMD()
@@ -58,14 +65,14 @@ async function main() {
   const custodianId = await resolveCustodianId()
   const custodian = await prisma.person.findUnique({
     where: { id: custodianId },
-    select: { id: true, firstName: true, lastName: true },
+    select: { id: true },
   })
   if (!custodian) {
     console.error(`Custodian person #${custodianId} not found.`)
     await prisma.$disconnect()
     process.exit(1)
   }
-  console.log(`Custodian: ${custodian.firstName} ${custodian.lastName} (#${custodianId})`)
+  console.log(`Custodian: person #${custodian.id}`)
 
   const titles = sundaysBetween(from, to).map(pettyCashTitle)
   if (titles.length === 0) {

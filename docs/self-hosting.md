@@ -98,11 +98,15 @@ container, apply it manually first with `npx prisma migrate deploy`.
 For the first administrator, either use the `/setup` page after starting the app
 (step 5), **or** create one now with the script — not both, since `/setup` closes
 once any user exists. The script reads `.env` as dotenv (no shell expansion, so a
-`$` in a password is safe):
+`$` in a password is safe). Put `USER_EMAIL` and `USER_PASSWORD` in `.env`
+temporarily rather than on the command line, so the password never lands in shell
+history or the process list, and delete both lines straight afterwards (before you
+build `.env.docker` below, which is copied from `.env`). If a password contains `#`, wrap the value in double quotes, e.g.
+`USER_PASSWORD="abc#def"`; unquoted, dotenv reads `#def` as a comment and the
+account gets the password `abc`. Inside double quotes use `\"` for a literal quote.
 
 ```bash
-USER_EMAIL=you@example.org USER_PASSWORD='<strong password>' \
-  npx tsx --env-file=.env scripts/create-admin-user.ts
+npx tsx --env-file=.env scripts/create-admin-user.ts
 ```
 
 Accounting starts empty. Optionally add a generic starter chart of accounts
@@ -284,3 +288,48 @@ because each page decrypts its rows. Measured timings for larger data sets are n
    (or run `npx prisma migrate deploy` from the new tag if `MIGRATE_ON_START=false`).
 
 Keep `ENCRYPTION_KEY*` and `AUTH_SECRET` unchanged across upgrades.
+
+### Migrations in production
+
+By default the container runs `prisma migrate deploy` on boot with the same database
+role the app uses, so that role needs DDL rights. For production, prefer a separate
+migration role: set `MIGRATE_ON_START=false`, give the app a least-privilege role
+(read/write on the tables, no DDL), and run `npx prisma migrate deploy` from the
+release checkout with the migration role's URL before starting the new image. The
+Prisma config reads `DIRECT_URL` before `DATABASE_URL`, so if `DIRECT_URL` is set in
+your environment, point that one at the migration role (or unset it).
+
+Tables added by later migrations are owned by the migration role, so grant the app
+role access to them automatically, once:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <app_role>;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO <app_role>;
+ALTER DEFAULT PRIVILEGES FOR ROLE <migration_role> IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <app_role>;
+ALTER DEFAULT PRIVILEGES FOR ROLE <migration_role> IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO <app_role>;
+```
+
+**Existing deployments:** tables already created by the app role are still owned by
+that role, and grants do not move ownership, so the migration role cannot `ALTER` them.
+Either use the current owner as the migration role, or transfer ownership once
+(as a superuser or the owner): `ALTER TABLE <table> OWNER TO <migration_role>;` for each
+table (also sequences and enums created by migrations, plus `_prisma_migrations`), then
+run the grants above so the app role keeps read/write access without DDL rights.
+
+**Recovery from a failed migration.** A failed migration makes a
+`MIGRATE_ON_START=true` container exit and restart in a loop. To recover:
+
+1. Stop the container (or set `MIGRATE_ON_START=false`) so it stops retrying.
+2. Choose one branch:
+   - **Restore:** restore the pre-upgrade backup. It predates the failed migration, so
+     no failed record remains: skip `migrate status` and `migrate resolve`. Fix the
+     original cause, then go to step 5.
+   - **Fix in place:** the failed record remains. Continue with steps 3 and 4.
+3. Run `npx prisma migrate status` to see which migration is marked failed.
+4. Undo any objects the migration created before it failed (a retry will try to create
+   them again), then run `npx prisma migrate resolve --rolled-back <migration_name>`.
+   Use `--applied <migration_name>` only after you have run the migration's remaining SQL
+   by hand and verified the schema: `--applied` skips that SQL on every later deploy.
+5. Run `npx prisma migrate deploy`, then start the container.

@@ -59,11 +59,14 @@ first with `npx prisma migrate deploy`.
 For the first administrator, either use the `/setup` page after starting the
 app (step 5), **or** create one now with the script — not both, since `/setup`
 closes once any user exists. The script reads `.env` via dotenv (no shell
-expansion, so a `$` in a password is safe):
+expansion, so a `$` in a password is safe). Put `USER_EMAIL` and `USER_PASSWORD`
+in `.env` temporarily rather than on the command line, so the password never lands
+in shell history or the process list, and delete both lines afterwards. If a password contains `#`, wrap the value in double quotes, e.g.
+`USER_PASSWORD="abc#def"`; unquoted, dotenv reads `#def` as a comment and the
+account gets the password `abc`. Inside double quotes use `\"` for a literal quote.
 
 ```bash
-USER_EMAIL=you@example.org USER_PASSWORD='<a strong password>' \
-  npx tsx --env-file=.env scripts/create-admin-user.ts
+npx tsx --env-file=.env scripts/create-admin-user.ts
 ```
 
 `create-admin-user.ts` reads `USER_EMAIL` / `USER_PASSWORD` and an optional

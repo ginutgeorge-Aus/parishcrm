@@ -33,7 +33,7 @@ write.
 | `audit-data-integrity` | **Read-only** diagnostic — scans encrypted-at-rest fields for plaintext leaks, checks blind-index completeness, and verifies invariants the database schema can't enforce on its own. Exits non-zero on any finding. Safe to run against a restored backup. |
 | `purge-registration-pii` | Retention purge — anonymises event-registration personal data a set period after the event ends, while preserving financial aggregates (ticket counts, revenue). Idempotent. |
 | `purge-membership-application-pii` | Retention purge — anonymises decided (approved/declined) membership applications a set period after the decision, leaving pending applications untouched. Idempotent. |
-| `unlock-admins` | **Emergency only** — clears password and sign-in-code lockout on every `ADMIN` account. A single locked-out admin can be unlocked from the Users UI by another admin, or waits out the automatic cooldown; this script is for the rare case where every admin account is locked at once. |
+| `unlock-admins` | **Emergency only** — clears password and sign-in-code lockout on every `ADMIN` account. A single locked-out admin can be unlocked from the Users UI by another admin, or waits out the automatic cooldown; this script is for the rare case where every admin account is locked at once. Dry run by default; pass `--apply --yes` to write. |
 
 ## Health endpoint
 
