@@ -47,6 +47,8 @@ it("blank BSB and account: shows the office-will-send sentence, no bank block", 
   expect(text).toContain("The church office will send you payment details.")
   expect(text).not.toContain("Bank transfer details")
   expect(text).not.toContain("Account number")
+  expect(text).toContain("Amount owed")
+  expect(text).toContain("$25.00")
 })
 
 it("bank details set: shows the bank block", async () => {
