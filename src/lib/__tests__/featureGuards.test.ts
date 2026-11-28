@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import fs from "node:fs"
 import path from "node:path"
+import ts from "typescript"
 import { FEATURE_KEYS, featureDef, type FeatureKey } from "@/lib/features"
 import { FEATURE_ROUTES, featuresForPath } from "@/lib/featureRoutes"
 
@@ -305,10 +306,32 @@ it.each(Object.entries(GUARDED_ACTIONS))("%s: every exported action guards %s", 
 function guards(body: string, key: string, file?: string): boolean {
   return body.includes(`featureGuard("${key}")`)
     // guardedAction (src/lib/guardedAction.ts) checks `feature` itself, after auth + role.
-    || new RegExp(`return guardedAction\\(\\s*\\{[^}]*\\bfeature: "${key}"`).test(body)
+    || wrapperFeature(body) === key
     || body.includes(`assertFeature("${key}")`)
     || new RegExp(`featureGuardAny\\(\\[[^\\]]*"${key}"`).test(body)
     || (file !== undefined && (GUARD_HELPERS[file] ?? []).some((h) => new RegExp(`(?:await|return) ${h}\\(`).test(body)))
+}
+
+/**
+ * The `feature` key an exported action passes to `guardedAction` (src/lib/guardedAction.ts) when its
+ * only statement is `return guardedAction({ feature: "<key>", ... }, ...)`; else null. Parsed with the
+ * TypeScript AST (like `wrapperGuard` in roleMatrix.test.ts), so nested braces in the spec cannot fool it.
+ * @param body source of one exported function
+ */
+function wrapperFeature(body: string): string | null {
+  const sf = ts.createSourceFile("x.ts", body, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const fn = sf.statements[0]
+  if (!fn || !ts.isFunctionDeclaration(fn) || fn.body?.statements.length !== 1) return null
+  const ret = fn.body.statements[0]
+  if (!ts.isReturnStatement(ret) || !ret.expression || !ts.isCallExpression(ret.expression)) return null
+  const call = ret.expression
+  if (!ts.isIdentifier(call.expression) || call.expression.text !== "guardedAction") return null
+  const spec = call.arguments[0]
+  if (!spec || !ts.isObjectLiteralExpression(spec)) return null
+  const feature = spec.properties.find(
+    (p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "feature",
+  )
+  return feature && ts.isStringLiteralLike(feature.initializer) ? feature.initializer.text : null
 }
 
 // Mixed files (core + feature-owned functions): function → feature.
