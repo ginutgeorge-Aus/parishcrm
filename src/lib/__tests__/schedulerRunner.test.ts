@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { initialState } from "@/lib/scheduler"
-import { tick, startScheduler, shutdownScheduler, resetShutdownForTests, FIRST_TICK_MS, TICK_MS, JOB_TIMEOUT_MS, type Jobs } from "@/lib/schedulerRunner"
+import { tick, startScheduler, shutdownScheduler, holdExitForJobs, resetShutdownForTests, FIRST_TICK_MS, TICK_MS, JOB_TIMEOUT_MS, type Jobs } from "@/lib/schedulerRunner"
 
 const NOW = new Date("2026-07-01T17:00:00Z") // Thu 03:00 AEST — only reminders/checkouts due
 
@@ -311,5 +311,54 @@ describe("shutdownScheduler (AUD-6-08)", () => {
   it("logs and survives a failing disconnect", async () => {
     await expect(shutdownScheduler(async () => { throw new Error("boom") }, 10)).resolves.toBeUndefined()
     expect((console.error as jest.Mock).mock.calls.map((c) => String(c[0])).some((l) => l.includes("disconnect failed"))).toBe(true)
+  })
+})
+
+describe("holdExitForJobs (#1002)", () => {
+  beforeEach(() => { jest.useRealTimers(); resetShutdownForTests() })
+  afterEach(() => resetShutdownForTests())
+
+  it("defers process.exit until the running job settles", async () => {
+    let finish!: () => void
+    const slow = new Promise<void>((r) => { finish = r })
+    const exit = jest.fn()
+    const proc = { exit } as unknown as { exit: (code?: number) => never }
+    const t = tick(initialState(), jobs({ reminders: jest.fn(async () => { await slow; return {} }) }), NOW)
+    await Promise.resolve()
+    const down = holdExitForJobs(async () => {}, 5_000, proc)
+    proc.exit(143)
+    await Promise.resolve()
+    expect(exit).not.toHaveBeenCalled()
+    finish()
+    await Promise.all([t, down])
+    await new Promise((r) => setImmediate(r))
+    expect(exit).toHaveBeenCalledWith(143)
+  })
+
+  it("lets exit through after the grace period when a job hangs", async () => {
+    jest.useFakeTimers({ now: NOW })
+    try {
+      const exit = jest.fn()
+      const proc = { exit } as unknown as { exit: (code?: number) => never }
+      void tick(initialState(), jobs({ reminders: jest.fn(() => new Promise<never>(() => {})) }), NOW)
+      await Promise.resolve()
+      const down = holdExitForJobs(async () => {}, 1_000, proc)
+      proc.exit(143)
+      expect(exit).not.toHaveBeenCalled()
+      await jest.advanceTimersByTimeAsync(1_000)
+      await down
+      await jest.advanceTimersByTimeAsync(0)
+      expect(exit).toHaveBeenCalledWith(143)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("leaves process.exit alone when no job is running", async () => {
+    const exit = jest.fn()
+    const proc = { exit } as unknown as { exit: (code?: number) => never }
+    await holdExitForJobs(async () => {}, 10, proc)
+    proc.exit(143)
+    expect(exit).toHaveBeenCalledWith(143)
   })
 })
