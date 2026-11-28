@@ -438,7 +438,7 @@ export async function updateEntryPrice(entryId: number, price: string): Promise<
   if (!MONEY_DECIMAL_RE.test(next)) return { error: "Price must be a positive amount with at most 2 decimals" }
   // Length check before toCents: a huge digit string would lose precision there.
   if (next.length > 12 || toCents(next) > MAX_OWED_CENTS) return { error: "Price is too large (max $999,999.99)" }
-  if (!(toCents(next) > 0)) return { error: "Price must be a positive amount with at most 2 decimals" }
+  if (toCents(next) <= 0) return { error: "Price must be a positive amount with at most 2 decimals" }
 
   const res = await serializableWrite<{ error: string } | { eventId: number }>(async (tx) => {
     if (!(await lockEntry(tx, entryId))) return { error: "Entry not found" }
