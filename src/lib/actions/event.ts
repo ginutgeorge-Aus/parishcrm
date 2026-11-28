@@ -21,6 +21,7 @@ import {
   TICKET_TYPE_IN_USE,
   CAPACITY_BELOW_SOLD,
   StaleEventError,
+  shouldRearmReminder,
 } from "./eventForm"
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -178,6 +179,8 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
   // caller is told to reload. Same pattern as person.ts::updatePerson.
   const seenAt = parseOptimisticUpdatedAt(formData)
 
+  const newData = eventData(parsed, tiers)
+
   // Captured inside the $transaction callback; only valid for audit once the
   // transaction commits — every failure path below returns/throws before logAudit.
   let removedTicketTypeIds: number[] = []
@@ -253,6 +256,17 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
           data: creates.map((t) => ({ eventId: id, name: t.name, price: t.price, capacity: t.capacity, countsTowardWaiver: t.countsTowardWaiver })),
         })
       }
+      // The reminder marker is per event row, not per date. Moving the event or
+      // changing the lead time re-arms it, or the new date never gets a
+      // reminder. Skipped when a reminder was already sent and the new schedule
+      // is already due (a time fix must not resend). Compared against the row
+      // read inside this Serializable tx, not the earlier existence read.
+      // Other edits (title, location) leave it so they never cause a resend.
+      const current = await tx.event.findUnique({
+        where: { id },
+        select: { date: true, reminderDaysBefore: true, reminderSentAt: true, kind: true, isPublished: true },
+      })
+      const rearmReminder = shouldRearmReminder(current, newData)
       const updateResult = await tx.event.updateMany({
         // Clearing the slug only matches while unpublished, so a concurrent publish
         // between the pre-check and this write cannot leave a published event slug-less.
@@ -262,7 +276,8 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
           ...(parsed.slug ? {} : { isPublished: false }),
         },
         data: {
-          ...eventData(parsed, tiers),
+          ...newData,
+          ...(rearmReminder ? { reminderSentAt: null } : {}),
           // Empty array (not undefined) so removing every custom question
           // persists — undefined makes Prisma omit the column, leaving the old
           // questions in the DB. All readers guard with

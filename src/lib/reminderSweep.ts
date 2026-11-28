@@ -91,12 +91,20 @@ export async function runReminderSweep(
     // Fresh wall-clock per event, not the request-start `now`: after a slow
     // earlier event, a claim stamped with `now` would already be stale and
     // immediately reclaimable by an overlapping sweep.
+    // Schedule the claim is made under. Edits re-arm by clearing reminderSentAt
+    // but leave the lease, so every lease-keyed write below also matches on this
+    // schedule: an edit mid-send makes the marker/renewal match 0 rows instead of
+    // stamping the OLD schedule's send onto the NEW one.
+    const schedule = { date: event.date, reminderDaysBefore: event.reminderDaysBefore }
     const claimAt = new Date(Math.max(Date.now(), now.getTime()))
     const leaseStaleBefore = new Date(claimAt.getTime() - REMINDER_LEASE_MS)
     const claim = await prisma.event.updateMany({
       where: {
         id: event.id,
         reminderSentAt: null,
+        // Schedule fence: if the date or lead time was edited after the
+        // snapshot above, the claim matches 0 rows and this stale send is skipped.
+        ...schedule,
         OR: [{ reminderClaimedAt: null }, { reminderClaimedAt: { lt: leaseStaleBefore } }],
       },
       data: { reminderClaimedAt: claimAt },
@@ -124,7 +132,7 @@ export async function runReminderSweep(
       if (i > 0) {
         const renewed = new Date(Math.max(Date.now(), lease.getTime() + 1))
         const renewal = await prisma.event.updateMany({
-          where: { id: event.id, reminderSentAt: null, reminderClaimedAt: lease },
+          where: { id: event.id, reminderSentAt: null, reminderClaimedAt: lease, ...schedule },
           data: { reminderClaimedAt: renewed },
         })
         if (renewal.count === 0) {
@@ -203,7 +211,7 @@ export async function runReminderSweep(
     for (let attempt = 1; attempt <= 3 && !marked; attempt++) {
       try {
         const mark = await prisma.event.updateMany({
-          where: { id: event.id, reminderClaimedAt: lease },
+          where: { id: event.id, reminderClaimedAt: lease, ...schedule },
           data: { reminderSentAt: now, reminderClaimedAt: null },
         })
         marked = true

@@ -8,6 +8,7 @@ import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { EventImageKind } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { DEMO_ERROR, isDemoMode } from "@/lib/demoMode"
+import { isReminderDue } from "@/lib/eventReminders"
 
 const EventBase = z.object({
   title: z.string().min(1, "Title required").max(200, "Title must be 200 characters or fewer"),
@@ -376,4 +377,53 @@ export function managedEventData(d: z.infer<typeof ManagedEventSchema>) {
     startTime: recurring ? (d.startTime || null) : null,
     location: d.location || null,
   }
+}
+
+/**
+ * Equality for audit diffing: dates by instant, everything else by value with
+ * `undefined` treated as `null`.
+ *
+ * @param a - Stored value.
+ * @param b - New value.
+ * @returns True when the two represent the same value.
+ */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime()
+  return (a ?? null) === (b ?? null)
+}
+
+type ReminderRow = {
+  date: Date | null
+  reminderDaysBefore: number | null
+  reminderSentAt: Date | null
+  kind: string
+  isPublished: boolean
+}
+
+/**
+ * Whether an edit should clear the reminder marker. Only when the date or lead
+ * time changed on a row that was read (null current = no re-arm). Skips when:
+ * - the NEW state is not remindable (lead off, recurring, no date): clearing the
+ *   marker would resend an already-delivered reminder if the owner turns it back on;
+ * - a reminder was already sent and the NEW schedule is already due, since
+ *   re-arming would resend straight away on a time fix. Publish state is
+ *   ignored for this check (it is unrelated to the window).
+ * The sweep lease (reminderClaimedAt) is never touched here; it expires on its own.
+ *
+ * @param current - Row read inside the transaction.
+ * @param next - New date and lead time.
+ * @param now - Injected clock for tests.
+ * @returns True when reminderSentAt should be nulled.
+ */
+export function shouldRearmReminder(
+  current: ReminderRow | null,
+  next: { date: Date | null; reminderDaysBefore: number | null; kind?: string },
+  now: Date = new Date(),
+): boolean {
+  if (!current) return false
+  if (sameValue(current.date, next.date) && sameValue(current.reminderDaysBefore, next.reminderDaysBefore)) return false
+  const merged = { ...current, ...next, kind: next.kind ?? current.kind }
+  if (merged.kind !== "one_off" || !merged.date || merged.reminderDaysBefore == null) return false
+  if (current.reminderSentAt && isReminderDue({ ...merged, reminderSentAt: null, isPublished: true }, now)) return false
+  return true
 }

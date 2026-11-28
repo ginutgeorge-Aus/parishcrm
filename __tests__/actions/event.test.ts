@@ -1491,9 +1491,10 @@ describe("optional event slug", () => {
 
   it("updateEvent reports the slug message (not stale-edit) when published concurrently", async () => {
     mockSession("PASTOR")
-    // pre-check sees unpublished; guarded write matches 0; re-read inside txn sees published
+    // pre-check sees unpublished; in-txn reminder read; guarded write matches 0; re-read inside txn sees published
     ;(prisma.event.findUnique as jest.Mock)
       .mockResolvedValueOnce({ id: 1, isPublished: false })
+      .mockResolvedValueOnce({ date: null, reminderDaysBefore: null })
       .mockResolvedValueOnce({ isPublished: true })
     ;(prisma.ticketType.findMany as jest.Mock).mockResolvedValue([])
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
